@@ -124,7 +124,7 @@ if __name__ == "__main__":
     # ROOT_SEARCH_PATH = "/home/yourname/source_root"  # Linux/Mac示例
 
     # 2. 文件夹命名匹配规则（示例：匹配以"report_"开头的文件夹）
-    FOLDER_PATTERN = "*_notch_enable0"  # 通配符示例
+    FOLDER_PATTERN = "*_notch_enable1"  # 通配符示例
     # FOLDER_PATTERN = r"^data_\d{4}$"  # 正则示例（如data_2024、data_2025）
 
     # 3. CSV文件命名匹配规则（示例：匹配以"sales_"开头的CSV）
@@ -132,7 +132,7 @@ if __name__ == "__main__":
     # CSV_PATTERN = r"^order_\d{8}\.csv$"  # 正则示例（如order_20260209.csv）
 
     # 4. 移动到的目标路径（替换为你的实际路径）
-    TARGET_MOVE_PATH = r"D:\users\gxu\spur_scan\260311\add_pwr_diff_3\2G\40m\vht\notch_enable0\vht\ldpc"  # Windows示例
+    TARGET_MOVE_PATH = r"D:\users\gxu\spur_scan\260311\add_pwr_diff_6\2G\40m\vht\notch_enable1\vht\ldpc"  # Windows示例
     # TARGET_MOVE_PATH = "/home/yourname/moved_target"  # Linux/Mac示例
 
     # 5. 是否使用正则匹配（文件夹/CSV）
