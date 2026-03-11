@@ -425,7 +425,8 @@ def main():
     4. 合并生成spur文件
     """
     # 请根据实际路径修改
-    root_path = r"D:\users\gxu\spur_scan\260310\5G\160m\he"
+    root_path = r"D:\users\gxu\spur_scan\2G_high_mcs\40m\vht"
+    prefix = "2G_40m_vht"
 
     # 处理notch_enable0
     notch0_folder = os.path.join(root_path, "notch_enable0")
@@ -433,7 +434,7 @@ def main():
         print(f"\n=== 处理 {notch0_folder} ===")
         wifi_rx_plot(notch0_folder)
 
-        output0_file = os.path.join(root_path, "5G_160m_he_notch_enable0.xlsx")
+        output0_file = os.path.join(root_path, f"{prefix}_notch_enable0.xlsx")
         merge_all_sheets_to_one(
             root_path=root_path,
             folder_pattern="notch_enable0",
@@ -452,7 +453,7 @@ def main():
         print(f"\n=== 处理 {notch1_folder} ===")
         wifi_rx_plot(notch1_folder)
 
-        output1_file = os.path.join(root_path, "5G_160m_he_notch_enable1.xlsx")
+        output1_file = os.path.join(root_path, f"{prefix}_notch_enable1.xlsx")
         merge_all_sheets_to_one(
             root_path=root_path,
             folder_pattern="notch_enable1",
@@ -466,9 +467,9 @@ def main():
         print(f"警告：文件夹 {notch1_folder} 不存在！")
 
     # 合并生成spur文件
-    notch0_file = os.path.join(root_path, "5G_160m_he_notch_enable0.xlsx")
-    notch1_file = os.path.join(root_path, "5G_160m_he_notch_enable1.xlsx")
-    spur_file = os.path.join(root_path, "5G_160m_he_spur.xlsx")
+    notch0_file = os.path.join(root_path, f"{prefix}_notch_enable0.xlsx")
+    notch1_file = os.path.join(root_path, f"{prefix}_notch_enable1.xlsx")
+    spur_file = os.path.join(root_path, f"{prefix}_spur.xlsx")
 
     if os.path.exists(notch0_file) and os.path.exists(notch1_file):
         merge_notch_files_to_spur(root_path, notch0_file, notch1_file, spur_file)
