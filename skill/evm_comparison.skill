@@ -2,24 +2,28 @@
 
 ## 脚本概述
 
-evm_comparison.py 是一个专门用于对比两个 Wi-Fi TX 测试文件中 EVM（误差向量幅度）随发射功率变化的 Python 脚本。该脚本主要用于评估 Mag Tracking（幅度跟踪）功能开启和关闭时对 EVM 性能的影响。
+evm_comparison.py 是一个专门用于对比两个 Wi-Fi TX 测试文件中 EVM（误差向量幅度）随发射功率变化的 Python 脚本。该脚本主要用于评估 Mag Tracking（幅度跟踪）功能开启和关闭时对 EVM 性能的影响，支持按每个 MCS（调制与编码方案）进行详细比较。
 
 ## 主要功能
 
 ### 1. 文件读取
 - 读取两个特定的 Wi-Fi TX 测试文件
-- 验证文件是否包含必要的列（'tx_power_set(dBm)'、'evm_nss0' 和 'evm_nss1'）
+- 验证文件是否包含必要的列（'tx_power_set(dBm)'、'evm_nss0'、'evm_nss1' 和 'rate'）
 
 ### 2. 数据处理
 - 过滤无效数据
-- 计算每个空间流的平均 EVM（evm_nss0 和 evm_nss1 的平均值）
-- 使用数据透视表按发射功率计算平均 EVM
+- 使用数据透视表按发射功率和 MCS 计算每个空间流的平均 EVM（evm_nss0 和 evm_nss1 分别计算）
 - 格式化图表坐标轴范围
+- 识别所有唯一的 MCS（调制与编码方案）
 
 ### 3. 图表绘制
-- 绘制对比图表，显示 Mag Tracking 开启和关闭时的 EVM 随功率变化
-- 使用不同的颜色和标记区分两组数据
+- 绘制对比图表，显示 Mag Tracking 开启和关闭时每个 MCS 的 EVM 随功率变化
+- 支持两种图表显示方式：
+  - 所有 MCS 在一个图上（默认）：便于整体对比
+  - 每个 MCS 单独一个图：便于详细分析单个 MCS 的性能
+- 为每个 MCS 使用不同的颜色和标记
 - 添加标题、坐标轴标签、图例和网格
+- 图例显示 MCS 和空间流信息
 
 ### 4. 结果保存
 - 保存图表为 PNG 文件（100 DPI，高分辨率）
@@ -28,7 +32,7 @@ evm_comparison.py 是一个专门用于对比两个 Wi-Fi TX 测试文件中 EVM
 ### 5. 统计信息
 - 输出每个测试文件的简单统计信息：
   - 功率范围
-  - EVM 范围
+  - 每个 MCS 的 EVM 范围（NSS0 和 NSS1）
 
 ## 使用方法
 
@@ -67,14 +71,19 @@ pip install pandas matplotlib
 ## 输出结果
 
 ### 图表位置
-- 保存路径：`D:\users\gxu\scripts\evm_comparison.png`
-- 文件格式：PNG（100 DPI，1000x600 像素）
+- 所有 MCS 在一个图上：`D:\users\gxu\e22_tx\260311\evm_comparison_per_mcs_combined.png`
+- 每个 MCS 单独一个图：`D:\users\gxu\e22_tx\260311\evm_comparison_per_mcs_separate.pdf`
+- 文件格式：
+  - 合并图：PNG（100 DPI，高分辨率）
+  - 单独图：PDF（高分辨率，每个图表大小为 12x8 英寸，150 DPI）
 
 ### 图表内容
 - X 轴：tx_power_set (dBm)，范围 [-12, 20]
 - Y 轴：EVM (dB)，范围 [-45, -18]
-- 红色线（圆形标记）：Mag Tracking OFF
-- 蓝色线（方形标记）：Mag Tracking ON
+- 红色实线（圆形标记）：Mag Tracking OFF (NSS0)
+- 橙色虚线（圆形标记）：Mag Tracking OFF (NSS1)
+- 蓝色实线（方形标记）：Mag Tracking ON (NSS0)
+- 青色虚线（方形标记）：Mag Tracking ON (NSS1)
 
 ## 技术说明
 
@@ -87,9 +96,31 @@ Mag Tracking 是一种射频优化技术，通过跟踪信号幅度的变化来�
 ## 注意事项
 
 1. 确保测试文件路径正确且文件格式符合要求
-2. 文件必须包含 'tx_power_set(dBm)' 和 'evm' 列
+2. 文件必须包含 'tx_power_set(dBm)', 'evm_nss0' 和 'evm_nss1' 列
 3. 如果图表显示异常，可能需要检查数据中的无效值（如 NaN）
 4. 图表将自动保存到指定路径，并同时在屏幕上显示
+
+## 配置选项
+
+### 图表显示方式
+脚本支持两种图表显示方式，可以通过修改 `main` 函数中的 `separate` 变量进行配置：
+
+```python
+if __name__ == "__main__":
+    # 设置是否按MCS分成多个图，或者所有MCS在一个图上
+    separate = False  # False表示所有MCS在一个图上，True表示每个MCS一个图
+    compare_evm_per_mcs(separate)
+```
+
+**选项说明：**
+- `separate = False`（默认）：所有 MCS 在一个图上
+  - 便于整体对比
+  - 文件保存路径：`D:\users\gxu\e22_tx\260311\evm_comparison_per_mcs_combined.png`
+- `separate = True`：每个 MCS 单独一个图
+  - 便于详细分析单个 MCS 的性能
+  - 文件保存路径：`D:\users\gxu\e22_tx\260311\evm_comparison_per_mcs_separate.pdf`
+  - 每个图表大小为 12x8 英寸（150 DPI），提供更高的分辨率
+  - 保存在 PDF 文件中，便于缩放和打印
 
 ## 修改说明
 
@@ -99,3 +130,4 @@ Mag Tracking 是一种射频优化技术，通过跟踪信号幅度的变化来�
 2. 图表样式：修改 plt.plot 的参数（颜色、标记、线宽等）
 3. 坐标轴范围：修改 plt.xlim 和 plt.ylim 的值
 4. 输出位置：修改 `output_dir` 变量
+5. 图表显示方式：修改 `separate` 变量
