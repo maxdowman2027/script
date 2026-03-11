@@ -1,0 +1,85 @@
+# spur_diff_and_mark_red.py 脚本说明文档
+
+## 脚本概述
+
+本脚本是 `cac_diff_xlsx.py` 和 `mark_exceed_value_red.py` 两个脚本的功能合并版本，专门用于处理 WiFi 测试中的 spur（杂散）数据文件。
+
+## 主要功能
+
+### 1. 文件检索
+- 在指定路径下递归查找所有命名为 `*spur.xlsx` 的 Excel 文件
+- 默认目标路径：`D:\users\gxu\spur_scan\2G_high_mcs`
+
+### 2. 差值计算
+- 计算 Excel 表格中所有行与基准行的差值
+- 基准行：第 1 行（索引为 0）
+- 起始计算列：第 2 列（索引为 1）
+- 仅计算数值列的差值
+- 差值列命名格式：原列名_diff
+
+### 3. 超标值标记
+- 将差值超过阈值的单元格字体标红
+- 默认阈值：3（数值大于 3 会被标红）
+- 保留原文件的填充色和其他格式
+
+### 4. 文件保存
+- 生成差值文件：`*spur_diff.xlsx`
+- 直接在差值文件上进行标红处理
+
+## 脚本结构
+
+```
+├── 配置项部分
+│   ├── TARGET_PATH：目标检索路径
+│   ├── FILE_PATTERN：文件名匹配模式
+│   ├── THRESHOLD_VALUE：阈值
+│   ├── BASE_ROW_IDX：基准行索引
+│   └── START_COL_IDX：起始列索引
+├── 核心函数部分
+│   ├── calc_diff_from_spec_col_xlsx()：差值计算函数
+│   ├── mark_exceed_value_red()：标红函数
+│   └── main()：主函数
+└── 执行入口
+    └── if __name__ == "__main__"
+```
+
+## 依赖库
+
+- pandas：用于数据处理
+- openpyxl：用于读取和写入 Excel 文件
+
+## 使用方法
+
+### 直接运行
+```bash
+python spur_diff_and_mark_red.py
+```
+
+### 安装依赖
+```bash
+pip install pandas openpyxl
+```
+
+## 参数配置
+
+可以在脚本中修改以下参数：
+
+```python
+# ===================== 配置项（请根据需求修改）=====================
+TARGET_PATH = r"D:\users\gxu\spur_scan\2G_high_mcs"  # 目标检索路径
+FILE_PATTERN = "*spur.xlsx"                           # 文件名匹配模式
+THRESHOLD_VALUE = 3                                   # 阈值
+BASE_ROW_IDX = 0                                     # 基准行（0=第一行）
+START_COL_IDX = 1                                    # 起始列（0=第一列）
+```
+
+## 输出结果
+
+- 原始文件：`*spur.xlsx`（保持不变）
+- 差值文件：`*spur_diff.xlsx`（包含差值计算和标红结果）
+
+## 版本信息
+
+- 创建时间：2026-03-11
+- 功能：合并差值计算和超标值标记功能
+- 作者：Claude Code

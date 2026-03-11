@@ -15,7 +15,7 @@ import re
 # os.chdir(r'D:/chip_test/dev/chip_tx/eagletest/rftest_data/dump_node_200/260212/result')
 # 支持 Windows 路径格式，自动处理路径分隔符
 # 可以使用正斜杠(/)或反斜杠(\)作为路径分隔符
-work_dir = r'D:\users\gxu\spur_scan\260309\scan_spur_data\xtal_duty_disable\loop_num6\20m'
+work_dir = r'D:\users\gxu\spur_scan\260310\dump_rx_data'
 # 规范化路径，处理不同的路径分隔符
 work_dir = os.path.normpath(work_dir)
 os.chdir(work_dir)

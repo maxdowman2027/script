@@ -338,7 +338,7 @@ def process_single_csv(input_csv_path, output_csv_path, Q=10.0):
                     fs = 20.0
                 print(f"f0 :{f0} ,m20_pos:{m20_pos} ,notch_freq:{notch_freq}")
                 # 计算该频率的系数
-                B, A = iir_filter.iir_notch_coef(notch_freq, Q, fs)
+                B, A = iir_filter.iir_notch_coef(0, Q, fs)
                 order = 2
                 iir_filter.setCoef(B, A,order)
                 x_fixed, y_fixed = iir_filter.setCoefFixed()
@@ -426,8 +426,8 @@ def batch_process_csv(input_dir, output_dir, Q=10.0, recursive=False):
 
 
 if __name__ == "__main__":
-    INPUT_DIR = r"D:\users\gxu\spur_scan\260309\scan_spur_data\normal\loop_num3\40m\result"       # 输入目录（Windows路径，r前缀避免转义）
-    OUTPUT_DIR = r"D:\users\gxu\spur_scan\260309\scan_spur_data\normal\loop_num3\40m\result"     # 输出目录
+    INPUT_DIR = r"D:\users\gxu\temp\0310"       # 输入目录（Windows路径，r前缀避免转义）
+    OUTPUT_DIR = r"D:\users\gxu\temp\0310"     # 输出目录
     QUALITY_FACTOR = 5.0             # 陷波滤波器Q值
     RECURSIVE_SEARCH = False          # 是否递归搜索子目录（True=是，False=仅当前目录）
 

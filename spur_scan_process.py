@@ -681,13 +681,13 @@ def main_process(input_dir, output_dir, FS, SPUR_THR, Q, rfGain, NFFT):
 
 if __name__ == "__main__":
     # 配置参数
-    INPUT_DIR = r'D:\users\gxu\spur_scan\260309\scan_spur_data\xtal_duty_disable\loop_num6\20m'  # 数据文件目录
+    INPUT_DIR = r'D:\users\gxu\spur_scan\260310\scan_spur_data\xtal_duty_disable\loop_num3\40m'  # 数据文件目录
     OUTPUT_DIR = INPUT_DIR  # 输出目录与输入目录相同
-    FS = 80  # 采样频率 (MHz)
+    FS = 160  # 采样频率 (MHz)
     SPUR_THR = 18  # 杂散检测阈值 (dB)
     Q = 5.0  # 陷波滤波器Q值
     RF_GAIN = 98  # 射频增益 (dB)
-    NFFT = 8000  # FFT点数
+    NFFT = 16000  # FFT点数
 
     print("=" * 60)
     print("开始杂散扫描处理流程")

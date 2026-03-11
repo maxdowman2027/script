@@ -68,10 +68,10 @@ def calc_diff_from_spec_col_xlsx(file_path, base_row_idx=0, start_col_idx=0, out
 # ========== 示例调用（适配XLSX格式） ==========
 if __name__ == "__main__":
     # 1. 定义XLSX文件参数
-    xlsx_path = r"D:\users\gxu\spur_scan\260310\5G\160m\vht\5G_160m_vht_spur.xlsx"
+    xlsx_path = r"D:\users\gxu\spur_scan\2G_high_mcs\40m\vht\2G_40m_vht_spur.xlsx"
     base_row_idx = 0   # 指定第3行（行号从0开始）为基准行
     start_col_idx = 1   # 从第4列（列号从0开始）开始计算差值
-    output_path = r"D:\users\gxu\spur_scan\260310\5G\160m\vht\5G_160m_vht_spur_diff.xlsx"
+    output_path = r"D:\users\gxu\spur_scan\2G_high_mcs\40m\vht\2G_40m_vht_spur_diff.xlsx"
     
     # 2. 执行计算
     result_df = calc_diff_from_spec_col_xlsx(
