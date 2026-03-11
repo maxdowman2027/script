@@ -1,0 +1,102 @@
+# txAnalyse.py 脚本说明文档
+
+## 脚本概述
+
+txAnalyse.py 是一个用于分析 Wi-Fi TX（发射）测试数据的 Python 脚本。它提供了全面的测试结果分析功能，包括绘制图表、数据检查和结果保存。
+
+## 主要功能
+
+### 1. 数据处理函数
+- `fre_is_vld()`: 频率有效性检查
+- `spectrum_format()`: 频谱数据格式化
+- `fltness_check()`: 平坦度检查
+- `spectrum_check()`: 频谱检查
+- `tx_power_check()`: 发射功率检查
+- `evm_check()`: EVM（误差向量幅度）检查
+- `crc_check()`: CRC（循环冗余校验）检查
+- `tx_plot_and_analyse()`: 图表绘制和数据分析
+
+### 2. 测试数据检查
+- **平坦度检查**：验证频谱平坦度是否符合要求
+- **频谱检查**：检查频谱边带是否在规定范围内
+- **发射功率检查**：确保发射功率符合目标值
+- **EVM 检查**：验证误差向量幅度是否在可接受范围内
+- **CRC 检查**：检查数据传输的完整性
+
+### 3. 图表绘制
+脚本会生成包含以下图表的 PDF 报告：
+- 实际功率与目标功率对比图
+- IQ 不平衡图
+- 最差频谱边带图（NSS1）
+- 最差频谱边带图（NSS2）
+- 最差平坦度图
+- EVM 图表
+
+## 使用方法
+
+### 1. 修改路径
+在脚本的第 677 和 679 行，需要根据实际测试数据位置修改路径：
+
+```python
+# 测试数据路径（需要根据实际情况修改）
+logfile = r'D:\users\gxu\chip_test\chip_tx\eagletest\py_script_rls3p0_chip\Log\wifi_tx\chip3_2G_he_40m_nss2_ldpc'
+os.chdir(logfile)
+
+# 结果保存路径
+save_file = r'D:\users\gxu\chip_test\chip_tx\eagletest\py_script_rls3p0_chip\Log\wifi_tx\chip3_2G_he_40m_nss2_ldpc\result\'
+```
+
+### 2. 运行脚本
+```bash
+python txAnalyse.py
+```
+
+### 3. 输入文件格式
+脚本需要输入格式为 `risc*.csv` 的文件，包含以下字段：
+- `power`: 实际发射功率 (dBm)
+- `tx_power_set(dBm)`: 目标功率 (dBm)
+- `amplitude_imbalace`: 幅度不平衡 (%)
+- `phase_imbalance`: 相位不平衡 (度)
+- `spectrumMarginDb_nss1`: NSS1 频谱边带 (dB)
+- `spectrumMarginDb_nss2`: NSS2 频谱边带 (dB)
+- `spectralFlatness_margin`: 频谱平坦度 (dB)
+- `evm`: EVM (dB)
+- `psdu_crc`: 数据传输完整性 ('Pass' 或 'Fail')
+
+## 输出结果
+
+### 1. PDF 报告
+会在结果路径下生成包含所有图表的 PDF 文件，文件名格式为 `tx_pdf_YYYY_MM_DD_HHMM.pdf`
+
+### 2. 文本报告
+会生成一个文本文件，文件名格式为 `tx_result_YYYY_MM_DD_HHMM.txt`，包含：
+- 每个测试用例的结果
+- 失败的测试用例的详细信息
+- 所有测试的总结
+
+### 3. 控制台输出
+脚本会在控制台上打印：
+- 正在分析的文件名
+- 每个测试的结果
+- 失败的测试用例的详细信息
+
+## 技术要求
+
+### 依赖库
+- pandas: 数据处理
+- matplotlib: 图表绘制
+- numpy: 数值计算
+- re: 正则表达式处理
+- os: 操作系统相关操作
+- glob: 文件查找
+- datetime: 日期时间处理
+
+### Python 版本
+脚本需要 Python 3.x 版本运行。
+
+## 注意事项
+
+1. 确保测试数据文件在正确的位置
+2. 路径需要使用 Windows 格式，并使用 r 前缀以防止转义字符问题
+3. 脚本会在结果路径下创建新文件，确保有写入权限
+4. 测试数据文件需要符合预期的格式
