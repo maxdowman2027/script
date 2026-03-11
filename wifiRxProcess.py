@@ -425,8 +425,8 @@ def main():
     4. 合并生成spur文件
     """
     # 请根据实际路径修改
-    root_path = r"D:\users\gxu\spur_scan\2G_high_mcs\40m\vht"
-    prefix = "2G_40m_vht"
+    root_path = r"D:\users\gxu\spur_scan\260311\6G\40m\vht"
+    prefix = "6G_40m_vht"
 
     # 处理notch_enable0
     notch0_folder = os.path.join(root_path, "notch_enable0")
