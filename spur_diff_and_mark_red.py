@@ -6,7 +6,7 @@ from openpyxl.styles import Font
 from openpyxl.utils.exceptions import InvalidFileException
 
 # ===================== 配置项（请根据需求修改）=====================
-TARGET_PATH = r"D:\users\gxu\spur_scan\2G_high_mcs"  # 要检索的根文件夹路径
+TARGET_PATH = r"D:\users\gxu\spur_scan\260311\6G\80m\vht"  # 要检索的根文件夹路径
 FILE_PATTERN = "*spur.xlsx"                           # 查找的文件模式
 THRESHOLD_VALUE = 3                                   # 差值超过此阈值的单元格会被标红
 BASE_ROW_IDX = 0                                     # 基准行（0=第一行）
@@ -14,7 +14,7 @@ START_COL_IDX = 1                                    # 起始列（0=第一列�
 
 def calc_diff_from_spec_col_xlsx(file_path, base_row_idx=0, start_col_idx=0, output_path=None):
     """
-    计算XLSX表格所有行与指定行的差值（仅从指定列数开始计算）
+    计算XLSX表格所有行与指定行的差值（仅从指定列数开始计算），完全保留原文件格式
     :param file_path: XLSX文件路径
     :param base_row_idx: 基准行（int，从0开始计数）
     :param start_col_idx: 起始列（int，从0开始计数）
@@ -24,8 +24,17 @@ def calc_diff_from_spec_col_xlsx(file_path, base_row_idx=0, start_col_idx=0, out
     if not file_path.endswith((".xlsx", ".xls")):
         raise ValueError("仅支持Excel文件（.xlsx/.xls）")
 
+    # 使用 openpyxl 直接读取 Excel 文件，保留格式
     try:
-        df = pd.read_excel(file_path, engine="openpyxl")
+        wb = load_workbook(file_path)
+        ws = wb.active
+
+        # 读取数据到 DataFrame
+        data = []
+        for row in ws.iter_rows(values_only=True):
+            data.append(row)
+        df = pd.DataFrame(data[1:], columns=data[0])
+
     except Exception as e:
         print(f"❌ 读取XLSX文件失败 {file_path}：{e}")
         return None
@@ -57,7 +66,22 @@ def calc_diff_from_spec_col_xlsx(file_path, base_row_idx=0, start_col_idx=0, out
         if not output_path.endswith(".xlsx"):
             output_path = output_path + ".xlsx"
         try:
-            result_df.to_excel(output_path, index=False, engine="openpyxl")
+            # 复制原文件的格式并写入数据
+            wb_save = load_workbook(file_path)
+            ws_save = wb_save.active
+
+            # 添加差值列标题
+            for i, col_name in enumerate(diff_df.columns):
+                col_index = total_cols + i + 1  # Excel列从1开始
+                ws_save.cell(row=1, column=col_index).value = col_name
+
+            # 写入差值数据
+            for row_idx in range(len(result_df)):
+                for col_idx, col_name in enumerate(diff_df.columns):
+                    cell_value = result_df.at[row_idx, col_name]
+                    ws_save.cell(row=row_idx+2, column=total_cols+col_idx+1).value = cell_value
+
+            wb_save.save(output_path)
             print(f"✅ 差值文件已生成：{output_path}")
         except Exception as e:
             print(f"❌ 保存差值文件失败 {output_path}：{e}")
