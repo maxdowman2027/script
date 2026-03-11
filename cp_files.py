@@ -120,7 +120,7 @@ def copy_csv_from_matched_folders_recursively(
 # ===================== 配置区（请根据你的需求修改）=====================
 if __name__ == "__main__":
     # 1. 要递归搜索的根路径（替换为你的实际路径）
-    ROOT_SEARCH_PATH = r"D:\chip_test\dev\chip_rx\eagletest\rftest_data\6G\phymd80\80m\ldpc\he"  # Windows示例
+    ROOT_SEARCH_PATH = r"D:\chip_test\dev\chip_rx\eagletest\rftest_data\5G\phymd80\80m\ldpc\vht"  # Windows示例
     # ROOT_SEARCH_PATH = "/home/yourname/source_root"  # Linux/Mac示例
     
     # 2. 文件夹命名匹配规则（示例：匹配以"report_"开头的文件夹）
@@ -132,7 +132,7 @@ if __name__ == "__main__":
     # CSV_PATTERN = r"^order_\d{8}\.csv$"  # 正则示例（如order_20260209.csv）
     
     # 4. 复制到的目标路径（替换为你的实际路径）
-    TARGET_COPY_PATH = r"D:\users\gxu\spur_scan\260311\6G\80m\he\notch_enable0\he\ldpc"  # Windows示例
+    TARGET_COPY_PATH = r"D:\users\gxu\spur_scan\260311\6G\80m\vht\notch_enable0\vht\ldpc"  # Windows示例
     # TARGET_COPY_PATH = "/home/yourname/copied_target"  # Linux/Mac示例
     
     # 5. 是否使用正则匹配（文件夹/CSV）
