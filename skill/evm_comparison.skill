@@ -8,10 +8,11 @@ evm_comparison.py 是一个专门用于对比两个 Wi-Fi TX 测试文件中 EVM
 
 ### 1. 文件读取
 - 读取两个特定的 Wi-Fi TX 测试文件
-- 验证文件是否包含必要的列（'tx_power_set(dBm)' 和 'evm'）
+- 验证文件是否包含必要的列（'tx_power_set(dBm)'、'evm_nss0' 和 'evm_nss1'）
 
 ### 2. 数据处理
 - 过滤无效数据
+- 计算每个空间流的平均 EVM（evm_nss0 和 evm_nss1 的平均值）
 - 使用数据透视表按发射功率计算平均 EVM
 - 格式化图表坐标轴范围
 

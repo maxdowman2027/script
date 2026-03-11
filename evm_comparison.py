@@ -18,7 +18,7 @@ def compare_evm():
         return
 
     # 检查是否包含必要的列
-    required_cols = ['tx_power_set(dBm)', 'evm']
+    required_cols = ['tx_power_set(dBm)', 'evm_nss0', 'evm_nss1']
     for col in required_cols:
         if col not in df_off.columns or col not in df_on.columns:
             print(f"文件缺少必要的列: {col}")
@@ -28,14 +28,20 @@ def compare_evm():
     plt.figure(dpi=100, figsize=(10, 6))
 
     # 处理 mag tracking off 的数据
-    df_off_filtered = df_off.dropna(subset=['tx_power_set(dBm)', 'evm'])
-    df_off_pivot = df_off_filtered.pivot_table(index=['tx_power_set(dBm)'], values=['evm'])
-    plt.plot(df_off_pivot.index, df_off_pivot['evm'], 'o-', color='#FF0000', label='Mag Tracking OFF', linewidth=2)
+    df_off_filtered = df_off.dropna(subset=['tx_power_set(dBm)', 'evm_nss0', 'evm_nss1'])
+
+    # 计算每个功率级别的平均 EVM（NSS0 和 NSS1 的平均值）
+    df_off_filtered['avg_evm'] = (df_off_filtered['evm_nss0'] + df_off_filtered['evm_nss1']) / 2
+    df_off_pivot = df_off_filtered.pivot_table(index=['tx_power_set(dBm)'], values=['avg_evm'])
+    plt.plot(df_off_pivot.index, df_off_pivot['avg_evm'], 'o-', color='#FF0000', label='Mag Tracking OFF', linewidth=2)
 
     # 处理 mag tracking on 的数据
-    df_on_filtered = df_on.dropna(subset=['tx_power_set(dBm)', 'evm'])
-    df_on_pivot = df_on_filtered.pivot_table(index=['tx_power_set(dBm)'], values=['evm'])
-    plt.plot(df_on_pivot.index, df_on_pivot['evm'], 's-', color='#0000FF', label='Mag Tracking ON', linewidth=2)
+    df_on_filtered = df_on.dropna(subset=['tx_power_set(dBm)', 'evm_nss0', 'evm_nss1'])
+
+    # 计算每个功率级别的平均 EVM（NSS0 和 NSS1 的平均值）
+    df_on_filtered['avg_evm'] = (df_on_filtered['evm_nss0'] + df_on_filtered['evm_nss1']) / 2
+    df_on_pivot = df_on_filtered.pivot_table(index=['tx_power_set(dBm)'], values=['avg_evm'])
+    plt.plot(df_on_pivot.index, df_on_pivot['avg_evm'], 's-', color='#0000FF', label='Mag Tracking ON', linewidth=2)
 
     # 图表设置
     plt.ylim([-45, -18])
