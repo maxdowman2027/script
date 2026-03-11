@@ -6,7 +6,7 @@ from openpyxl.styles import Font
 from openpyxl.utils.exceptions import InvalidFileException
 
 # ===================== 配置项（请根据需求修改）=====================
-TARGET_PATH = r"D:\users\gxu\spur_scan\260311\6G\80m\vht"  # 要检索的根文件夹路径
+TARGET_PATH = r"D:\users\gxu\spur_scan\260311\add_pwr_diff_3\2G\40m"  # 要检索的根文件夹路径
 FILE_PATTERN = "*spur.xlsx"                           # 查找的文件模式
 THRESHOLD_VALUE = 3                                   # 差值超过此阈值的单元格会被标红
 BASE_ROW_IDX = 0                                     # 基准行（0=第一行）
@@ -75,11 +75,16 @@ def calc_diff_from_spec_col_xlsx(file_path, base_row_idx=0, start_col_idx=0, out
                 col_index = total_cols + i + 1  # Excel列从1开始
                 ws_save.cell(row=1, column=col_index).value = col_name
 
-            # 写入差值数据
+            # 写入差值数据并继承对应行的填充色
             for row_idx in range(len(result_df)):
                 for col_idx, col_name in enumerate(diff_df.columns):
                     cell_value = result_df.at[row_idx, col_name]
-                    ws_save.cell(row=row_idx+2, column=total_cols+col_idx+1).value = cell_value
+                    new_cell = ws_save.cell(row=row_idx+2, column=total_cols+col_idx+1)
+                    new_cell.value = cell_value
+                    # 继承该行第一个单元格的填充色
+                    source_cell = ws_save.cell(row=row_idx+2, column=1)
+                    if source_cell.fill:
+                        new_cell.fill = source_cell.fill
 
             wb_save.save(output_path)
             print(f"✅ 差值文件已生成：{output_path}")
