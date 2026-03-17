@@ -1,0 +1,94 @@
+# txmagtrk_analyse.py 脚本说明文档
+
+## 脚本概述
+
+txmagtrk_analyse.py 是一个用于分析 Wi-Fi TX（发射）磁跟踪（Magnetic Tracking）测试数据的 Python 脚本。它提供了全面的测试结果分析功能，包括绘制图表、数据检查和结果保存。
+
+## 主要功能
+
+### 1. 数据处理函数
+- `read_and_preprocess_csv()`: 读取和预处理CSV文件
+- `plot_single_evm_metric()`: 绘制单个EVM指标的曲线
+- `generate_and_save_figs()`: 生成图表并保存为PDF文件
+- `batch_process_csv()`: 批量处理CSV文件
+
+### 2. 数据分析功能
+- **磁跟踪对比分析**：比较 trk_en=0 和 trk_en=1 两种状态下的EVM性能
+- **多参数分组**：按 start_point、win_len、numsymbols、chn_ofst 和 ru_size 五个参数分组分析
+- **多EVM指标支持**：同时分析 evm 和 evm_nss1 两个EVM指标
+- **自定义参数支持**：支持通过配置添加自定义参数列（如 start_mode）
+
+### 3. 图表绘制
+脚本会生成包含以下图表的 PDF 报告：
+- trk_en=1 与 trk_en=0 的EVM对比图表
+- 支持同时显示 evm 和 evm_nss1 两个指标
+- 每个图表包含完整的参数信息标题
+
+## 使用方法
+
+### 1. 修改路径
+在脚本的第 370-375 行，需要根据实际测试数据位置修改路径：
+
+```python
+if __name__ == "__main__":
+    CSV_DIR = r"D:\users\gxu\txmagtrk\260317_fake_tb\2"
+    SAVE_ROOT_DIR = r"D:\users\gxu\txmagtrk\260317_fake_tb\2\result"
+    RECURSIVE_SEARCH = False
+    CONFIG['CUSTOM_PARAM_COL'] = 'start_mode'
+    CONFIG['REQUIRE_CUSTOM_PARAM'] = False
+    CONFIG['REQUIRE_EVM_NSS1'] = False
+```
+
+### 2. 运行脚本
+```bash
+python txmagtrk_analyse.py
+```
+
+### 3. 输入文件格式
+脚本需要输入格式为 `*.csv` 的文件，包含以下字段：
+- trk_en：磁跟踪使能（0/1）
+- amplitude：幅度（0/1）
+- test_rate：测试速率（如 mcs0）
+- test_power：测试功率（dBm）
+- evm：EVM值（dB）
+- ru_size：资源单元（RU）大小参数（如 242, 484, 996, 1992等）
+
+## 输出结果
+
+### 1. PDF 报告
+会在结果路径下生成包含所有图表的 PDF 文件，文件名与输入CSV文件相同。
+
+### 2. 控制台输出
+脚本会在控制台上打印：
+- 正在分析的文件名
+- 数据预处理进度
+- 分组信息和图表生成进度
+- 最终处理结果
+
+## 技术要求
+
+### 依赖库
+- pandas: 数据处理
+- matplotlib: 图表绘制
+- numpy: 数值计算
+- re: 正则表达式处理
+- os: 操作系统相关操作
+- gc: 内存管理
+
+### Python 版本
+脚本需要 Python 3.x 版本运行。
+
+## 注意事项
+
+1. 确保测试数据文件在正确的位置
+2. 路径需要使用 Windows 格式，并使用 r 前缀以防止转义字符问题
+3. 脚本会在结果路径下创建新文件，确保有写入权限
+4. 测试数据文件需要符合预期的格式
+5. 脚本已对内存使用进行了优化，支持处理大量数据
+
+## 更新日志
+
+2026-03-17: 新增 ru_size 参数支持
+- 在图表标题上添加 ru_size 参数值
+- 从四参数分组扩展到五参数分组
+- 更新了文档和参数描述
