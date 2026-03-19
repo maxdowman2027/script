@@ -11,10 +11,10 @@ import glob
 
 # ================= 配置区域 =================
 # 在这里修改配置
-SEARCH_DIRECTORY = r"D:\users\gxu\rx_iq"  # 要搜索的根目录
-FILE_PATTERN = "*.csv"  # 文件名匹配模式（支持通配符）
-DIFF_PWR_THRESHOLD = 0.5  # diff_pwr列的阈值（值小于此数的行将被提取）
-OUTPUT_FILE = r"D:\users\gxu\scripts\output\filtered_diff_pwr.csv"  # 输出文件路径
+SEARCH_DIRECTORY = r"D:\users\gxu\rx_iq\E22\mimo_train_mimo_apply"  # 要搜索的根目录
+FILE_PATTERN = "rx_iq_cal_res_*.csv"  # 文件名匹配模式（支持通配符）
+DIFF_PWR_THRESHOLD = 45  # diff_pwr列的阈值（值小于此数的行将被提取）
+OUTPUT_FILE = r"D:\users\gxu\rx_iq\E22\mimo_train_mimo_apply\output\mimo_filtered_diff_pwr.csv"  # 输出文件路径
 # ===========================================
 
 
@@ -55,24 +55,50 @@ def extract_rows_with_diff_pwr(csv_files: list, threshold: float, output_file: s
         print(f"正在处理: {file_path}")
         try:
             with open(file_path, "r", newline="", encoding="utf-8") as f:
-                reader = csv.DictReader(f)
-                if header is None:
-                    header = reader.fieldnames
+                # 读取CSV文件并去除列名的空格
+                lines = [line.strip() for line in f if line.strip()]
+                if not lines:
+                    print(f"警告: 文件 {file_path} 是空文件，已跳过")
+                    continue
 
-                # 检查是否包含diff_pwr列
-                if "diff_pwr" not in reader.fieldnames:
+                # 处理列名，去除每个列名的前后空格
+                dialect = csv.Sniffer().sniff(lines[0])
+                reader = csv.DictReader(lines, dialect=dialect)
+
+                # 去除列名的前后空格
+                cleaned_fieldnames = [field.strip() for field in reader.fieldnames]
+                reader.fieldnames = cleaned_fieldnames
+
+                if header is None:
+                    header = cleaned_fieldnames
+
+                # 检查是否包含diff_pwr列（忽略大小写和空格）
+                has_diff_pwr = False
+                diff_pwr_column = None
+                for field in cleaned_fieldnames:
+                    if field.strip().lower() == "diff_pwr":
+                        has_diff_pwr = True
+                        diff_pwr_column = field
+                        break
+
+                if not has_diff_pwr:
                     print(f"警告: 文件 {file_path} 不包含 diff_pwr 列，已跳过")
                     continue
 
                 # 查找符合条件的行
                 for row in reader:
                     try:
-                        diff_pwr = float(row["diff_pwr"])
+                        # 去除值的空格后转换为浮点数
+                        diff_pwr_value = row[diff_pwr_column].strip()
+                        diff_pwr = float(diff_pwr_value)
+
                         if diff_pwr < threshold:
+                            # 去除所有值的前后空格
+                            cleaned_row = {k: v.strip() if isinstance(v, str) else v for k, v in row.items()}
                             # 添加文件名信息到行数据中，方便追踪来源
-                            row["source_file"] = os.path.basename(file_path)
-                            row["full_path"] = file_path
-                            all_matching_rows.append(row)
+                            cleaned_row["source_file"] = os.path.basename(file_path)
+                            cleaned_row["full_path"] = file_path
+                            all_matching_rows.append(cleaned_row)
                     except (ValueError, KeyError) as e:
                         print(f"警告: 文件 {file_path} 中某行数据格式错误: {e}")
                         continue
@@ -86,21 +112,26 @@ def extract_rows_with_diff_pwr(csv_files: list, threshold: float, output_file: s
         # 确保输出目录存在
         output_dir = os.path.dirname(output_file)
         if output_dir and not os.path.exists(output_dir):
-            os.makedirs(output_dir)
+            os.makedirs(output_dir, exist_ok=True)
+            print(f"已创建输出目录: {output_dir}")
 
-        # 添加来源文件列到表头
+        # 添加来源文件列到表头（如果不存在）
         if header and "source_file" not in header:
             header.append("source_file")
         if header and "full_path" not in header:
             header.append("full_path")
 
-        with open(output_file, "w", newline="", encoding="utf-8") as f:
-            writer = csv.DictWriter(f, fieldnames=header)
-            writer.writeheader()
-            writer.writerows(all_matching_rows)
+        # 写入输出文件
+        try:
+            with open(output_file, "w", newline="", encoding="utf-8") as f:
+                writer = csv.DictWriter(f, fieldnames=header)
+                writer.writeheader()
+                writer.writerows(all_matching_rows)
 
-        print(f"处理完成! 共找到 {len(all_matching_rows)} 行符合条件的数据")
-        print(f"结果已保存到: {output_file}")
+            print(f"处理完成! 共找到 {len(all_matching_rows)} 行符合条件的数据")
+            print(f"结果已保存到: {output_file}")
+        except Exception as e:
+            print(f"错误: 无法写入输出文件 {output_file}: {e}")
     else:
         print("未找到符合条件的数据")
 
