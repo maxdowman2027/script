@@ -1,0 +1,164 @@
+# extract_diff_pwr_rows.py 脚本说明文档
+
+## 脚本概述
+
+extract_diff_pwr_rows.py 是一个递归检索指定目录下CSV文件，并提取 `diff_pwr` 列值小于配置阈值的行的Python脚本。该工具可以帮助用户快速筛选和汇总大量CSV文件中符合特定条件的数据，支持来源文件追踪。
+
+## 主要功能
+
+### 1. 递归搜索
+- 在指定目录下递归查找符合命名模式的CSV文件
+- 支持自定义文件名匹配模式（通配符支持）
+
+### 2. 数据筛选
+- 查找 `diff_pwr` 列中值小于配置阈值的行
+- 自动处理数据格式转换和错误
+
+### 3. 结果汇总
+- 将所有符合条件的行汇总到一个输出CSV文件中
+- 保留原始数据的所有列
+- 添加来源文件信息列：
+  - `source_file`：来源文件名
+  - `full_path`：来源文件的完整路径
+
+### 4. 错误处理
+- 处理文件读取错误
+- 处理列不存在的警告
+- 处理数据格式错误的情况
+
+### 5. 输出目录管理
+- 自动创建输出目录（如果不存在）
+- 支持自定义输出文件路径
+
+## 配置方法
+
+### 配置区域
+所有配置参数都位于脚本顶部的配置区域，用户可以直接修改：
+
+```python
+# ================= 配置区域 =================
+# 在这里修改配置
+SEARCH_DIRECTORY = r"D:\users\gxu\rx_iq"  # 要搜索的根目录
+FILE_PATTERN = "*.csv"  # 文件名匹配模式（支持通配符）
+DIFF_PWR_THRESHOLD = 0.5  # diff_pwr列的阈值（值小于此数的行将被提取）
+OUTPUT_FILE = r"D:\users\gxu\scripts\output\filtered_diff_pwr.csv"  # 输出文件路径
+# ===========================================
+```
+
+### 配置参数说明
+
+1. **SEARCH_DIRECTORY**：要搜索CSV文件的根目录
+   - 示例：`r"D:\users\gxu\rx_iq"`
+   - 支持Windows路径（使用raw字符串）
+
+2. **FILE_PATTERN**：文件名匹配模式
+   - 默认值：`"*.csv"`（所有CSV文件）
+   - 支持通配符：`*`（任意字符序列）、`?`（单个字符）
+   - 示例：`"*rx_iq_cal_res*.csv"`（匹配包含rx_iq_cal_res的CSV文件）
+
+3. **DIFF_PWR_THRESHOLD**：`diff_pwr` 列的阈值
+   - 值小于该阈值的行将被提取
+   - 默认值：`0.5`
+   - 数据类型：浮点数
+
+4. **OUTPUT_FILE**：输出文件路径
+   - 所有符合条件的行将保存到该文件
+   - 默认值：`r"D:\users\gxu\scripts\output\filtered_diff_pwr.csv"`
+
+## 使用方法
+
+### 1. 修改配置
+打开脚本，根据需要修改配置区域的参数。
+
+### 2. 运行脚本
+```bash
+python extract_diff_pwr_rows.py
+```
+
+### 3. 查看结果
+- 运行过程中会输出处理信息
+- 符合条件的行将保存到配置的输出文件中
+- 输出文件包含原始列和来源文件信息
+
+## 依赖库
+
+- csv：Python内置CSV处理库
+- os：Python内置文件操作库
+- glob：Python内置文件匹配库
+
+## 输入文件要求
+
+### 文件格式
+- 必须是标准的CSV格式文件
+- 必须包含 `diff_pwr` 列
+- `diff_pwr` 列的值必须是可转换为浮点数的数值
+
+### 文件示例
+```csv
+# 原始文件格式示例
+timestamp,freq,diff_pwr,other_column
+20260312_235513,5180,0.3,value1
+20260312_235514,5180,0.6,value2
+20260312_235515,5180,0.4,value3
+```
+
+### 输出文件格式
+```csv
+# 输出文件格式（添加了来源文件信息）
+timestamp,freq,diff_pwr,other_column,source_file,full_path
+20260312_235513,5180,0.3,value1,rx_iq_cal_res_5G_20m_ch0_20260312_235513.csv,D:\users\gxu\rx_iq\E22\siso_train_siso_apply\5G\rx_iq_cal_res_5G_20m_ch0_20260312_235513.csv
+20260312_235515,5180,0.4,value3,rx_iq_cal_res_5G_20m_ch0_20260312_235513.csv,D:\users\gxu\rx_iq\E22\siso_train_siso_apply\5G\rx_iq_cal_res_5G_20m_ch0_20260312_235513.csv
+```
+
+## 运行示例
+
+### 配置信息
+```python
+SEARCH_DIRECTORY = r"D:\users\gxu\rx_iq"
+FILE_PATTERN = "*.csv"
+DIFF_PWR_THRESHOLD = 0.5
+OUTPUT_FILE = r"D:\users\gxu\scripts\output\filtered_diff_pwr.csv"
+```
+
+### 运行过程
+```
+配置信息:
+  搜索目录: D:\users\gxu\rx_iq
+  文件模式: *.csv
+  阈值: 0.5
+  输出文件: D:\users\gxu\scripts\output\filtered_diff_pwr.csv
+
+找到 5 个符合条件的CSV文件
+开始处理 5 个CSV文件...
+正在处理: D:\users\gxu\rx_iq\E22\siso_train_siso_apply\5G\rx_iq_cal_res_5G_20m_ch0_20260312_235513.csv
+正在处理: D:\users\gxu\rx_iq\E22\siso_train_siso_apply\5G\rx_iq_cal_res_5G_20m_ch1_20260312_235613.csv
+正在处理: D:\users\gxu\rx_iq\E22\siso_train_siso_apply\2.4G\rx_iq_cal_res_24G_20m_ch0_20260312_235713.csv
+警告: 文件 D:\users\gxu\rx_iq\E22\siso_train_siso_apply\2.4G\rx_iq_cal_res_24G_20m_ch0_20260312_235713.csv 不包含 diff_pwr 列，已跳过
+正在处理: D:\users\gxu\rx_iq\E23\siso_train_siso_apply\5G\rx_iq_cal_res_5G_20m_ch0_20260312_235813.csv
+正在处理: D:\users\gxu\rx_iq\E23\siso_train_siso_apply\5G\rx_iq_cal_res_5G_20m_ch1_20260312_235913.csv
+处理完成! 共找到 125 行符合条件的数据
+结果已保存到: D:\users\gxu\scripts\output\filtered_diff_pwr.csv
+```
+
+## 注意事项
+
+1. 确保搜索目录路径正确且具有读取权限
+2. 确保 `diff_pwr` 列在CSV文件中存在且格式正确
+3. 输出文件路径需要有写入权限
+4. 对于大型文件和大量文件，处理时间可能较长
+5. 脚本会自动跳过不包含 `diff_pwr` 列的文件
+6. 建议定期检查输出目录，避免输出文件过大
+
+## 技术说明
+
+### diff_pwr字段
+`diff_pwr` 通常表示功率差值或功率变化量，是无线通信测试中的一个重要指标。值越小通常表示性能越好。
+
+### 文件匹配模式
+使用 Python 的 `glob` 模块进行文件匹配，支持标准的通配符：
+- `*`：匹配任意数量的字符（包括零个）
+- `?`：匹配单个字符
+- `**`：递归匹配任意子目录（需要配合 `recursive=True`）
+
+### 字符编码
+脚本使用 UTF-8 编码读取和写入CSV文件，确保兼容性。
