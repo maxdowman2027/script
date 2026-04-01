@@ -9,6 +9,7 @@ import glob
 import pandas as pd
 import re
 import argparse
+import openpyxl
 
 
 def merge_csv_to_xlsx(input_dir, output_file, crc_fail_file=None):
@@ -108,6 +109,47 @@ def merge_csv_to_xlsx(input_dir, output_file, crc_fail_file=None):
             # 写入到Sheet
             merged_df.to_excel(writer, sheet_name=sheet_name, index=False)
             print(f"成功写入 {len(merged_df)} 行数据到 {sheet_name}")
+
+            # 为不同wifi_format的行添加填充色
+            worksheet = writer.sheets[sheet_name]
+
+            # 定义不同wifi_format对应的颜色
+            format_colors = {
+                '11b': 'FFCCFF',    # 浅粉色
+                '11g': 'CCFFFF',    # 浅青色
+                '11n': 'FFFFCC',    # 浅黄色
+                'ht': 'CCFFCC',     # 浅绿色
+                'vht': 'FFCCCC',    # 浅红色
+                'he': 'CCCCFF',     # 浅紫色
+                'nht': 'CCE5FF',    # 浅蓝色
+                'wifi7': 'FFFFE5'   # 浅橙色
+            }
+
+            # 获取wifi_format列的索引（假设在第0列）
+            # 如果wifi_format不在第一列，我们需要动态查找
+            wifi_format_index = None
+            for idx, col in enumerate(worksheet[1]):
+                if col.value == 'wifi_format':
+                    wifi_format_index = idx
+                    break
+
+            if wifi_format_index is not None:
+                # 遍历每一行（从第2行开始，因为第1行是表头）
+                for row in worksheet.iter_rows(min_row=2, max_row=len(merged_df)+1, min_col=1, max_col=worksheet.max_column):
+                    # 获取wifi_format值
+                    cell_value = row[wifi_format_index].value
+                    # 匹配格式
+                    format_name = None
+                    for key in format_colors.keys():
+                        if isinstance(cell_value, str) and key in cell_value.lower():
+                            format_name = key
+                            break
+
+                    # 如果找到匹配的格式，设置填充色
+                    if format_name and format_name in format_colors:
+                        fill = openpyxl.styles.PatternFill(start_color=format_colors[format_name], end_color=format_colors[format_name], fill_type='solid')
+                        for cell in row:
+                            cell.fill = fill
 
             # 检查是否需要保存crc失败的情况
             if crc_writer and 'psdu_crc' in merged_df.columns:
