@@ -141,7 +141,7 @@ def merge_csv_to_xlsx(input_dir, output_file, crc_fail_file=None):
                     # 匹配格式
                     format_name = None
                     for key in format_colors.keys():
-                        if isinstance(cell_value, str) and key in cell_value.lower():
+                        if isinstance(cell_value, str) and cell_value.strip().lower() == key.lower():
                             format_name = key
                             break
 
@@ -220,7 +220,7 @@ def merge_csv_to_xlsx(input_dir, output_file, crc_fail_file=None):
                             cell_value = crc_worksheet.cell(row=row_idx, column=wifi_format_index + 1).value
                             row_fill = None
                             for key in format_colors.keys():
-                                if isinstance(cell_value, str) and key in cell_value.lower():
+                                if isinstance(cell_value, str) and cell_value.strip().lower() == key.lower():
                                     row_fill = format_colors[key]
                                     break
 
@@ -245,8 +245,8 @@ def merge_csv_to_xlsx(input_dir, output_file, crc_fail_file=None):
 def main():
     # 直接在代码中修改输入路径和输出文件路径
     input_dir = "D:/chip_test/dev/xian_test/Xian-Esp-Test-Scripts/py_script_fpga_tx_wifi7/Log/wifi_tx_rls4/no_he"
-    output_file = "D:/chip_test/dev/xian_test/Xian-Esp-Test-Scripts/py_script_fpga_tx_wifi7/Log/wifi_tx_rls4/no_he/merged_result.xlsx"
-    crc_fail_file = "D:/chip_test/dev/xian_test/Xian-Esp-Test-Scripts/py_script_fpga_tx_wifi7/Log/wifi_tx_rls4/no_he/crc_fail_result.xlsx"
+    output_file = "D:/chip_test/dev/xian_test/Xian-Esp-Test-Scripts/py_script_fpga_tx_wifi7/Log/wifi_tx_rls4/no_he/merged_result_v2.xlsx"
+    crc_fail_file = "D:/chip_test/dev/xian_test/Xian-Esp-Test-Scripts/py_script_fpga_tx_wifi7/Log/wifi_tx_rls4/no_he/crc_fail_result_v2.xlsx"
 
     print(f"输入路径: {input_dir}")
     print(f"输出文件: {output_file}")
