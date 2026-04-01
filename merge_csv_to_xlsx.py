@@ -208,18 +208,14 @@ def merge_csv_to_xlsx(input_dir, output_file, crc_fail_file=None):
                         adjusted_width = min(max_length + 2, 50)
                         crc_worksheet.column_dimensions[column].width = adjusted_width
 
-                    # 为重点列添加加粗字体
+                    # 为重点列添加红色字体
                     for col_idx in range(1, len(priority_columns) + 1):
-                        # 加粗表头
-                        crc_worksheet.cell(row=1, column=col_idx).font = openpyxl.styles.Font(bold=True, color="FF0000")
-                        # 为数据行添加浅底色
-                        for row_idx in range(2, crc_worksheet.max_row + 1):
-                            cell = crc_worksheet.cell(row=row_idx, column=col_idx)
-                            cell.fill = openpyxl.styles.PatternFill(start_color="FFFF99", end_color="FFFF99", fill_type='solid')
+                        # 将表头字体设置为红色（不加粗）
+                        crc_worksheet.cell(row=1, column=col_idx).font = openpyxl.styles.Font(color="FF0000")
 
                     if wifi_format_index is not None:
                         print(f"在crc_fail_result中找到wifi_format列，索引为: {wifi_format_index}")
-                        # 为不同wifi_format的行添加填充色（只填充非重点列的单元格）
+                        # 为不同wifi_format的行添加填充色（包括重点列的单元格）
                         for row_idx in range(2, crc_worksheet.max_row + 1):
                             cell_value = crc_worksheet.cell(row=row_idx, column=wifi_format_index + 1).value
                             row_fill = None
@@ -229,9 +225,9 @@ def merge_csv_to_xlsx(input_dir, output_file, crc_fail_file=None):
                                     break
 
                             if row_fill:
-                                # 为非重点列的单元格添加wifi_format的填充色
+                                # 为所有列的单元格添加wifi_format的填充色
                                 fill = openpyxl.styles.PatternFill(start_color=row_fill, end_color=row_fill, fill_type='solid')
-                                for col_idx in range(len(priority_columns) + 1, crc_worksheet.max_column + 1):
+                                for col_idx in range(1, crc_worksheet.max_column + 1):
                                     crc_worksheet.cell(row=row_idx, column=col_idx).fill = fill
 
     # 保存文件
