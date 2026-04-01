@@ -76,6 +76,35 @@ def merge_csv_to_xlsx(input_dir, output_file, crc_fail_file=None):
             # 合并数据
             merged_df = pd.concat(dfs, ignore_index=True)
 
+            # 调整列顺序，将evm_nss0和evm_nss1列插入到evm列之后
+            if 'evm' in merged_df.columns:
+                # 获取evm列的索引
+                evm_index = merged_df.columns.get_loc('evm')
+
+                # 检查是否有evm_nss0和evm_nss1列
+                columns_to_move = []
+                if 'evm_nss0' in merged_df.columns:
+                    columns_to_move.append('evm_nss0')
+                if 'evm_nss1' in merged_df.columns:
+                    columns_to_move.append('evm_nss1')
+
+                # 调整列顺序
+                if columns_to_move:
+                    # 获取所有列的列表
+                    columns = list(merged_df.columns)
+                    # 移除要移动的列
+                    for col in columns_to_move:
+                        columns.remove(col)
+                    # 插入到evm列之后
+                    for i, col in enumerate(columns_to_move):
+                        columns.insert(evm_index + 1 + i, col)
+                    # 重新排列数据框的列
+                    merged_df = merged_df[columns]
+            elif 'evm_nss0' in merged_df.columns or 'evm_nss1' in merged_df.columns:
+                # 如果没有evm列，但有evm_nss列，则在适当位置添加evm列（可选）
+                # 这里我们保持原样，因为用户只要求将evm_nss列放在evm列之后
+                pass
+
             # 写入到Sheet
             merged_df.to_excel(writer, sheet_name=sheet_name, index=False)
             print(f"成功写入 {len(merged_df)} 行数据到 {sheet_name}")
