@@ -155,21 +155,7 @@ def merge_csv_to_xlsx(input_dir, output_file, crc_fail_file=None):
             if crc_writer and 'psdu_crc' in merged_df.columns:
                 crc_fail_df = merged_df[merged_df['psdu_crc'] == 'Fail']
                 if not crc_fail_df.empty:
-                    # 调整列顺序，让重点列更加突出
-                    # 定义重点列
-                    priority_columns = ['tx_power_set(dBm)', 'evm', 'evm_nss0', 'evm_nss1']
-                    # 获取所有列
-                    all_columns = list(crc_fail_df.columns)
-                    # 重新排序列：重点列在前，其他列在后
-                    reordered_columns = []
-                    for col in priority_columns:
-                        if col in all_columns:
-                            reordered_columns.append(col)
-                            all_columns.remove(col)
-                    reordered_columns.extend(all_columns)
-                    crc_fail_df = crc_fail_df[reordered_columns]
-
-                    # 写入到Sheet
+                            # 写入到Sheet
                     crc_fail_df.to_excel(crc_writer, sheet_name=sheet_name, index=False)
                     print(f"找到 {len(crc_fail_df)} 行psdu_crc为Fail的记录，已写入到 {crc_fail_file}")
 
@@ -209,9 +195,12 @@ def merge_csv_to_xlsx(input_dir, output_file, crc_fail_file=None):
                         crc_worksheet.column_dimensions[column].width = adjusted_width
 
                     # 为重点列添加红色字体
-                    for col_idx in range(1, len(priority_columns) + 1):
-                        # 将表头字体设置为红色（不加粗）
-                        crc_worksheet.cell(row=1, column=col_idx).font = openpyxl.styles.Font(color="FF0000")
+                    priority_columns = ['tx_power_set(dBm)', 'evm', 'evm_nss0', 'evm_nss1']
+                    for col_idx in range(1, crc_worksheet.max_column + 1):
+                        cell_value = crc_worksheet.cell(row=1, column=col_idx).value
+                        if cell_value in priority_columns:
+                            # 将表头字体设置为红色（不加粗）
+                            crc_worksheet.cell(row=1, column=col_idx).font = openpyxl.styles.Font(color="FF0000")
 
                     if wifi_format_index is not None:
                         print(f"在crc_fail_result中找到wifi_format列，索引为: {wifi_format_index}")
@@ -245,8 +234,8 @@ def merge_csv_to_xlsx(input_dir, output_file, crc_fail_file=None):
 def main():
     # 直接在代码中修改输入路径和输出文件路径
     input_dir = "D:/chip_test/dev/xian_test/Xian-Esp-Test-Scripts/py_script_fpga_tx_wifi7/Log/wifi_tx_rls4/no_he"
-    output_file = "D:/chip_test/dev/xian_test/Xian-Esp-Test-Scripts/py_script_fpga_tx_wifi7/Log/wifi_tx_rls4/no_he/merged_result_v2.xlsx"
-    crc_fail_file = "D:/chip_test/dev/xian_test/Xian-Esp-Test-Scripts/py_script_fpga_tx_wifi7/Log/wifi_tx_rls4/no_he/crc_fail_result_v2.xlsx"
+    output_file = "D:/chip_test/dev/xian_test/Xian-Esp-Test-Scripts/py_script_fpga_tx_wifi7/Log/wifi_tx_rls4/no_he/merged_result.xlsx"
+    crc_fail_file = "D:/chip_test/dev/xian_test/Xian-Esp-Test-Scripts/py_script_fpga_tx_wifi7/Log/wifi_tx_rls4/no_he/crc_fail_result.xlsx"
 
     print(f"输入路径: {input_dir}")
     print(f"输出文件: {output_file}")
