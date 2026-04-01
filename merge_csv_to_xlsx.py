@@ -155,8 +155,84 @@ def merge_csv_to_xlsx(input_dir, output_file, crc_fail_file=None):
             if crc_writer and 'psdu_crc' in merged_df.columns:
                 crc_fail_df = merged_df[merged_df['psdu_crc'] == 'Fail']
                 if not crc_fail_df.empty:
+                    # 调整列顺序，让重点列更加突出
+                    # 定义重点列
+                    priority_columns = ['tx_power_set(dBm)', 'evm', 'evm_nss0', 'evm_nss1']
+                    # 获取所有列
+                    all_columns = list(crc_fail_df.columns)
+                    # 重新排序列：重点列在前，其他列在后
+                    reordered_columns = []
+                    for col in priority_columns:
+                        if col in all_columns:
+                            reordered_columns.append(col)
+                            all_columns.remove(col)
+                    reordered_columns.extend(all_columns)
+                    crc_fail_df = crc_fail_df[reordered_columns]
+
+                    # 写入到Sheet
                     crc_fail_df.to_excel(crc_writer, sheet_name=sheet_name, index=False)
                     print(f"找到 {len(crc_fail_df)} 行psdu_crc为Fail的记录，已写入到 {crc_fail_file}")
+
+                    # 为crc_fail_result表格添加填充色
+                    crc_worksheet = crc_writer.sheets[sheet_name]
+
+                    # 定义不同wifi_format对应的颜色
+                    format_colors = {
+                        '11b': 'FFCCFF',    # 浅粉色
+                        '11g': 'CCFFFF',    # 浅青色
+                        '11n': 'FFFFCC',    # 浅黄色
+                        'ht': 'CCFFCC',     # 浅绿色
+                        'vht': 'FFCCCC',    # 浅红色
+                        'he': 'CCCCFF',     # 浅紫色
+                        'nht': 'CCE5FF',    # 浅蓝色
+                        'wifi7': 'FFFFE5'   # 浅橙色
+                    }
+
+                    # 查找wifi_format列的索引
+                    wifi_format_index = None
+                    for idx, cell in enumerate(crc_worksheet[1]):
+                        if cell.value == "wifi_format":
+                            wifi_format_index = idx
+                            break
+
+                    # 设置列宽，让内容更加美观
+                    for col in crc_worksheet.columns:
+                        max_length = 0
+                        column = col[0].column_letter  # 获取列字母
+                        for cell in col:
+                            try:
+                                if len(str(cell.value)) > max_length:
+                                    max_length = len(str(cell.value))
+                            except:
+                                pass
+                        adjusted_width = min(max_length + 2, 50)
+                        crc_worksheet.column_dimensions[column].width = adjusted_width
+
+                    # 为重点列添加加粗字体
+                    for col_idx in range(1, len(priority_columns) + 1):
+                        # 加粗表头
+                        crc_worksheet.cell(row=1, column=col_idx).font = openpyxl.styles.Font(bold=True, color="FF0000")
+                        # 为数据行添加浅底色
+                        for row_idx in range(2, crc_worksheet.max_row + 1):
+                            cell = crc_worksheet.cell(row=row_idx, column=col_idx)
+                            cell.fill = openpyxl.styles.PatternFill(start_color="FFFF99", end_color="FFFF99", fill_type='solid')
+
+                    if wifi_format_index is not None:
+                        print(f"在crc_fail_result中找到wifi_format列，索引为: {wifi_format_index}")
+                        # 为不同wifi_format的行添加填充色（只填充非重点列的单元格）
+                        for row_idx in range(2, crc_worksheet.max_row + 1):
+                            cell_value = crc_worksheet.cell(row=row_idx, column=wifi_format_index + 1).value
+                            row_fill = None
+                            for key in format_colors.keys():
+                                if isinstance(cell_value, str) and key in cell_value.lower():
+                                    row_fill = format_colors[key]
+                                    break
+
+                            if row_fill:
+                                # 为非重点列的单元格添加wifi_format的填充色
+                                fill = openpyxl.styles.PatternFill(start_color=row_fill, end_color=row_fill, fill_type='solid')
+                                for col_idx in range(len(priority_columns) + 1, crc_worksheet.max_column + 1):
+                                    crc_worksheet.cell(row=row_idx, column=col_idx).fill = fill
 
     # 保存文件
     try:
