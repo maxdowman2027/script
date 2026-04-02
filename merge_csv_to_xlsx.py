@@ -30,21 +30,29 @@ def merge_csv_to_xlsx(input_dir, output_file, crc_fail_file=None):
 
     print(f"找到 {len(csv_files)} 个CSV文件")
 
-    # 按channel和编码方式分组
+    # 按channel、编码方式和NSS/STBC分组
     grouped_files = {}
 
     for csv_file in csv_files:
         filename = os.path.basename(csv_file)
 
-        # 从文件名中提取channel和编码方式
+        # 从文件名中提取channel、编码方式和NSS/STBC
         # 文件名格式示例: risc_wifitx_20m_['11b']_BCC_channel11_GILTF0_2026-0331-175943.csv
         channel_match = re.search(r'channel(\d+)', filename)
         coding_match = re.search(r'(BCC|LDPC)', filename)
+        nss_match = re.search(r'(NSS1|NSS2)', filename)
+        stbc_match = re.search(r'(STBC)', filename)
 
         if channel_match and coding_match:
             channel = channel_match.group(1)
             coding = coding_match.group(1)
+
             sheet_name = f"channel{channel}_{coding}"
+
+            if nss_match:
+                sheet_name += f"_{nss_match.group(1)}"
+            elif stbc_match:
+                sheet_name += f"_{stbc_match.group(1)}"
 
             if sheet_name not in grouped_files:
                 grouped_files[sheet_name] = []
@@ -233,9 +241,9 @@ def merge_csv_to_xlsx(input_dir, output_file, crc_fail_file=None):
 
 def main():
     # 直接在代码中修改输入路径和输出文件路径
-    input_dir = "D:/chip_test/dev/xian_test/Xian-Esp-Test-Scripts/py_script_fpga_tx_wifi7/Log/wifi_tx_rls4/no_he"
-    output_file = "D:/chip_test/dev/xian_test/Xian-Esp-Test-Scripts/py_script_fpga_tx_wifi7/Log/wifi_tx_rls4/no_he/merged_result.xlsx"
-    crc_fail_file = "D:/chip_test/dev/xian_test/Xian-Esp-Test-Scripts/py_script_fpga_tx_wifi7/Log/wifi_tx_rls4/no_he/crc_fail_result.xlsx"
+    input_dir = "D:/chip_test/dev/xian_test/Xian-Esp-Test-Scripts/py_script_fpga_tx_wifi7/Log/wifi_tx_rls4/no_he_2"
+    output_file = "D:/chip_test/dev/xian_test/Xian-Esp-Test-Scripts/py_script_fpga_tx_wifi7/Log/wifi_tx_rls4/no_he_2/merged_result.xlsx"
+    crc_fail_file = "D:/chip_test/dev/xian_test/Xian-Esp-Test-Scripts/py_script_fpga_tx_wifi7/Log/wifi_tx_rls4/no_he_2/crc_fail_result.xlsx"
 
     print(f"输入路径: {input_dir}")
     print(f"输出文件: {output_file}")
