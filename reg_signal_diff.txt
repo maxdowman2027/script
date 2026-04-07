@@ -1,0 +1,278 @@
+找到 7 个共同的CSV文件进行比较
+只比较以 'reg_' 为前缀的寄存器
+
+================================================================================
+比较文件: phy_common_reg2csv.csv
+================================================================================
+
+新增寄存器 (11个):
+  + reg_nb_tx_en = 1'b0
+  + reg_nb_tx_freqshift_idx = 1'b0
+  + reg_nb_tx_l_length_ext_10m = 8'd12
+  + reg_nb_tx_l_length_ext_1p25m = 8'd48
+  + reg_nb_tx_l_length_ext_2p5m = 8'd24
+  + reg_nb_tx_l_length_ext_5m = 8'd12
+  + reg_nb_tx_rate = 2'd0
+  + reg_nb_tx_wprea_en = 1'b1
+  + reg_phy_dump_en_mode = 3'd0
+  + reg_phy_dump_frame_type = 4'h0
+  + reg_phy_sniffer_en = 1'h0
+
+值不同的信号 (4个):
+  信号名称                           旧值              新值             
+  ------------------------------ --------------- ---------------
+  reg_date                       28'h2512020     28'h2603050    
+  reg_phy_dump_len               16'h0           16'd0          
+  reg_phy_dump_trig_1sel         5'h0            5'h00          
+  reg_phy_dump_trig_3sel         5'h3            5'h03          
+
+================================================================================
+比较文件: phy_rx11b_reg2csv.csv
+================================================================================
+
+新增寄存器 (1个):
+  + reg_11b_new_report_flag = 1'd0
+
+值不同的信号 (89个):
+  信号名称                           旧值              新值             
+  ------------------------------ --------------- ---------------
+  reg_11b_acq_high_rssi_th       12'd4095        12'd0          
+  reg_11b_acq_tracking_power_scale_th 3'd5            3'd0           
+  reg_11b_dagc_gain              10'd1           10'd0          
+  reg_11b_dagc_high_rssi_th      8'd15           8'd0           
+  reg_11b_dagc_scale_factor_for_multi_rx 8'd192          8'd0           
+  reg_11b_dagc_win_length        1'b1            1'd0           
+  reg_11b_dll_work_delta_sym     4'd2            4'd0           
+  reg_11b_freq_offset_rpt_accu   1'b0            1'd0           
+  reg_11b_pll_work_delta_sym     4'd2            4'd0           
+  reg_11b_pow_surge_max_pow_th   12'd3277        12'd0          
+  reg_11b_pow_surge_min_power_th 8'd40           8'd0           
+  reg_11b_pow_surge_th           5'd5            5'd0           
+  reg_11b_pow_surge_th_dagc_statge 5'd2            5'd0           
+  reg_acq_maxpeak_thres          6'd44           6'd0           
+  reg_acq_rake_hard_th           8'd4            8'd0           
+  reg_acq_rake_th                9'd194          9'd0           
+  reg_acq_rake_th_high           10'd634         10'd0          
+  reg_acq_sum_th                 12'd2327        12'd0          
+  reg_acq_sum_th_high            14'd4655        14'd0          
+  reg_acq_sym_num_th             5'd10           5'd0           
+  reg_acq_syms                   5'd16           5'd0           
+  reg_acq_tracking_skip_sym_num  3'd5            3'd0           
+  reg_cfo_fcw_factor             14'd4096        14'd0          
+  reg_dagc_adjust_pow_th         10'd1023        10'd0          
+  reg_dagc_target_pow            6'd8            6'd0           
+  reg_date                       28'h2512030     28'h0          
+  reg_early_late_loop_for_header 6'd32           6'd0           
+  reg_early_late_loop_for_sfd    6'd32           6'd0           
+  reg_le_ped_start_dly           5'd10           5'd0           
+  reg_le_ted_start_dly           5'd10           5'd0           
+  reg_lr_11b_lr2le_rssi_thr      9'h140          9'h0           
+  reg_lr_acq_high_rssi_th        12'd4095        12'd0          
+  reg_lr_acq_maxpeak_thres       6'd14           6'd0           
+  reg_lr_acq_rake_hard_th        8'd4            8'd0           
+  reg_lr_acq_rake_th             9'd73           9'd0           
+  reg_lr_acq_rake_th_high        10'd145         10'd0          
+  reg_lr_acq_sum_th              12'd2327        12'd0          
+  reg_lr_acq_sum_th_high         14'd11636       14'd0          
+  reg_lr_acq_sym_num_th          5'd10           5'd0           
+  reg_lr_acq_sym_th              5'd10           5'd0           
+  reg_lr_acq_syms                5'd16           5'd0           
+  reg_lr_early_late_loop_for_data 6'd32           6'd0           
+  reg_lr_early_late_loop_for_header 6'd32           6'd0           
+  reg_lr_early_late_loop_for_sfd 6'd32           6'd0           
+  reg_lr_finephase_est_en        1'b1            1'd0           
+  reg_lr_mother_code             8'd17           8'd0           
+  reg_lr_mrc_snr_abs_giveup_th   6'd44           6'd0           
+  reg_lr_mrc_snr_dbpsk_giveup_th 6'd12           6'd0           
+  reg_lr_mrc_snr_diff_giveup_th  6'd12           6'd0           
+  reg_lr_mrc_snr_dqpsk_giveup_th 6'd4            6'd0           
+  reg_lr_ped_start_dly           5'd3            5'd0           
+  reg_lr_ped_u_freq_scaling_pll_for_data 15'd524         15'd0          
+  reg_lr_ped_u_freq_scaling_pll_for_header 15'd5243        15'd0          
+  reg_lr_ped_u_freq_scaling_pll_for_sfd 15'd5243        15'd0          
+  reg_lr_ped_u_scaling_pll_for_data 9'd9            9'd0           
+  reg_lr_ped_u_scaling_pll_for_header 9'd176          9'd0           
+  reg_lr_ped_u_scaling_pll_for_sfd 9'd176          9'd0           
+  reg_lr_ted_start_dly           5'd3            5'd0           
+  reg_max_iter                   5'd15           5'd0           
+  reg_max_xcorr_th               8'd134          8'd0           
+  reg_mrc_snr_abs_giveup_th      6'd44           6'd0           
+  reg_mrc_snr_cckx_giveup_th     6'd20           6'd0           
+  reg_mrc_snr_diff_giveup_th     6'd20           6'd0           
+  reg_mrc_snr_dxpsk_giveup_th    6'd20           6'd0           
+  reg_ped_u_freq_scaling_pll_for_data 15'd524         15'd0          
+  reg_ped_u_freq_scaling_pll_for_header 15'd5243        15'd0          
+  reg_ped_u_freq_scaling_pll_for_sfd 15'd5243        15'd0          
+  reg_ped_u_scaling_pll_for_data 9'd88           9'd0           
+  reg_ped_u_scaling_pll_for_header 9'd176          9'd0           
+  reg_ped_u_scaling_pll_for_sfd  9'd176          9'd0           
+  reg_rake_calculate_path_syms   5'd15           5'd0           
+  reg_rake_close_pow_th          7'd96           7'd0           
+  reg_rake_path_power_diff_th    5'd16           5'd0           
+  reg_rake_tracking_stable_syms  5'd25           5'd0           
+  reg_rake_two_path_attenuate    6'd48           6'd0           
+  reg_rake_two_path_attenuate_squ 6'd36           6'd0           
+  reg_rake_two_path_power_higher_th 7'd96           7'd0           
+  reg_rake_two_path_power_lower_th 6'd48           6'd0           
+  reg_rx11b_dump_done_sel        5'd31           5'd0           
+  reg_rx11b_dump_trig_0sel       5'd7            5'd0           
+  reg_rx11b_dump_trig_1sel       5'd25           5'd0           
+  reg_rx11b_le_rx_en             1'b1            1'd0           
+  reg_rx11b_lr_rx_en             1'b1            1'd0           
+  reg_sfd_hard_th                5'd25           5'd0           
+  reg_sfd_len                    5'd16           5'd0           
+  reg_sfd_soft_th                5'd20           5'd0           
+  reg_sfd_window                 9'd256          9'd0           
+  reg_snr_est_max_sym_num        7'd100          7'd0           
+  reg_snr_est_skip_sym_num       5'd30           5'd0           
+
+================================================================================
+比较文件: phy_rxfreq_reg2csv.csv
+================================================================================
+
+新增寄存器 (15个):
+  + reg_40m_mcs10_gi0_ldpc_max_dec_iter = 5'd14
+  + reg_40m_mcs13_gi0_ldpc_max_dec_iter = 5'd13
+  + reg_40m_mcs13_gi1_ldpc_max_dec_iter = 5'd14
+  + reg_chnest_csi_cg_bypass = 1'h0
+  + reg_chnest_ftm_cg_bypass = 1'h0
+  + reg_chnull_stbc_1ant_en = 1'b1
+  + reg_dfx_event_cnt_sel = 2'h0
+  + reg_ldpc_last_symbol_debug = 1'd0
+  + reg_ldpc_last_symbol_delta = 10'd160
+  + reg_lsig_tail_check_en = 1'd1
+  + reg_phnull_thr           = 5'd5
+  + reg_rpt_errcode_cnt = 8'd0
+  + reg_spur_pwr_diff_mcs13 = 5'd0
+  + reg_stbc_ant_disable_mode = 2'd0
+  + reg_tb_data_refine_afactor = 2'd3
+
+删减寄存器 (1个):
+  - reg_stbc_ant_disable_bypass = 1'd0
+
+值不同的信号 (7个):
+  信号名称                           旧值              新值             
+  ------------------------------ --------------- ---------------
+  reg_bw_det_bypass_en           3'h0            3'h1           
+  reg_date                       28'h2512150     28'h2603190    
+  reg_equ_ratio_thres            16'd400         16'd200        
+  reg_extlna1_nf_lut_6b          10'h84          10'h084        
+  reg_extlna1_nf_lut_7b          10'h43          10'h043        
+  reg_he_det_corr_thre           6'd32           6'd35          
+  reg_rx_err_abort_ctrl          32'hfffd7fff    32'hfffd7ffb   
+
+================================================================================
+比较文件: phy_rxtime_reg2csv.csv
+================================================================================
+
+新增寄存器 (16个):
+  + reg_aci_long_term_en = 1'h1
+  + reg_aci_max_lna4aci_lev_0c = 3'd4
+  + reg_aci_max_lna4aci_lev_1c = 3'd5
+  + reg_aci_max_lna4aci_lev_2c = 3'd6
+  + reg_aci_timer4long_term = 16'd6000
+  + reg_cca_20m_dc_est_en = 1'd0
+  + reg_cca_20m_dc_est_win = 2'd0
+  + reg_cca_spectrum_scan_dly = 12'd16
+  + reg_cca_spectrum_scan_en = 1'd0
+  + reg_cca_spectrum_scan_result_done = 1'd0
+  + reg_clr_global_aci_lev4long_term = 1'b0
+  + reg_counter_th4raise_aci_lev = 8'd8
+  + reg_counter_win4raise_aci_lev = 8'd16
+  + reg_dfs_bp_const_chk_en = 1'b1
+  + reg_narrow_band_freq_shift_idx = 1'd0
+  + reg_noise_lna_use_global_aci = 1'h0
+
+删减寄存器 (9个):
+  - reg_narrow_band_freq_shift = 5'd0
+  - reg_pk_ajst_lna_only = 1'b0
+  - reg_pk_det_pow_avali_th = 7'd40
+  - reg_pk_pow_aci_delta_0c = 8'd6
+  - reg_pk_pow_aci_delta_1c = 8'd12
+  - reg_pk_pow_aci_delta_2c = 8'd18
+  - reg_pk_pow_diff_max = 9'd30
+  - reg_pk_pow_diff_scal = 5'd16
+  - reg_unlk_check_force_inband = 1'b0
+
+值不同的信号 (22个):
+  信号名称                           旧值              新值             
+  ------------------------------ --------------- ---------------
+  reg_cca_acq_sync_pwr_th        8'd0            8'd166         
+  reg_cca_frze_agc_160_wait      13'd1088        13'd1280       
+  reg_cca_frze_agc_20_wait       10'd136         10'd160        
+  reg_cca_frze_agc_40_wait       11'd273         11'd320        
+  reg_cca_frze_agc_80_wait       12'd544         12'd640        
+  reg_cca_lentrack_pwr_th        8'd0            8'd128         
+  reg_cca_lltf_sync_pwr_th       8'd0            8'd166         
+  reg_cca_rx_switch_powdiff      8'd10           8'd5           
+  reg_cca_sfd_sync_pwr_th        8'd0            8'd166         
+  reg_cca_stf_sync_pwr_th        8'd0            8'd166         
+  reg_date                       28'h2512050     28'h2603190    
+  reg_dc_est_win_size            9'd0            9'd8           
+  reg_high_gain_map_dfs          10'd207         10'd399        
+  reg_low_gain_map_dfs           10'd77          10'd141        
+  reg_peak_peak_det_coef         10'd128         10'd93         
+  reg_peak_peak_det_comp_0ch     10'd0           10'd40         
+  reg_peak_peak_det_comp_1ch     10'd0           10'd40         
+  reg_peak_peak_det_offset       11'd0           11'd5          
+  reg_peak_unreliable_val        6'h6            6'd15          
+  reg_pin_trk_unlock_smallvga_th 6'd23           6'd26          
+  reg_weaker_signal_for_length_track_en 1'd0            1'd1           
+  reg_weaker_signal_pwr_th       8'd166          8'd156         
+
+================================================================================
+比较文件: phy_txbf_reg2csv.csv
+================================================================================
+
+新增寄存器 (1个):
+  + reg_bfer_zf_mmse_sel = 2'd0
+
+删减寄存器 (1个):
+  - reg_deep_fading_thr = 8'd0
+
+================================================================================
+比较文件: phy_txdfe_reg_reg2csv.csv
+================================================================================
+
+新增寄存器 (17个):
+  + reg_dpd_u_cfg0_lut1 = 11'd102
+  + reg_dpd_u_cfg0_lut2 = 11'd102
+  + reg_dpd_u_cfg0_lut3 = 11'd102
+  + reg_dpd_u_cfg0_lut4 = 11'd102
+  + reg_dpd_u_cfg1_lut1 = 11'd10
+  + reg_dpd_u_cfg1_lut2 = 11'd10
+  + reg_dpd_u_cfg1_lut3 = 11'd10
+  + reg_dpd_u_cfg1_lut4 = 11'd10
+  + reg_dpd_u_cfg2_lut1 = 11'd1
+  + reg_dpd_u_cfg2_lut2 = 11'd1
+  + reg_dpd_u_cfg2_lut3 = 11'd1
+  + reg_dpd_u_cfg2_lut4 = 11'd1
+  + reg_iq_rls_lambda_iter = 21'd0
+  + reg_iq_rls_lms_sel = 1'd0
+  + reg_iq_rls_sd_init = 32'd0
+  + reg_lms_rls_mode = 2'd0
+  + reg_rls_table_update_intval = 6'd1
+
+值不同的信号 (2个):
+  信号名称                           旧值              新值             
+  ------------------------------ --------------- ---------------
+  reg_date                       28'h2512110     28'h2601090    
+  reg_tx_iq_model_bypass         1'b0            1'b1           
+
+================================================================================
+比较文件: phy_txfreq_reg2csv.csv
+================================================================================
+
+新增寄存器 (3个):
+  + reg_txbf_ltf_csd_en = 1'b0
+  + reg_txbf_stf_csd_en = 1'b0
+  + reg_txfreq_dfx_err_3cnt = 32'd0
+
+值不同的信号 (2个):
+  信号名称                           旧值              新值             
+  ------------------------------ --------------- ---------------
+  reg_date                       28'h2509170     28'h2602260    
+  reg_txfreq_errcode_mask        12'hfff         12'hFFF        
+
+================================================================================
+差异已保存到: D:\users\gxu\scripts\reg_signal_diff.txt
