@@ -1,0 +1,44 @@
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+
+# Temporary files
+*.tmp
+*.temp
+*.swp
+*.swo
+
+# Log files
+*.log
+*.txt.log
+
+# Excel files (results files)
+*.xlsx
+*.csv
+
+# Generated images and charts
+*.png
+*.jpg
+*.jpeg
+*.gif
+*.svg
+charts/
+
+# Configuration files
+.DS_Store
+Thumbs.db
+
+# MATLAB
+*.mat
+*.fig
+*.mex*
+
+# Bat and PowerShell files
+*.bat
+*.ps1
+
+# Requirements file
+requirements.txt
