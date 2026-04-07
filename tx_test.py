@@ -357,7 +357,7 @@ def test_hetb_para_gen():
     
     # 测试场景3: 不同giltf值（giltf=2）
     print("测试场景3: giltf=2, nominal_pe=8")
-    result = hetb_para_gen(mcs= 'mcs0',apep_length=8000, giltf=2, nominal_pe=8)
+    result = hetb_para_gen(ru_size = '2x996' ,mcs= 'mcs0',apep_length=1000000, giltf=2, nominal_pe=8)
     print(f"返回结果: Nsym_sta={result[0]}, tpe_sta={result[1]}, ul_length={result[9]}")
     print("-"*30)
 

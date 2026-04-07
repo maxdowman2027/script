@@ -15,7 +15,7 @@ import re
 # os.chdir(r'D:/chip_test/dev/chip_tx/eagletest/rftest_data/dump_node_200/260212/result')
 # 支持 Windows 路径格式，自动处理路径分隔符
 # 可以使用正斜杠(/)或反斜杠(\)作为路径分隔符
-work_dir = r'D:\users\gxu\spur_scan\260310\dump_rx_data'
+work_dir = r'D:\users\gxu\temp\260327\hesu_nss2'
 # 规范化路径，处理不同的路径分隔符
 work_dir = os.path.normpath(work_dir)
 os.chdir(work_dir)
@@ -75,9 +75,9 @@ for m in range(0, len(my_files)):
             # x = float(row['chip_top_inst/u_fpga_host_inf/host_mux_top_ch0/u_host_data_mux/rx_i_fe_0_tmp[9:0]'])
             # y = float(row['chip_top_inst/u_fpga_host_inf/host_mux_top_ch0/u_host_data_mux/rx_q_fe_0_tmp[9:0]'])
             # x = float(row['sample_i_ch0'])
-            x = float(row[' sample i_ch0'])
+            x = float(row['sample_i_ch1'])
             # y = float(row['sample_q_ch0'])
-            y = float(row[' sample q_ch0'])
+            y = float(row['sample_q_ch1'])
             # x = float(row['txsco_data[11:0]'])
             # y = float(row['sample_q_ch0'])
             # x = float(row['chip_top_inst/u_fpga_host_inf/host_mux_top_ch1/u_host_data_mux/rx_i_fe_1_tmp[9:0]'])
@@ -140,48 +140,47 @@ for m in range(0, len(my_files)):
         POWER_List = []
         diff_pwr = []
         pwr = []
-        for i in result_indices :
-            if F[i]< -0.1 or F[i]> 0.1:
-                if (chan_val > 14) :
-                    if (chan_val + F[i] ) % 40 == 0:
-                        SPUR_F.append(F[i])
-                        POWER_List.append((10 * np.log10(np.abs((P[i])))))
-                        # diff_pwr.append( round(((10 * np.log10(np.abs(P[i]))) - avg_pwr ) ,2))
-                        pwr.append( round((P[i] -58) ,2))
-                        pwr.append( round(((10 * np.log10(np.abs(P[i]))) - 58 ) ,2))
-                else :
-                    if chan_val == 14 and (2484+F[i]) % 40 == 0 :
-                        SPUR_F.append(F[i])
-                        POWER_List.append((10 * np.log10(np.abs((P[i])))))
-                        diff_pwr.append( round(((10 * np.log10(np.abs((P[i])))) - avg_pwr ) ,2))
-                        # pwr.append( round(((10 * np.log10(np.abs(P[i]))) - 58 ) ,2))
-                        pwr.append( round((P[i] -58) ,2))
-                    elif (2412 + 5*(chan_val - 1) + F[i] )%40 == 0 : 
-                    # else : 
-                        SPUR_F.append(F[i])
-                        POWER_List.append((10 * np.log10(np.abs((P[i])))))  
-                        diff_pwr.append( round(((10 * np.log10(np.abs((P[i])))) - avg_pwr ) ,2))      
-                        # pwr.append( round(((10 * np.log10(np.abs(P[i]))) - 58 ) ,2))
-                        print(f"spur_pwr :{P[i]}")
-                        pwr.append( round((P[i] -58) ,2))           
+        # for i in result_indices :
+        #     if F[i]< -0.1 or F[i]> 0.1:
+        #         if (chan_val > 14) :
+        #             if (chan_val + F[i] ) % 40 == 0:
+        #                 SPUR_F.append(F[i])
+        #                 POWER_List.append((10 * np.log10(np.abs((P[i])))))
+        #                 # diff_pwr.append( round(((10 * np.log10(np.abs(P[i]))) - avg_pwr ) ,2))
+        #                 pwr.append( round((P[i] -58) ,2))
+        #                 pwr.append( round(((10 * np.log10(np.abs(P[i]))) - 58 ) ,2))
+        #         else :
+        #             if chan_val == 14 and (2484+F[i]) % 40 == 0 :
+        #                 SPUR_F.append(F[i])
+        #                 POWER_List.append((10 * np.log10(np.abs((P[i])))))
+        #                 diff_pwr.append( round(((10 * np.log10(np.abs((P[i])))) - avg_pwr ) ,2))
+        #                 # pwr.append( round(((10 * np.log10(np.abs(P[i]))) - 58 ) ,2))
+        #                 pwr.append( round((P[i] -58) ,2))
+        #             elif (2412 + 5*(chan_val - 1) + F[i] )%40 == 0 : 
+        #             # else : 
+        #                 SPUR_F.append(F[i])
+        #                 POWER_List.append((10 * np.log10(np.abs((P[i])))))  
+        #                 diff_pwr.append( round(((10 * np.log10(np.abs((P[i])))) - avg_pwr ) ,2))      
+        #                 # pwr.append( round(((10 * np.log10(np.abs(P[i]))) - 58 ) ,2))
+        #                 print(f"spur_pwr :{P[i]}")
+        #                 pwr.append( round((P[i] -58) ,2))           
 
-        # print(f"SPUR_F is {SPUR_F} ,POWER is {POWER_List}")
-                # 写入四组参数数据
-        if len(SPUR_F) == 0:
-            SPUR_F.append("no_spur")
-            POWER_List.append("no_spur")
-            diff_pwr.append('no_spur')
-        param_dict = {}  # 空字典
-        param_dict["phy_mode"] = phy_mode_val   
-        param_dict["channel"] = chan_val    
-        param_dict["frequency"] = SPUR_F
-        param_dict["diff_pwr"] = diff_pwr
-        param_dict["pwr"] = pwr
+        #         # 写入四组参数数据
+        # if len(SPUR_F) == 0:
+        #     SPUR_F.append("no_spur")
+        #     POWER_List.append("no_spur")
+        #     diff_pwr.append('no_spur')
+        # param_dict = {}  # 空字典
+        # param_dict["phy_mode"] = phy_mode_val   
+        # param_dict["channel"] = chan_val    
+        # param_dict["frequency"] = SPUR_F
+        # param_dict["diff_pwr"] = diff_pwr
+        # param_dict["pwr"] = pwr
 
-        with open(csv_file_path, 'a', newline='', encoding='utf-8') as f:
-            writer = csv.DictWriter(f, fieldnames=csv_header)
-            writer.writerow(param_dict)
-            f.closed     
+        # with open(csv_file_path, 'a', newline='', encoding='utf-8') as f:
+        #     writer = csv.DictWriter(f, fieldnames=csv_header)
+        #     writer.writerow(param_dict)
+        #     f.closed     
         
 
         # # IQ Imbalance

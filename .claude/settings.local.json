@@ -6,7 +6,29 @@
       "Bash(git:*)",
       "Bash(cmd.exe:*)",
       "Bash(cmd:*)",
-      "Bash(powershell:*)"
+      "Bash(powershell:*)",
+      "Bash(chmod +x:*)",
+      "Bash(lsof:*)",
+      "Bash(matlab:*)",
+      "Bash(tasklist:*)",
+      "Bash(mode.com:*)",
+      "Bash(netstat:*)",
+      "Bash(wmic process:*)",
+      "Bash(pip install:*)",
+      "Bash(claude:*)",
+      "Bash(CLAUDE_CODE_GIT_BASH_PATH=/usr/bin/bash claude plugin:*)",
+      "Bash(CLAUDE_CODE_GIT_BASH_PATH=\"C:/Program Files/Git/bin/bash.exe\" claude plugin:*)",
+      "Bash(python3:*)",
+      "Bash(grep:*)",
+      "Bash(ls:*)"
     ]
+  },
+  "plugins": {
+    "enabled": true,
+    "marketplaces": {
+      "claude-plugins-official": {
+        "enabled": true
+      }
+    }
   }
 }

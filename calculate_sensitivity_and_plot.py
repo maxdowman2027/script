@@ -5,6 +5,7 @@ import pandas as pd
 import matplotlib.pyplot as plt
 from matplotlib.backends.backend_pdf import PdfPages
 import math
+import os
 
 def calculate_sensitivity(per_values, pow_values, sens_accuracy=100):
     """
@@ -85,26 +86,35 @@ def process_csv_file(file_path):
 
     return pd.DataFrame(results)
 
-def plot_sensitivity_comparison(results, output_pdf_path):
+def plot_sensitivity_comparison(results_dict, output_pdf_path):
     """
     绘制灵敏度对比图表
-    :param results: 包含灵敏度数据的DataFrame
+    :param results_dict: 包含多个csv文件灵敏度数据的字典，key为文件夹名，value为DataFrame
     :param output_pdf_path: 输出PDF路径
     """
     with PdfPages(output_pdf_path) as pp:
         plt.figure(figsize=(11, 8))
 
-        # 绘制notch_en=0的灵敏度曲线
-        plt.plot(results['cw_pow'], results['sensitivity_notch0'], 'o-', color='#FF0000', label='notch_en=0')
+        # 定义颜色列表，用于区分不同曲线
+        colors = ['#FF0000', '#0000FF', '#00FF00', '#FFFF00', '#FF00FF', '#00FFFF', '#800000', '#008000',
+                  '#000080', '#808000', '#F08080', '#8080F0', '#806F86', '#006066']
 
-        # 绘制notch_en=1的灵敏度曲线
-        plt.plot(results['cw_pow'], results['sensitivity_notch1'], 'o-', color='#0000FF', label='notch_en=1')
+        # 绘制每个csv文件的灵敏度曲线
+        for i, (folder_name, results) in enumerate(results_dict.items()):
+            # 绘制notch_en=0的灵敏度曲线
+            if 'sensitivity_notch0' in results.columns:
+                plt.plot(results['cw_pow'], results['sensitivity_notch0'], 'o-',
+                         color=colors[i % len(colors)], label=f'{folder_name} (notch_en=0)')
+            # 绘制notch_en=1的灵敏度曲线
+            if 'sensitivity_notch1' in results.columns:
+                plt.plot(results['cw_pow'], results['sensitivity_notch1'], 's-',
+                         color=colors[i % len(colors)], label=f'{folder_name} (notch_en=1)')
 
         # 设置图表属性
         plt.xlabel('cw_pow (dBm)')
         plt.ylabel('Sensitivity (dBm)')
-        plt.title('Sensitivity vs cw_pow (notch_en comparison)')
-        plt.legend(loc='best')
+        plt.title('Sensitivity vs cw_pow (folder comparison)')
+        plt.legend(loc='best', fontsize=8)
         plt.grid(True)
 
         # 保存到PDF
@@ -113,13 +123,47 @@ def plot_sensitivity_comparison(results, output_pdf_path):
 
 if __name__ == "__main__":
     # 输入参数
-    csv_file_path = "D:\chip_test\dev\chip_rx\eagletest\rftest_data\wifi_notch_test_spur_test\FPGA752_FPGA761_20260312\RX_mcs9vht_20260312_151455.csv"
-    output_pdf_path = "D:/chip_test/dev/chip_rx/eagletest/rftest_data/wifi_notch_test_spur_test/FPGA752_FPGA761_20260312/rx_20260312/sensitivity_comparison.pdf"
+    root_path = r"D:\users\gxu\spur_scan\260312\notch_cw_scan"
+    output_pdf_path = r"D:\users\gxu\spur_scan\260312\notch_cw_scan\sensitivity_comparison.pdf"
+    recursive_search = True  # 控制是否启用递归检索功能
 
-    # 处理CSV文件
-    results_df = process_csv_file(csv_file_path)
+    # 规范化路径，确保跨平台兼容性
+    root_path = os.path.normpath(root_path)
+    output_pdf_path = os.path.normpath(output_pdf_path)
 
-    # 绘制图表
-    plot_sensitivity_comparison(results_df, output_pdf_path)
+    # 检查输出目录是否存在，不存在则创建
+    output_dir = os.path.dirname(output_pdf_path)
+    if not os.path.exists(output_dir):
+        os.makedirs(output_dir)
 
-    print(f"PDF文件已保存到: {output_pdf_path}")
+    # 根据是否启用递归检索功能，处理CSV文件
+    if recursive_search:
+        # 递归检索指定路径下的所有CSV文件
+        results_dict = {}
+        for dir_name, subdir_list, file_list in os.walk(root_path):
+            for file_name in file_list:
+                if file_name.endswith('.csv'):
+                    file_path = os.path.join(dir_name, file_name)
+                    folder_name = os.path.basename(dir_name)
+                    try:
+                        # 处理CSV文件
+                        results_df = process_csv_file(file_path)
+                        results_dict[folder_name] = results_df
+                        print(f"Successfully processed: {file_path}")
+                    except Exception as e:
+                        print(f"Failed to process {file_path}: {e}")
+
+        # 绘制多曲线比较图表
+        if results_dict:
+            plot_sensitivity_comparison(results_dict, output_pdf_path)
+            print(f"PDF文件已保存到: {output_pdf_path}")
+        else:
+            print("未找到可处理的CSV文件")
+    else:
+        # 处理单个CSV文件
+        csv_file_path = r"D:\users\gxu\spur_scan\260312\notch_cw_scan\mcs_diff_3\RX_mcs9vht_20260312_153953.csv"
+        csv_file_path = os.path.normpath(csv_file_path)
+        results_df = process_csv_file(csv_file_path)
+        # 由于plot_sensitivity_comparison函数参数修改，此处需要将数据转换为字典格式
+        plot_sensitivity_comparison({'single_file': results_df}, output_pdf_path)
+        print(f"PDF文件已保存到: {output_pdf_path}")

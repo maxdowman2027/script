@@ -132,7 +132,7 @@ if __name__ == "__main__":
     # CSV_PATTERN = r"^order_\d{8}\.csv$"  # 正则示例（如order_20260209.csv）
 
     # 4. 移动到的目标路径（替换为你的实际路径）
-    TARGET_MOVE_PATH = r"D:\users\gxu\spur_scan\260311\add_pwr_diff_6\2G\40m\vht\notch_enable1\vht\ldpc"  # Windows示例
+    TARGET_MOVE_PATH = r"D:\users\gxu\spur_scan\260311\weight12\2G\40m\vht\notch_enable1\vht\ldpc"  # Windows示例
     # TARGET_MOVE_PATH = "/home/yourname/moved_target"  # Linux/Mac示例
 
     # 5. 是否使用正则匹配（文件夹/CSV）

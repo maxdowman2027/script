@@ -368,8 +368,8 @@ def batch_process_csv(csv_dir, pdf_save_root_dir, recursive=True):
 
 # ---------------------- 运行配置 ----------------------
 if __name__ == "__main__":
-    CSV_DIR = r"D:\users\gxu\txmagtrk\260317_fake_tb\2"          
-    SAVE_ROOT_DIR = r"D:\users\gxu\txmagtrk\260317_fake_tb\2\result" 
+    CSV_DIR = r"D:\users\gxu\txmagtrk\260317_fake_tb\2\3"          
+    SAVE_ROOT_DIR = r"D:\users\gxu\txmagtrk\260317_fake_tb\2\3\result" 
     RECURSIVE_SEARCH = False     
     CONFIG['CUSTOM_PARAM_COL'] = 'start_mode'
     CONFIG['REQUIRE_CUSTOM_PARAM'] = False

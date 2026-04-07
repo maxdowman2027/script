@@ -11,10 +11,10 @@ import glob
 
 # ================= 配置区域 =================
 # 在这里修改配置
-SEARCH_DIRECTORY = r"D:\users\gxu\rx_iq\E22\mimo_train_mimo_apply"  # 要搜索的根目录
+SEARCH_DIRECTORY = r"D:\users\gxu\rx_iq\E22\regression_result"  # 要搜索的根目录
 FILE_PATTERN = "rx_iq_cal_res_*.csv"  # 文件名匹配模式（支持通配符）
 DIFF_PWR_THRESHOLD = 45  # diff_pwr列的阈值（值小于此数的行将被提取）
-OUTPUT_FILE = r"D:\users\gxu\rx_iq\E22\mimo_train_mimo_apply\output\mimo_filtered_diff_pwr.csv"  # 输出文件路径
+OUTPUT_FILE = r"D:\users\gxu\rx_iq\E22\regression_result\output\filtered_diff_pwr.csv"  # 输出文件路径
 # ===========================================
 
 

@@ -5,7 +5,7 @@ from openpyxl.styles import Font
 from openpyxl.utils.exceptions import InvalidFileException
 
 # ===================== 配置项（请根据需求修改）=====================
-TARGET_PATH = r"D:\users\gxu\spur_scan\2G_high_mcs"  # 要检索的根文件夹路径（建议用r前缀避免转义）
+TARGET_PATH = r"D:\users\gxu\spur_scan\260311\add_pwr_diff_6\2G\40m\vht"  # 要检索的根文件夹路径（建议用r前缀避免转义）
 FILE_PATTERN = "*spur_diff.xlsx"          # 文件名匹配格式（如"report_*.xlsx"匹配以report_开头的xlsx文件）
 THRESHOLD_VALUE = 3            # 阈值：大于此值的数字会被标红
 OVERWRITE_ORIGINAL = False       # 是否覆盖原文件（False则另存为"原文件名_标红.xlsx"）

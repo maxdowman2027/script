@@ -241,9 +241,9 @@ def merge_csv_to_xlsx(input_dir, output_file, crc_fail_file=None):
 
 def main():
     # 直接在代码中修改输入路径和输出文件路径
-    input_dir = "D:/chip_test/dev/xian_test/Xian-Esp-Test-Scripts/py_script_fpga_tx_wifi7/Log/wifi_tx_rls4/no_he_2"
-    output_file = "D:/chip_test/dev/xian_test/Xian-Esp-Test-Scripts/py_script_fpga_tx_wifi7/Log/wifi_tx_rls4/no_he_2/merged_result.xlsx"
-    crc_fail_file = "D:/chip_test/dev/xian_test/Xian-Esp-Test-Scripts/py_script_fpga_tx_wifi7/Log/wifi_tx_rls4/no_he_2/crc_fail_result.xlsx"
+    input_dir = r"D:\chip_test\dev\xian_test\Xian-Esp-Test-Scripts\py_script_fpga_tx_wifi7\Log\wifi_tx_rls4\hesu_heersu_260402"
+    output_file = r"D:\chip_test\dev\xian_test\Xian-Esp-Test-Scripts\py_script_fpga_tx_wifi7\Log\wifi_tx_rls4\hesu_heersu_260402/merged_tx_result.xlsx"
+    crc_fail_file = r"D:\chip_test\dev\xian_test\Xian-Esp-Test-Scripts\py_script_fpga_tx_wifi7\Log\wifi_tx_rls4\hesu_heersu_260402/tx_crc_fail_result.xlsx"
 
     print(f"输入路径: {input_dir}")
     print(f"输出文件: {output_file}")

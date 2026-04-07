@@ -6,7 +6,7 @@ from openpyxl.styles import Font
 from openpyxl.utils.exceptions import InvalidFileException
 
 # ===================== 配置项（请根据需求修改）=====================
-TARGET_PATH = r"D:\users\gxu\spur_scan\260311\add_pwr_diff_3\2G\40m"  # 要检索的根文件夹路径
+TARGET_PATH = r"D:\users\gxu\spur_scan\260311\add_pwr_diff_6\2G\40m"  # 要检索的根文件夹路径
 FILE_PATTERN = "*spur.xlsx"                           # 查找的文件模式
 THRESHOLD_VALUE = 3                                   # 差值超过此阈值的单元格会被标红
 BASE_ROW_IDX = 0                                     # 基准行（0=第一行）
