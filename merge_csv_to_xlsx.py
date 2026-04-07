@@ -129,6 +129,8 @@ def merge_csv_to_xlsx(input_dir, output_file, crc_fail_file=None):
                 'ht': 'CCFFCC',     # 浅绿色
                 'vht': 'FFCCCC',    # 浅红色
                 'he': 'CCCCFF',     # 浅紫色
+                'hesu': 'E6CCFF',   # 淡紫色
+                'heer': 'D9B3FF',   # 深紫色
                 'nht': 'CCE5FF',    # 浅蓝色
                 'wifi7': 'FFFFE5'   # 浅橙色
             }
@@ -146,10 +148,12 @@ def merge_csv_to_xlsx(input_dir, output_file, crc_fail_file=None):
                 for row in worksheet.iter_rows(min_row=2, max_row=len(merged_df)+1, min_col=1, max_col=worksheet.max_column):
                     # 获取wifi_format值
                     cell_value = row[wifi_format_index].value
-                    # 匹配格式
+                    # 匹配格式，确保更具体的格式先匹配
                     format_name = None
-                    for key in format_colors.keys():
-                        if isinstance(cell_value, str) and cell_value.strip().lower() == key.lower():
+                    # 先检查更具体的格式
+                    specific_formats = ['hesu', 'heer', 'vht', 'nht', 'ht', '11n', '11g', '11b', 'he', 'wifi7']
+                    for key in specific_formats:
+                        if isinstance(cell_value, str) and key.lower() in cell_value.strip().lower():
                             format_name = key
                             break
 
@@ -178,6 +182,8 @@ def merge_csv_to_xlsx(input_dir, output_file, crc_fail_file=None):
                         'ht': 'CCFFCC',     # 浅绿色
                         'vht': 'FFCCCC',    # 浅红色
                         'he': 'CCCCFF',     # 浅紫色
+                        'hesu': 'E6CCFF',   # 淡紫色
+                        'heer': 'D9B3FF',   # 深紫色
                         'nht': 'CCE5FF',    # 浅蓝色
                         'wifi7': 'FFFFE5'   # 浅橙色
                     }
@@ -216,8 +222,10 @@ def merge_csv_to_xlsx(input_dir, output_file, crc_fail_file=None):
                         for row_idx in range(2, crc_worksheet.max_row + 1):
                             cell_value = crc_worksheet.cell(row=row_idx, column=wifi_format_index + 1).value
                             row_fill = None
-                            for key in format_colors.keys():
-                                if isinstance(cell_value, str) and cell_value.strip().lower() == key.lower():
+                            # 匹配格式，确保更具体的格式先匹配
+                            specific_formats = ['hesu', 'heer', 'vht', 'nht', 'ht', '11n', '11g', '11b', 'he', 'wifi7']
+                            for key in specific_formats:
+                                if isinstance(cell_value, str) and key.lower() in cell_value.strip().lower():
                                     row_fill = format_colors[key]
                                     break
 
@@ -226,6 +234,117 @@ def merge_csv_to_xlsx(input_dir, output_file, crc_fail_file=None):
                                 fill = openpyxl.styles.PatternFill(start_color=row_fill, end_color=row_fill, fill_type='solid')
                                 for col_idx in range(1, crc_worksheet.max_column + 1):
                                     crc_worksheet.cell(row=row_idx, column=col_idx).fill = fill
+
+    # 检查并保存Flatness和SpecMargin失败的记录
+    flatness_fail_file = None
+    specmargin_fail_file = None
+    if 'spectralFlatness_margin' in merged_df.columns or 'spectrumMarginDb' in merged_df.columns:
+        # 定义输出文件路径
+        if output_file:
+            base_dir = os.path.dirname(output_file)
+            base_name = os.path.splitext(os.path.basename(output_file))[0]
+            flatness_fail_file = os.path.join(base_dir, f"{base_name}_flatness_fail.xlsx")
+            specmargin_fail_file = os.path.join(base_dir, f"{base_name}_specmargin_fail.xlsx")
+
+        # 检查Flatness失败记录
+        if 'spectralFlatness_margin' in merged_df.columns:
+            flatness_fail_rows = []
+            for index, row in merged_df.iterrows():
+                flatness_margin = row['spectralFlatness_margin']
+                # 解析Flatness数据（格式类似：'1.23:2.34:3.45:4.56'）
+                if isinstance(flatness_margin, str):
+                    # 使用正则表达式解析数值
+                    flatness_values = re.findall(r'[-+]?\d*\.\d+|\d+', flatness_margin)
+                    # 检查是否有任何Flatness值小于0
+                    has_negative = False
+                    for value in flatness_values:
+                        try:
+                            if float(value) < 0:
+                                has_negative = True
+                                break
+                        except:
+                            continue
+                    if has_negative:
+                        flatness_fail_rows.append(index)
+
+            if flatness_fail_rows:
+                flatness_fail_df = merged_df.loc[flatness_fail_rows]
+                flatness_writer = pd.ExcelWriter(flatness_fail_file, engine='openpyxl')
+                flatness_fail_df.to_excel(flatness_writer, sheet_name='flatness_fail', index=False)
+
+                # 设置列宽和格式
+                worksheet = flatness_writer.sheets['flatness_fail']
+                for col in worksheet.columns:
+                    max_length = 0
+                    column = col[0].column_letter
+                    for cell in col:
+                        try:
+                            if len(str(cell.value)) > max_length:
+                                max_length = len(str(cell.value))
+                        except:
+                            pass
+                    adjusted_width = min(max_length + 2, 50)
+                    worksheet.column_dimensions[column].width = adjusted_width
+
+                # 重点列添加红色字体
+                priority_columns = ['tx_power_set(dBm)', 'evm', 'evm_nss0', 'evm_nss1', 'spectralFlatness_margin']
+                for col_idx in range(1, worksheet.max_column + 1):
+                    cell_value = worksheet.cell(row=1, column=col_idx).value
+                    if cell_value in priority_columns:
+                        worksheet.cell(row=1, column=col_idx).font = openpyxl.styles.Font(color="FF0000")
+
+                flatness_writer.close()
+                print(f"Flatness失败记录已保存到: {flatness_fail_file}")
+
+        # 检查SpecMargin失败记录
+        if 'spectrumMarginDb' in merged_df.columns:
+            specmargin_fail_rows = []
+            for index, row in merged_df.iterrows():
+                spectrum_margin = row['spectrumMarginDb']
+                # 解析SpecMargin数据（格式类似：'1.23:2.34:3.45:4.56'）
+                if isinstance(spectrum_margin, str):
+                    # 使用正则表达式解析数值
+                    specmargin_values = re.findall(r'[-+]?\d*\.\d+|\d+', spectrum_margin)
+                    # 检查是否有任何SpecMargin值小于0
+                    has_negative = False
+                    for value in specmargin_values:
+                        try:
+                            if float(value) < 0:
+                                has_negative = True
+                                break
+                        except:
+                            continue
+                    if has_negative:
+                        specmargin_fail_rows.append(index)
+
+            if specmargin_fail_rows:
+                specmargin_fail_df = merged_df.loc[specmargin_fail_rows]
+                specmargin_writer = pd.ExcelWriter(specmargin_fail_file, engine='openpyxl')
+                specmargin_fail_df.to_excel(specmargin_writer, sheet_name='specmargin_fail', index=False)
+
+                # 设置列宽和格式
+                worksheet = specmargin_writer.sheets['specmargin_fail']
+                for col in worksheet.columns:
+                    max_length = 0
+                    column = col[0].column_letter
+                    for cell in col:
+                        try:
+                            if len(str(cell.value)) > max_length:
+                                max_length = len(str(cell.value))
+                        except:
+                            pass
+                    adjusted_width = min(max_length + 2, 50)
+                    worksheet.column_dimensions[column].width = adjusted_width
+
+                # 重点列添加红色字体
+                priority_columns = ['tx_power_set(dBm)', 'evm', 'evm_nss0', 'evm_nss1', 'spectrumMarginDb']
+                for col_idx in range(1, worksheet.max_column + 1):
+                    cell_value = worksheet.cell(row=1, column=col_idx).value
+                    if cell_value in priority_columns:
+                        worksheet.cell(row=1, column=col_idx).font = openpyxl.styles.Font(color="FF0000")
+
+                specmargin_writer.close()
+                print(f"SpecMargin失败记录已保存到: {specmargin_fail_file}")
 
     # 保存文件
     try:
@@ -241,9 +360,9 @@ def merge_csv_to_xlsx(input_dir, output_file, crc_fail_file=None):
 
 def main():
     # 直接在代码中修改输入路径和输出文件路径
-    input_dir = r"D:\chip_test\dev\xian_test\Xian-Esp-Test-Scripts\py_script_fpga_tx_wifi7\Log\wifi_tx_rls4\hesu_heersu_260402"
-    output_file = r"D:\chip_test\dev\xian_test\Xian-Esp-Test-Scripts\py_script_fpga_tx_wifi7\Log\wifi_tx_rls4\hesu_heersu_260402/merged_tx_result.xlsx"
-    crc_fail_file = r"D:\chip_test\dev\xian_test\Xian-Esp-Test-Scripts\py_script_fpga_tx_wifi7\Log\wifi_tx_rls4\hesu_heersu_260402/tx_crc_fail_result.xlsx"
+    input_dir = r"D:\chip_test\dev\xian_test\Xian-Esp-Test-Scripts\py_script_fpga_tx_wifi7\Log\wifi_tx_rls4\regression_v1.0"
+    output_file = r"D:\chip_test\dev\xian_test\Xian-Esp-Test-Scripts\py_script_fpga_tx_wifi7\Log\wifi_tx_rls4\regression_v1.0/merged_tx_result.xlsx"
+    crc_fail_file = r"D:\chip_test\dev\xian_test\Xian-Esp-Test-Scripts\py_script_fpga_tx_wifi7\Log\wifi_tx_rls4\regression_v1.0/tx_crc_fail_result.xlsx"
 
     print(f"输入路径: {input_dir}")
     print(f"输出文件: {output_file}")
