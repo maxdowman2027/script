@@ -68,12 +68,19 @@ def analyze_sheet(df, sheet_name, output_dir):
     wifi_formats = df['wifi_format'].unique()
     print(f"WiFi formats in {sheet_name}: {wifi_formats}")
 
-    # 对每个tx_power和rate的组合进行比较
-    comparison_data = []
+    # 对每个wifi_format组合进行比较，并将结果存入不同的DataFrame中
+    comparison_data = {}
     all_tx_powers = df['tx_power_set(dBm)'].unique()
     all_rates = df['rate'].unique()
 
-    # 创建组合索引
+    # 获取所有唯一的wifi_format对
+    wifi_formats = df['wifi_format'].unique()
+    for i in range(len(wifi_formats)):
+        for j in range(i+1, len(wifi_formats)):
+            format_pair = f"{wifi_formats[i]}_vs_{wifi_formats[j]}"
+            comparison_data[format_pair] = []
+
+    # 对每个rate和tx_power的组合进行比较
     for rate in all_rates:
         for tx_pwr in all_tx_powers:
             # 过滤出相同rate和tx_pwr的所有wifi_format的数据
@@ -82,50 +89,85 @@ def analyze_sheet(df, sheet_name, output_dir):
             if len(filtered_df) > 1 and len(filtered_df['wifi_format'].unique()) > 1:
                 # 比较不同wifi_format之间的EVM
                 formats = filtered_df['wifi_format'].unique()
-                base_format = formats[0]
+                for i in range(len(formats)):
+                    for j in range(i+1, len(formats)):
+                        base_format = formats[i]
+                        compare_format = formats[j]
+                        format_pair = f"{base_format}_vs_{compare_format}"
 
-                for compare_format in formats[1:]:
-                    base_evm = filtered_df[filtered_df['wifi_format'] == base_format]['evm'].mean()
-                    compare_evm = filtered_df[filtered_df['wifi_format'] == compare_format]['evm'].mean()
+                        base_evm = filtered_df[filtered_df['wifi_format'] == base_format]['evm'].mean()
+                        compare_evm = filtered_df[filtered_df['wifi_format'] == compare_format]['evm'].mean()
 
-                    evm_diff = compare_evm - base_evm
-                    abs_diff = abs(evm_diff)
+                        evm_diff = compare_evm - base_evm
+                        abs_diff = abs(evm_diff)
 
-                    comparison_data.append({
-                        'rate': rate,
-                        'tx_power_set(dBm)': tx_pwr,
-                        'base_format': base_format,
-                        'compare_format': compare_format,
-                        'evm_base': base_evm,
-                        'evm_compare': compare_evm,
-                        'evm_diff': evm_diff,
-                        'abs_diff': abs_diff,
-                        'count': len(filtered_df),
-                        'formats_count': len(formats)
-                    })
+                        comparison_data[format_pair].append({
+                            'rate': rate,
+                            'tx_power_set(dBm)': tx_pwr,
+                            'base_format': base_format,
+                            'compare_format': compare_format,
+                            'evm_base': base_evm,
+                            'evm_compare': compare_evm,
+                            'evm_diff': evm_diff,
+                            'abs_diff': abs_diff,
+                            'count': len(filtered_df),
+                            'formats_count': len(formats)
+                        })
 
-    if not comparison_data:
+    # 检查是否有任何比较数据
+    has_data = False
+    for format_pair in comparison_data:
+        if comparison_data[format_pair]:
+            has_data = True
+            break
+
+    if not has_data:
         print(f"No comparisons found in {sheet_name}")
         return None
 
-    comparison_df = pd.DataFrame(comparison_data)
+    # 收集所有格式对的比较结果
+    all_comparison_dfs = {}
+    all_stats_dfs = {}
+    all_significant_diffs = {}
 
-    # 保存详细比较结果
+    for format_pair in comparison_data:
+        if comparison_data[format_pair]:
+            df_pair = pd.DataFrame(comparison_data[format_pair])
+            all_comparison_dfs[format_pair] = df_pair
+
+            # 计算统计结果
+            stats = df_pair.groupby(['base_format', 'compare_format', 'rate']).agg(
+                count=('evm_diff', 'count'),
+                mean_diff=('evm_diff', 'mean'),
+                median_diff=('evm_diff', 'median'),
+                std_diff=('evm_diff', 'std'),
+                min_diff=('evm_diff', 'min'),
+                max_diff=('evm_diff', 'max'),
+                mean_abs_diff=('abs_diff', 'mean'),
+                base_mean_evm=('evm_base', 'mean'),
+                base_median_evm=('evm_base', 'median'),
+                base_std_evm=('evm_base', 'std'),
+                compare_mean_evm=('evm_compare', 'mean'),
+                compare_median_evm=('evm_compare', 'median'),
+                compare_std_evm=('evm_compare', 'std')
+            ).reset_index()
+
+            all_stats_dfs[format_pair] = stats
+            all_significant_diffs[format_pair] = df_pair[df_pair['abs_diff'] > 2.0]
+
+    # 保存详细比较结果（每个格式对一个sheet）
     detailed_file = os.path.join(output_dir, f'{sheet_name}_detailed.xlsx')
-    comparison_df.to_excel(detailed_file, index=False)
+    with pd.ExcelWriter(detailed_file, engine='openpyxl') as writer:
+        for format_pair in comparison_data:
+            if comparison_data[format_pair]:
+                df_pair = pd.DataFrame(comparison_data[format_pair])
+                df_pair.to_excel(writer, sheet_name=format_pair, index=False)
 
-    # 添加颜色填充
+    # 为EVM值和差值添加颜色填充
     import openpyxl
     from openpyxl.styles import PatternFill
 
     wb = openpyxl.load_workbook(detailed_file)
-    ws = wb.active
-
-    # 查找EVM差异列的索引
-    diff_col_idx = None
-    for idx, cell in enumerate(ws[1]):
-        if cell.value == 'evm_diff':
-            diff_col_idx = idx + 1
 
     # 定义差异颜色填充规则
     def get_diff_fill(diff_value):
@@ -140,55 +182,110 @@ def analyze_sheet(df, sheet_name, output_dir):
         else:
             return PatternFill(start_color='FF0000', end_color='FF0000', fill_type='solid')  # 红色（明显较差）
 
-    if diff_col_idx:
-        for row in range(2, ws.max_row + 1):
-            cell = ws.cell(row=row, column=diff_col_idx)
-            diff_value = cell.value
-            if isinstance(diff_value, (int, float)):
-                cell.fill = get_diff_fill(diff_value)
+    # 为每个sheet添加颜色填充
+    for sheet_name in wb.sheetnames:
+        ws = wb[sheet_name]
+
+        # 查找EVM差异列的索引
+        diff_col_idx = None
+        for idx, cell in enumerate(ws[1]):
+            if cell.value == 'evm_diff':
+                diff_col_idx = idx + 1
+
+        if diff_col_idx:
+            for row in range(2, ws.max_row + 1):
+                cell = ws.cell(row=row, column=diff_col_idx)
+                diff_value = cell.value
+                if isinstance(diff_value, (int, float)):
+                    cell.fill = get_diff_fill(diff_value)
 
     wb.save(detailed_file)
 
-    # 统计结果
-    stats = comparison_df.groupby(['base_format', 'compare_format', 'rate']).agg(
-        count=('evm_diff', 'count'),
-        mean_diff=('evm_diff', 'mean'),
-        median_diff=('evm_diff', 'median'),
-        std_diff=('evm_diff', 'std'),
-        min_diff=('evm_diff', 'min'),
-        max_diff=('evm_diff', 'max'),
-        mean_abs_diff=('abs_diff', 'mean'),
-        base_mean_evm=('evm_base', 'mean'),
-        base_median_evm=('evm_base', 'median'),
-        base_std_evm=('evm_base', 'std'),
-        compare_mean_evm=('evm_compare', 'mean'),
-        compare_median_evm=('evm_compare', 'median'),
-        compare_std_evm=('evm_compare', 'std')
-    ).reset_index()
-
+    # 统计结果（每个格式对一个sheet）
     summary_file = os.path.join(output_dir, f'{sheet_name}_summary.xlsx')
-    stats.to_excel(summary_file, index=False)
+    with pd.ExcelWriter(summary_file, engine='openpyxl') as writer:
+        for format_pair in comparison_data:
+            if comparison_data[format_pair]:
+                df_pair = pd.DataFrame(comparison_data[format_pair])
 
-    # 可视化
-    plot_comparison(stats, comparison_df, sheet_name, output_dir)
+                stats = df_pair.groupby(['base_format', 'compare_format', 'rate']).agg(
+                    count=('evm_diff', 'count'),
+                    mean_diff=('evm_diff', 'mean'),
+                    median_diff=('evm_diff', 'median'),
+                    std_diff=('evm_diff', 'std'),
+                    min_diff=('evm_diff', 'min'),
+                    max_diff=('evm_diff', 'max'),
+                    mean_abs_diff=('abs_diff', 'mean'),
+                    base_mean_evm=('evm_base', 'mean'),
+                    base_median_evm=('evm_base', 'median'),
+                    base_std_evm=('evm_base', 'std'),
+                    compare_mean_evm=('evm_compare', 'mean'),
+                    compare_median_evm=('evm_compare', 'median'),
+                    compare_std_evm=('evm_compare', 'std')
+                ).reset_index()
 
-    # 找出差异较大的情况
-    significant_diff = comparison_df[comparison_df['abs_diff'] > 2.0]
+                stats.to_excel(writer, sheet_name=format_pair, index=False)
+
+    # 可视化（每个格式对一个图表）
+    for format_pair, df_pair in all_comparison_dfs.items():
+        stats = all_stats_dfs[format_pair]
+        plot_comparison(stats, df_pair, sheet_name, output_dir, format_pair)
+
+    # 找出差异较大的情况（每个格式对一个sheet）
     significant_diff_file = os.path.join(output_dir, f'{sheet_name}_significant_differences.xlsx')
-    significant_diff.to_excel(significant_diff_file, index=False)
+    with pd.ExcelWriter(significant_diff_file, engine='openpyxl') as writer:
+        total_significant = 0
+        for format_pair in comparison_data:
+            if comparison_data[format_pair]:
+                df_pair = pd.DataFrame(comparison_data[format_pair])
+                significant = df_pair[df_pair['abs_diff'] > 2.0]
+                if not significant.empty:
+                    significant.to_excel(writer, sheet_name=format_pair, index=False)
+                    total_significant += len(significant)
+                    print(f"Significant differences (>2dB) in {sheet_name} {format_pair}: {len(significant)} records")
 
-    print(f"Significant differences (>2dB) in {sheet_name}: {len(significant_diff)} records")
+    print(f"Total significant differences (>2dB) in {sheet_name}: {total_significant} records")
+
+    # 收集所有格式对的比较结果
+    all_comparison_dfs = {}
+    all_stats_dfs = {}
+    all_significant_diffs = {}
+
+    for format_pair in comparison_data:
+        if comparison_data[format_pair]:
+            df_pair = pd.DataFrame(comparison_data[format_pair])
+            all_comparison_dfs[format_pair] = df_pair
+
+            # 计算统计结果
+            stats = df_pair.groupby(['base_format', 'compare_format', 'rate']).agg(
+                count=('evm_diff', 'count'),
+                mean_diff=('evm_diff', 'mean'),
+                median_diff=('evm_diff', 'median'),
+                std_diff=('evm_diff', 'std'),
+                min_diff=('evm_diff', 'min'),
+                max_diff=('evm_diff', 'max'),
+                mean_abs_diff=('abs_diff', 'mean'),
+                base_mean_evm=('evm_base', 'mean'),
+                base_median_evm=('evm_base', 'median'),
+                base_std_evm=('evm_base', 'std'),
+                compare_mean_evm=('evm_compare', 'mean'),
+                compare_median_evm=('evm_compare', 'median'),
+                compare_std_evm=('evm_compare', 'std')
+            ).reset_index()
+
+            all_stats_dfs[format_pair] = stats
+            all_significant_diffs[format_pair] = df_pair[df_pair['abs_diff'] > 2.0]
 
     return {
         'sheet_name': sheet_name,
-        'comparison_df': comparison_df,
-        'stats_df': stats,
-        'significant_diff': significant_diff
+        'comparison_dfs': all_comparison_dfs,
+        'stats_dfs': all_stats_dfs,
+        'significant_diffs': all_significant_diffs
     }
 
 
-def plot_comparison(stats, comparison_df, sheet_name, output_dir):
-    sheet_dir = os.path.join(output_dir, sheet_name)
+def plot_comparison(stats, comparison_df, sheet_name, output_dir, format_pair):
+    sheet_dir = os.path.join(output_dir, sheet_name, format_pair)
     os.makedirs(sheet_dir, exist_ok=True)
 
     # 1. EVM difference distribution histogram
@@ -196,7 +293,7 @@ def plot_comparison(stats, comparison_df, sheet_name, output_dir):
     plt.hist(comparison_df['evm_diff'], bins=30, alpha=0.7, color='b')
     plt.axvline(comparison_df['evm_diff'].mean(), color='r', linestyle='--', label=f'Mean = {comparison_df["evm_diff"].mean():.2f}')
     plt.axvline(0, color='g', linestyle='-', label='No Difference')
-    plt.title(f'{sheet_name} WiFi Format EVM Difference Distribution')
+    plt.title(f'{sheet_name} {format_pair} EVM Difference Distribution')
     plt.xlabel('EVM Difference (dB)')
     plt.ylabel('Number of Records')
     plt.legend()
@@ -205,27 +302,26 @@ def plot_comparison(stats, comparison_df, sheet_name, output_dir):
     plt.savefig(os.path.join(sheet_dir, 'evm_diff_distribution.png'), dpi=150)
     plt.close()
 
-    # 2. Average difference by rate and format comparison
+    # 2. Average difference by rate
     plt.figure(figsize=(16, 8))
     pivot = stats.pivot(index='rate', columns=['base_format', 'compare_format'], values='mean_diff')
     sns.heatmap(pivot, annot=True, cmap='coolwarm', fmt='.2f', cbar_kws={'label': 'Average EVM Difference (dB)'})
-    plt.title(f'{sheet_name} Average EVM Difference by Rate and Format Comparison')
+    plt.title(f'{sheet_name} {format_pair} Average EVM Difference by Rate')
     plt.tight_layout()
     plt.savefig(os.path.join(sheet_dir, 'evm_diff_heatmap.png'), dpi=150)
     plt.close()
 
-    # 3. EVM difference boxplot by format pair
+    # 3. EVM difference boxplot by rate
     plt.figure(figsize=(16, 8))
-    format_pairs = stats.apply(lambda x: f"{x['base_format']} vs {x['compare_format']}", axis=1)
-    sns.boxplot(x=format_pairs, y='mean_diff', data=stats)
+    sns.boxplot(x='rate', y='mean_diff', data=stats)
     plt.axhline(y=0, color='g', linestyle='-', label='No Difference')
-    plt.title(f'{sheet_name} EVM Difference by Format Pair')
-    plt.xlabel('Format Comparison')
+    plt.title(f'{sheet_name} {format_pair} EVM Difference by Rate')
+    plt.xlabel('Rate')
     plt.ylabel('EVM Difference (dB)')
     plt.xticks(rotation=45)
     plt.legend()
     plt.tight_layout()
-    plt.savefig(os.path.join(sheet_dir, 'evm_diff_by_format_pair.png'), dpi=150)
+    plt.savefig(os.path.join(sheet_dir, 'evm_diff_by_rate.png'), dpi=150)
     plt.close()
 
     # 4. Significant differences scatter plot
@@ -237,7 +333,7 @@ def plot_comparison(stats, comparison_df, sheet_name, output_dir):
         plt.colorbar(label='Absolute EVM Difference (dB)')
         plt.xlabel('TX Power (dBm)')
         plt.ylabel('EVM Difference (dB)')
-        plt.title(f'{sheet_name} Significant EVM Differences (>2dB) by TX Power')
+        plt.title(f'{sheet_name} {format_pair} Significant EVM Differences (>2dB) by TX Power')
         plt.grid(True)
         plt.tight_layout()
         plt.savefig(os.path.join(sheet_dir, 'significant_differences_scatter.png'), dpi=150)
@@ -362,10 +458,13 @@ def generate_html_report(comparison_results, output_dir, output_file):
     all_evm_diffs = []
 
     for sheet_name, result in comparison_results.items():
-        total_records += len(result['comparison_df'])
-        total_comparisons += 1
-        total_significant_diff += len(result['significant_diff'])
-        all_evm_diffs.extend(result['comparison_df']['abs_diff'].tolist())
+        # 遍历每个格式对的数据
+        for format_pair, df_pair in result['comparison_dfs'].items():
+            total_records += len(df_pair)
+            total_comparisons += 1
+            if format_pair in result['significant_diffs']:
+                total_significant_diff += len(result['significant_diffs'][format_pair])
+            all_evm_diffs.extend(df_pair['abs_diff'].tolist())
 
     avg_abs_diff = np.mean(all_evm_diffs) if all_evm_diffs else 0
     max_diff = np.max(all_evm_diffs) if all_evm_diffs else 0
@@ -414,9 +513,19 @@ def generate_html_report(comparison_results, output_dir, output_file):
     '''
 
     for sheet_name, result in comparison_results.items():
-        sheet_avg_abs = result['comparison_df']['abs_diff'].mean()
-        sheet_max_diff = result['comparison_df']['abs_diff'].max()
-        sheet_significant = len(result['significant_diff'])
+        # 计算当前sheet的整体平均和最大值
+        all_abs_diffs = []
+        sheet_significant = 0
+        sheet_total_records = 0
+
+        for format_pair, df_pair in result['comparison_dfs'].items():
+            all_abs_diffs.extend(df_pair['abs_diff'].tolist())
+            sheet_total_records += len(df_pair)
+            if format_pair in result['significant_diffs']:
+                sheet_significant += len(result['significant_diffs'][format_pair])
+
+        sheet_avg_abs = np.mean(all_abs_diffs) if all_abs_diffs else 0
+        sheet_max_diff = np.max(all_abs_diffs) if all_abs_diffs else 0
 
         avg_class = 'success' if sheet_avg_abs < 1 else 'warning' if sheet_avg_abs < 2 else 'error'
         max_class = 'success' if sheet_max_diff < 1 else 'warning' if sheet_max_diff < 2 else 'error'
@@ -425,7 +534,7 @@ def generate_html_report(comparison_results, output_dir, output_file):
         html_content += f'''
                         <tr>
                             <td>{sheet_name}</td>
-                            <td>{len(result['comparison_df'])}</td>
+                            <td>{sheet_total_records}</td>
                             <td class="{avg_class}">{sheet_avg_abs:.2f} dB</td>
                             <td class="{max_class}">{sheet_max_diff:.2f} dB</td>
                             <td class="{sig_class}">{sheet_significant}</td>

@@ -12,7 +12,7 @@ def main():
     wifi7_file = r"D:\chip_test\dev\xian_test\Xian-Esp-Test-Scripts\py_script_fpga_tx_wifi7\Log\wifi_tx\20260407\vht_ht_hesu\merged_tx_result.xlsx"
 
     # 输出目录
-    output_dir = r"D:\chip_test\dev\xian_test\Xian-Esp-Test-Scripts\py_script_fpga_tx_wifi7\Log\wifi_tx\20260407\vht_ht_hesu\rls4_wifi7_hesu_evm_comparison"
+    output_dir = r"D:\chip_test\dev\xian_test\Xian-Esp-Test-Scripts\py_script_fpga_tx_wifi7\Log\wifi_tx\20260407\vht_ht_hesu\rls4_wifi7_evm_comparison"
     os.makedirs(output_dir, exist_ok=True)
 
     print("=== Start analyzing RLS4.0 version data (hesu) ===")

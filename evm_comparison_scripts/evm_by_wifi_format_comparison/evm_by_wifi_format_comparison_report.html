@@ -101,12 +101,12 @@
                 <div class="stats">
                     <div class="stat-card">
                         <h4>总比较记录数</h4>
-                        <div class="stat-value">1088</div>
+                        <div class="stat-value">1600</div>
                     </div>
                     <div class="stat-card">
                         <h4>平均绝对差值</h4>
                         <div class="stat-value" style="color: green">
-                            0.84 dB
+                            0.69 dB
                         </div>
                     </div>
                     <div class="stat-card">
@@ -118,7 +118,7 @@
                     <div class="stat-card">
                         <h4>显著差异数(>2dB)</h4>
                         <div class="stat-value" style="color: orange">
-                            7
+                            8
                         </div>
                     </div>
                 </div>
@@ -141,8 +141,8 @@
     
                         <tr>
                             <td>channel11_BCC_NSS1</td>
-                            <td>544</td>
-                            <td class="success">0.89 dB</td>
+                            <td>800</td>
+                            <td class="success">0.69 dB</td>
                             <td class="error">2.53 dB</td>
                             <td class="warning">3</td>
                             <td>
@@ -155,10 +155,10 @@
         
                         <tr>
                             <td>channel5180_BCC_NSS1</td>
-                            <td>544</td>
-                            <td class="success">0.78 dB</td>
-                            <td class="error">2.22 dB</td>
-                            <td class="warning">4</td>
+                            <td>800</td>
+                            <td class="success">0.68 dB</td>
+                            <td class="error">2.35 dB</td>
+                            <td class="warning">5</td>
                             <td>
                                 <a href="channel5180_BCC_NSS1_detailed.xlsx" class="sheet-link">Detailed Data</a><br>
                                 <a href="channel5180_BCC_NSS1_summary.xlsx" class="sheet-link">Statistical Summary</a><br>
@@ -175,7 +175,7 @@
                 <h2>3. 主要发现</h2>
                 <ul>
                     <li><strong>整体趋势:</strong> WiFi格式之间的EVM差异主要集中在低速率(mcs0)和高发射功率情况下</li>
-                    <li><strong>显著差异:</strong> 存在7个显著差异记录(>2dB)</li>
+                    <li><strong>显著差异:</strong> 存在8个显著差异记录(>2dB)</li>
                     <li><strong>需要关注:</strong> 重点检查平均绝对差值大于2dB的配置，这些差异可能表明产品性能问题</li>
                 </ul>
             </div>
@@ -183,7 +183,7 @@
             <div class="section">
                 <h2>4. 使用建议</h2>
                 <ol>
-                    <li>检查7个显著差异记录(>2dB)，重点关注mcs0在高TX Power的情况</li>
+                    <li>检查8个显著差异记录(>2dB)，重点关注mcs0在高TX Power的情况</li>
                     <li>分析特定格式组合(如hesu vs ht, ht vs vht, vht vs hesu)的性能差异</li>
                     <li>对差异较大的测试条件进行硬件验证，以确认是否为实际硬件问题</li>
                     <li>检查测试配置是否一致，包括cable_loss、tx_shr、bb_scale等参数是否匹配</li>
@@ -195,7 +195,7 @@
                 <ul>
                     <li><strong>分析脚本:</strong> compare_evm_by_wifi_format.py</li>
                     <li><strong>数据源:</strong> D:/chip_test/dev/xian_test/Xian-Esp-Test-Scripts/py_script_fpga_tx_wifi7/Log/wifi_tx_rls4/vht_ht_hesu_compare/merged_tx_result.xlsx</li>
-                    <li><strong>分析时间:</strong> 2026-04-08 17:10:08
+                    <li><strong>分析时间:</strong> 2026-04-08 17:35:54
                 </ul>
             </div>
         </div>
