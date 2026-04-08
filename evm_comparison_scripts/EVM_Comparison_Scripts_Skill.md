@@ -44,6 +44,26 @@ from datetime import datetime
 #### `compare_evm_wifi7_rls4.py`
 **功能**：与`compare_evm_rls4_wifi7.py`类似，但可能有不同的实现细节
 
+#### `compare_evm_rls3_rls4.py`
+**功能**：比较RLS3.0和RLS4.0版本的EVM性能差异
+**特点**：
+- 支持比较RLS3.0和RLS4.0版本的测试结果
+- 自动匹配相同的测试条件（wifi_format、rate、tx_pwr）
+- 计算EVM差异和统计信息
+- 为EVM值和差值添加填充色以提高可读性
+- 生成详细的对比结果和统计摘要
+- 可视化差异分布和趋势
+- 生成HTML报告
+
+#### `compare_evm_by_wifi_format.py`
+**功能**：比较不同wifi_format之间，相同tx_power_set(dBm)和rate情况下的EVM差异
+**特点**：
+- 分析单个版本中不同WiFi格式之间的EVM差异
+- 支持相同测试条件下的格式间比较
+- 识别显著差异（>2dB）的测试条件
+- 生成详细的Excel报告和可视化图表
+- 提供针对格式间比较的建议
+
 ### 2. 辅助脚本
 
 #### `view_comparison_results.py`
@@ -87,7 +107,10 @@ evm_comparison_scripts/
 ├── compare_evm_old_new.py          # 旧版本vs新版本比较
 ├── compare_evm_rls4_wifi7.py       # RLS4.0 vs WiFi7比较
 ├── compare_evm_wifi7_rls4.py       # WiFi7 vs RLS4.0比较
+├── compare_evm_rls3_rls4.py        # RLS3.0 vs RLS4.0比较
+├── compare_evm_by_wifi_format.py   # 不同wifi_format之间EVM比较
 ├── view_comparison_results.py      # 结果查看辅助脚本
+├── analyze_sample_results.py       # 示例结果分析脚本
 └── EVM_Comparison_Scripts_Skill.md # 技能文档
 ```
 
@@ -171,7 +194,7 @@ Excel文件应包含以下列：
 
 ---
 
-**文档版本**：1.0
+**文档版本**：1.1
 **更新日期**：2026-04-08
 **作者**：[gxu]
 **联系邮箱**：[gxu@example.com]

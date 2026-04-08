@@ -1,0 +1,217 @@
+
+    <!DOCTYPE html>
+    <html>
+    <head>
+        <title>RLS3.0 vs RLS4.0 Version EVM Comparison Analysis</title>
+        <style>
+            body {
+                font-family: Arial, sans-serif;
+                margin: 20px;
+                background-color: #f5f5f5;
+            }
+            .container {
+                max-width: 1200px;
+                margin: 0 auto;
+                background-color: white;
+                padding: 20px;
+                border-radius: 8px;
+                box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+            }
+            h1, h2, h3 {
+                color: #333;
+            }
+            .section {
+                margin-bottom: 30px;
+                padding-bottom: 20px;
+                border-bottom: 1px solid #ddd;
+            }
+            .summary-table {
+                width: 100%;
+                border-collapse: collapse;
+                margin-bottom: 20px;
+                background-color: white;
+            }
+            .summary-table th, .summary-table td {
+                padding: 12px;
+                text-align: left;
+                border-bottom: 1px solid #ddd;
+            }
+            .summary-table th {
+                background-color: #f2f2f2;
+            }
+            .summary-table tr:hover {
+                background-color: #f5f5f5;
+            }
+            .success {
+                color: green;
+            }
+            .warning {
+                color: orange;
+            }
+            .error {
+                color: red;
+            }
+            .image-container {
+                text-align: center;
+                margin: 20px 0;
+            }
+            .image-container img {
+                max-width: 100%;
+                height: auto;
+                border: 1px solid #ddd;
+                border-radius: 4px;
+            }
+            .sheet-link {
+                color: #1a73e8;
+                text-decoration: none;
+            }
+            .sheet-link:hover {
+                text-decoration: underline;
+            }
+            .stats {
+                display: grid;
+                grid-template-columns: repeat(auto-fit, minmax(250px, 1fr));
+                gap: 20px;
+                margin-bottom: 30px;
+            }
+            .stat-card {
+                background-color: #f8f9fa;
+                padding: 15px;
+                border-radius: 6px;
+                box-shadow: 0 1px 3px rgba(0,0,0,0.1);
+            }
+            .stat-card h4 {
+                margin-top: 0;
+                color: #555;
+            }
+            .stat-value {
+                font-size: 24px;
+                font-weight: bold;
+                margin: 10px 0;
+            }
+        </style>
+    </head>
+    <body>
+        <div class="container">
+            <h1>RLS3.0 与 RLS4.0 版本 EVM 对比分析</h1>
+
+            <div class="section">
+                <h2>1. 整体对比统计</h2>
+                <div class="stats">
+    
+                <div class="stat-card">
+                    <h4>匹配记录数</h4>
+                    <div class="stat-value">1664</div>
+                    <p>RLS3.0总记录数: 1664<br>RLS4.0总记录数: 1728</p>
+                </div>
+                <div class="stat-card">
+                    <h4>平均EVM差值</h4>
+                    <div class="stat-value" style="color:green;">0.39 dB</div>
+                    <p>平均值</p>
+                </div>
+                <div class="stat-card">
+                    <h4>最大EVM差值</h4>
+                    <div class="stat-value" style="color:orange;">1.70 dB</div>
+                    <p>最大值</p>
+                </div>
+                <div class="stat-card">
+                    <h4>最小EVM差值</h4>
+                    <div class="stat-value" style="color:red;">-2.21 dB</div>
+                    <p>最小值</p>
+                </div>
+    
+                </div>
+            </div>
+
+            <div class="section">
+                <h2>2. Sheet级对比详情</h2>
+                <table class="summary-table">
+                    <thead>
+                        <tr>
+                            <th>RLS3.0 Sheet</th>
+                            <th>RLS4.0 Sheet</th>
+                            <th>匹配记录数</th>
+                            <th>RLS3.0记录数</th>
+                            <th>RLS4.0记录数</th>
+                            <th>平均差值</th>
+                            <th>最大差值</th>
+                            <th>最小差值</th>
+                            <th>平均绝对差值</th>
+                            <th>RLS3.0 EVM列</th>
+                            <th>详细结果</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+    
+                        <tr>
+                            <td>channel11_BCC_NSS1</td>
+                            <td>channel11_BCC_NSS1</td>
+                            <td>832</td>
+                            <td>832</td>
+                            <td>864</td>
+                            <td class="success">0.15</td>
+                            <td class="success">1.70</td>
+                            <td class="success">-1.25</td>
+                            <td class="success">0.30</td>
+                            <td>evm</td>
+                            <td>
+                                <a href="channel11_BCC_NSS1_vs_channel11_BCC_NSS1_detailed.xlsx" class="sheet-link">Detailed Data</a><br>
+                                <a href="channel11_BCC_NSS1_vs_channel11_BCC_NSS1_summary.xlsx" class="sheet-link">Statistical Summary</a><br>
+                                <a href="channel11_BCC_NSS1_vs_channel11_BCC_NSS1" class="sheet-link">Charts</a>
+                            </td>
+                        </tr>
+        
+                        <tr>
+                            <td>channel5180_BCC_NSS1</td>
+                            <td>channel5180_BCC_NSS1</td>
+                            <td>832</td>
+                            <td>832</td>
+                            <td>864</td>
+                            <td class="success">-0.21</td>
+                            <td class="success">1.29</td>
+                            <td class="warning">-2.21</td>
+                            <td class="success">0.48</td>
+                            <td>evm</td>
+                            <td>
+                                <a href="channel5180_BCC_NSS1_vs_channel5180_BCC_NSS1_detailed.xlsx" class="sheet-link">Detailed Data</a><br>
+                                <a href="channel5180_BCC_NSS1_vs_channel5180_BCC_NSS1_summary.xlsx" class="sheet-link">Statistical Summary</a><br>
+                                <a href="channel5180_BCC_NSS1_vs_channel5180_BCC_NSS1" class="sheet-link">Charts</a>
+                            </td>
+                        </tr>
+        
+                    </tbody>
+                </table>
+            </div>
+
+            <div class="section">
+                <h2>3. 主要发现</h2>
+                <ul>
+                    <li><strong>匹配记录百分比:</strong> RLS3.0记录中有100.00%在RLS4.0版本中找到了匹配项</li>
+                    <li><strong>整体EVM趋势:</strong> RLS3.0和RLS4.0版本之间的EVM差异不显著</li>
+                    <li><strong>主要差异来源:</strong> 需要进一步分析特定Rate和Format组合的性能</li>
+                </ul>
+            </div>
+
+            <div class="section">
+                <h2>4. 使用建议</h2>
+                <ol>
+                    <li>应优先检查具有较大差异的Sheet和Rate/Format组合</li>
+                    <li>重点分析平均绝对差值大于2dB的配置</li>
+                    <li>检查RLS4.0版本是否覆盖了所有测试场景</li>
+                    <li>如有必要，进行硬件验证以确认差异是否合理</li>
+                </ol>
+            </div>
+
+            <div class="section">
+                <h2>5. 文件描述</h2>
+                <ul>
+                    <li><strong>分析脚本:</strong> compare_evm_rls3_rls4.py</li>
+                    <li><strong>RLS3.0版本文件:</strong> D:/chip_test/dev/chip_tx/eagletest/py_script_fpga_tx/Log/wifi_tx/vht_ht_hesu_rls3/merged_tx_result.xlsx</li>
+                    <li><strong>RLS4.0版本文件:</strong> D:/chip_test/dev/xian_test/Xian-Esp-Test-Scripts/py_script_fpga_tx_wifi7/Log/wifi_tx_rls4/vht_ht_hesu_compare/merged_tx_result.xlsx</li>
+                    <li><strong>生成时间:</strong> 2026-04-08 16:58:42</li>
+                </ul>
+            </div>
+        </div>
+    </body>
+    </html>
+    
