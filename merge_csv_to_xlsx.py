@@ -163,6 +163,16 @@ def merge_csv_to_xlsx(input_dir, output_file, crc_fail_file=None):
                         for cell in row:
                             cell.fill = fill
 
+                # 为evm相关列添加特殊填充色
+                evm_columns = ['evm', 'evm_nss0', 'evm_nss1']
+                for col_idx in range(1, worksheet.max_column + 1):
+                    cell_value = worksheet.cell(row=1, column=col_idx).value
+                    if cell_value in evm_columns:
+                        # 为evm相关列添加黄色填充色
+                        for row_idx in range(2, worksheet.max_row + 1):
+                            evm_fill = openpyxl.styles.PatternFill(start_color='FFFF00', end_color='FFFF00', fill_type='solid')
+                            worksheet.cell(row=row_idx, column=col_idx).fill = evm_fill
+
             # 检查是否需要保存crc失败的情况
             if crc_writer and 'psdu_crc' in merged_df.columns:
                 crc_fail_df = merged_df[merged_df['psdu_crc'] == 'Fail']
@@ -235,116 +245,388 @@ def merge_csv_to_xlsx(input_dir, output_file, crc_fail_file=None):
                                 for col_idx in range(1, crc_worksheet.max_column + 1):
                                     crc_worksheet.cell(row=row_idx, column=col_idx).fill = fill
 
-    # 检查并保存Flatness和SpecMargin失败的记录
+                        # 为evm相关列添加特殊填充色
+                        evm_columns = ['evm', 'evm_nss0', 'evm_nss1']
+                        for col_idx in range(1, crc_worksheet.max_column + 1):
+                            cell_value = crc_worksheet.cell(row=1, column=col_idx).value
+                            if cell_value in evm_columns:
+                                # 为evm相关列添加黄色填充色
+                                for row_idx in range(2, crc_worksheet.max_row + 1):
+                                    evm_fill = openpyxl.styles.PatternFill(start_color='FFFF00', end_color='FFFF00', fill_type='solid')
+                                    crc_worksheet.cell(row=row_idx, column=col_idx).fill = evm_fill
+
+    # 初始化Flatness和SpecMargin失败记录写入器
+    flatness_writer = None
+    specmargin_writer = None
     flatness_fail_file = None
     specmargin_fail_file = None
-    if 'spectralFlatness_margin' in merged_df.columns or 'spectrumMarginDb' in merged_df.columns:
-        # 定义输出文件路径
-        if output_file:
-            base_dir = os.path.dirname(output_file)
-            base_name = os.path.splitext(os.path.basename(output_file))[0]
-            flatness_fail_file = os.path.join(base_dir, f"{base_name}_flatness_fail.xlsx")
-            specmargin_fail_file = os.path.join(base_dir, f"{base_name}_specmargin_fail.xlsx")
 
-        # 检查Flatness失败记录
-        if 'spectralFlatness_margin' in merged_df.columns:
-            flatness_fail_rows = []
-            for index, row in merged_df.iterrows():
-                flatness_margin = row['spectralFlatness_margin']
-                # 解析Flatness数据（格式类似：'1.23:2.34:3.45:4.56'）
-                if isinstance(flatness_margin, str):
-                    # 使用正则表达式解析数值
-                    flatness_values = re.findall(r'[-+]?\d*\.\d+|\d+', flatness_margin)
-                    # 检查是否有任何Flatness值小于0
-                    has_negative = False
-                    for value in flatness_values:
-                        try:
-                            if float(value) < 0:
-                                has_negative = True
-                                break
-                        except:
-                            continue
-                    if has_negative:
-                        flatness_fail_rows.append(index)
+    # 首先收集所有失败记录，然后再创建ExcelWriter对象
+    flatness_fail_data = {}
+    specmargin_fail_data = {}
 
-            if flatness_fail_rows:
-                flatness_fail_df = merged_df.loc[flatness_fail_rows]
-                flatness_writer = pd.ExcelWriter(flatness_fail_file, engine='openpyxl')
-                flatness_fail_df.to_excel(flatness_writer, sheet_name='flatness_fail', index=False)
+    # 重新遍历每个分组的文件，收集失败记录
+    for sheet_name, files in grouped_files.items():
+        # 读取并合并该分组的所有CSV文件
+        dfs = []
+        for f in files:
+            try:
+                df = pd.read_csv(f)
+                dfs.append(df)
+            except Exception as e:
+                print(f"读取文件 {f} 失败: {e}")
+                continue
 
-                # 设置列宽和格式
-                worksheet = flatness_writer.sheets['flatness_fail']
-                for col in worksheet.columns:
-                    max_length = 0
-                    column = col[0].column_letter
-                    for cell in col:
-                        try:
-                            if len(str(cell.value)) > max_length:
-                                max_length = len(str(cell.value))
-                        except:
-                            pass
-                    adjusted_width = min(max_length + 2, 50)
-                    worksheet.column_dimensions[column].width = adjusted_width
+        if dfs:
+            merged_df_sheet = pd.concat(dfs, ignore_index=True)
 
-                # 重点列添加红色字体
-                priority_columns = ['tx_power_set(dBm)', 'evm', 'evm_nss0', 'evm_nss1', 'spectralFlatness_margin']
+            # 收集Flatness失败记录
+            if 'spectralFlatness_margin' in merged_df_sheet.columns:
+                flatness_fail_rows = []
+                for index, row in merged_df_sheet.iterrows():
+                    flatness_margin = row['spectralFlatness_margin']
+                    if isinstance(flatness_margin, str):
+                        flatness_values = re.findall(r'[-+]?\d*\.\d+|\d+', flatness_margin)
+                        has_negative = False
+                        for value in flatness_values:
+                            try:
+                                if float(value) < 0:
+                                    has_negative = True
+                                    break
+                            except:
+                                continue
+                        if has_negative:
+                            flatness_fail_rows.append(index)
+
+                if flatness_fail_rows:
+                    flatness_fail_data[sheet_name] = merged_df_sheet.loc[flatness_fail_rows]
+
+            # 收集SpecMargin失败记录
+            if 'spectrumMarginDb' in merged_df_sheet.columns or 'spectrumMarginDb_nss1' in merged_df_sheet.columns:
+                specmargin_fail_rows = []
+                specmargin_column = 'spectrumMarginDb' if 'spectrumMarginDb' in merged_df_sheet.columns else 'spectrumMarginDb_nss1'
+
+                for index, row in merged_df_sheet.iterrows():
+                    spectrum_margin = row[specmargin_column]
+                    if isinstance(spectrum_margin, str):
+                        specmargin_values = re.findall(r'[-+]?\d*\.\d+|\d+', spectrum_margin)
+                        has_negative = False
+                        for value in specmargin_values:
+                            try:
+                                if float(value) < 0:
+                                    has_negative = True
+                                    break
+                            except:
+                                continue
+                        if has_negative:
+                            specmargin_fail_rows.append(index)
+
+                if specmargin_fail_rows:
+                    specmargin_fail_data[sheet_name] = merged_df_sheet.loc[specmargin_fail_rows]
+
+    # 只有在有失败记录时才创建ExcelWriter对象
+    if flatness_fail_data:
+        base_dir = os.path.dirname(output_file)
+        base_name = os.path.splitext(os.path.basename(output_file))[0]
+        flatness_fail_file = os.path.join(base_dir, f"{base_name}_flatness_fail.xlsx")
+        flatness_writer = pd.ExcelWriter(flatness_fail_file, engine='openpyxl')
+
+        # 写入Flatness失败记录
+        for sheet_name, df in flatness_fail_data.items():
+            df.to_excel(flatness_writer, sheet_name=sheet_name, index=False)
+            print(f"找到 {len(df)} 行Flatness失败的记录，已写入到 {flatness_fail_file} 的 {sheet_name} Sheet")
+
+            # 为不同wifi_format的行添加填充色
+            worksheet = flatness_writer.sheets[sheet_name]
+            format_colors = {
+                '11b': 'FFCCFF',    # 浅粉色
+                '11g': 'CCFFFF',    # 浅青色
+                '11n': 'FFFFCC',    # 浅黄色
+                'ht': 'CCFFCC',     # 浅绿色
+                'vht': 'FFCCCC',    # 浅红色
+                'he': 'CCCCFF',     # 浅紫色
+                'hesu': 'E6CCFF',   # 淡紫色
+                'heer': 'D9B3FF',   # 深紫色
+                'nht': 'CCE5FF',    # 浅蓝色
+                'wifi7': 'FFFFE5'   # 浅橙色
+            }
+
+            # 查找wifi_format列的索引
+            wifi_format_index = None
+            for idx, cell in enumerate(worksheet[1]):
+                if cell.value == "wifi_format":
+                    wifi_format_index = idx
+                    break
+
+            # 设置列宽
+            for col in worksheet.columns:
+                max_length = 0
+                column = col[0].column_letter
+                for cell in col:
+                    try:
+                        if len(str(cell.value)) > max_length:
+                            max_length = len(str(cell.value))
+                    except:
+                        pass
+                adjusted_width = min(max_length + 2, 50)
+                worksheet.column_dimensions[column].width = adjusted_width
+
+            # 为重点列添加红色字体
+            priority_columns = ['tx_power_set(dBm)', 'evm', 'evm_nss0', 'evm_nss1', 'spectralFlatness_margin']
+            for col_idx in range(1, worksheet.max_column + 1):
+                cell_value = worksheet.cell(row=1, column=col_idx).value
+                if cell_value in priority_columns:
+                    worksheet.cell(row=1, column=col_idx).font = openpyxl.styles.Font(color="FF0000")
+
+                    if wifi_format_index is not None:
+                        # 为不同wifi_format的行添加填充色
+                        for row_idx in range(2, worksheet.max_row + 1):
+                            cell_value = worksheet.cell(row=row_idx, column=wifi_format_index + 1).value
+                            row_fill = None
+                            specific_formats = ['hesu', 'heer', 'vht', 'nht', 'ht', '11n', '11g', '11b', 'he', 'wifi7']
+                            for key in specific_formats:
+                                if isinstance(cell_value, str) and key.lower() in cell_value.strip().lower():
+                                    row_fill = format_colors[key]
+                                    break
+
+                            if row_fill:
+                                fill = openpyxl.styles.PatternFill(start_color=row_fill, end_color=row_fill, fill_type='solid')
+                                for col_idx in range(1, worksheet.max_column + 1):
+                                    worksheet.cell(row=row_idx, column=col_idx).fill = fill
+
+                        # 为evm相关列添加特殊填充色
+                        evm_columns = ['evm', 'evm_nss0', 'evm_nss1']
+                        for col_idx in range(1, worksheet.max_column + 1):
+                            cell_value = worksheet.cell(row=1, column=col_idx).value
+                            if cell_value in evm_columns:
+                                # 为evm相关列添加黄色填充色
+                                for row_idx in range(2, worksheet.max_row + 1):
+                                    evm_fill = openpyxl.styles.PatternFill(start_color='FFFF00', end_color='FFFF00', fill_type='solid')
+                                    worksheet.cell(row=row_idx, column=col_idx).fill = evm_fill
+
+    if specmargin_fail_data:
+        base_dir = os.path.dirname(output_file)
+        base_name = os.path.splitext(os.path.basename(output_file))[0]
+        specmargin_fail_file = os.path.join(base_dir, f"{base_name}_specmargin_fail.xlsx")
+        specmargin_writer = pd.ExcelWriter(specmargin_fail_file, engine='openpyxl')
+
+        # 写入SpecMargin失败记录
+        for sheet_name, df in specmargin_fail_data.items():
+            df.to_excel(specmargin_writer, sheet_name=sheet_name, index=False)
+            print(f"找到 {len(df)} 行SpecMargin失败的记录，已写入到 {specmargin_fail_file} 的 {sheet_name} Sheet")
+
+            # 为不同wifi_format的行添加填充色
+            worksheet = specmargin_writer.sheets[sheet_name]
+            format_colors = {
+                '11b': 'FFCCFF',    # 浅粉色
+                '11g': 'CCFFFF',    # 浅青色
+                '11n': 'FFFFCC',    # 浅黄色
+                'ht': 'CCFFCC',     # 浅绿色
+                'vht': 'FFCCCC',    # 浅红色
+                'he': 'CCCCFF',     # 浅紫色
+                'hesu': 'E6CCFF',   # 淡紫色
+                'heer': 'D9B3FF',   # 深紫色
+                'nht': 'CCE5FF',    # 浅蓝色
+                'wifi7': 'FFFFE5'   # 浅橙色
+            }
+
+            # 查找wifi_format列的索引
+            wifi_format_index = None
+            for idx, cell in enumerate(worksheet[1]):
+                if cell.value == "wifi_format":
+                    wifi_format_index = idx
+                    break
+
+            # 设置列宽
+            for col in worksheet.columns:
+                max_length = 0
+                column = col[0].column_letter
+                for cell in col:
+                    try:
+                        if len(str(cell.value)) > max_length:
+                            max_length = len(str(cell.value))
+                    except:
+                        pass
+                adjusted_width = min(max_length + 2, 50)
+                worksheet.column_dimensions[column].width = adjusted_width
+
+            # 为重点列添加红色字体
+            priority_columns = ['tx_power_set(dBm)', 'evm', 'evm_nss0', 'evm_nss1', 'spectrumMarginDb', 'spectrumMarginDb_nss1']
+            for col_idx in range(1, worksheet.max_column + 1):
+                cell_value = worksheet.cell(row=1, column=col_idx).value
+                if cell_value in priority_columns:
+                    worksheet.cell(row=1, column=col_idx).font = openpyxl.styles.Font(color="FF0000")
+
+                    if wifi_format_index is not None:
+                        # 为不同wifi_format的行添加填充色
+                        for row_idx in range(2, worksheet.max_row + 1):
+                            cell_value = worksheet.cell(row=row_idx, column=wifi_format_index + 1).value
+                            row_fill = None
+                            specific_formats = ['hesu', 'heer', 'vht', 'nht', 'ht', '11n', '11g', '11b', 'he', 'wifi7']
+                            for key in specific_formats:
+                                if isinstance(cell_value, str) and key.lower() in cell_value.strip().lower():
+                                    row_fill = format_colors[key]
+                                    break
+
+                            if row_fill:
+                                fill = openpyxl.styles.PatternFill(start_color=row_fill, end_color=row_fill, fill_type='solid')
+                                for col_idx in range(1, worksheet.max_column + 1):
+                                    worksheet.cell(row=row_idx, column=col_idx).fill = fill
+
+                        # 为evm相关列添加特殊填充色
+                        evm_columns = ['evm', 'evm_nss0', 'evm_nss1']
+                        for col_idx in range(1, worksheet.max_column + 1):
+                            cell_value = worksheet.cell(row=1, column=col_idx).value
+                            if cell_value in evm_columns:
+                                # 为evm相关列添加黄色填充色
+                                for row_idx in range(2, worksheet.max_row + 1):
+                                    evm_fill = openpyxl.styles.PatternFill(start_color='FFFF00', end_color='FFFF00', fill_type='solid')
+                                    worksheet.cell(row=row_idx, column=col_idx).fill = evm_fill
+
+    # 为失败记录添加填充色并保存文件
+    if flatness_writer:
+        for sheet_name, df in flatness_fail_data.items():
+            worksheet = flatness_writer.sheets[sheet_name]
+            format_colors = {
+                '11b': 'FFCCFF',    # 浅粉色
+                '11g': 'CCFFFF',    # 浅青色
+                '11n': 'FFFFCC',    # 浅黄色
+                'ht': 'CCFFCC',     # 浅绿色
+                'vht': 'FFCCCC',    # 浅红色
+                'he': 'CCCCFF',     # 浅紫色
+                'hesu': 'E6CCFF',   # 淡紫色
+                'heer': 'D9B3FF',   # 深紫色
+                'nht': 'CCE5FF',    # 浅蓝色
+                'wifi7': 'FFFFE5'   # 浅橙色
+            }
+
+            # 查找wifi_format列的索引
+            wifi_format_index = None
+            for idx, cell in enumerate(worksheet[1]):
+                if cell.value == "wifi_format":
+                    wifi_format_index = idx
+                    break
+
+            # 设置列宽
+            for col in worksheet.columns:
+                max_length = 0
+                column = col[0].column_letter
+                for cell in col:
+                    try:
+                        if len(str(cell.value)) > max_length:
+                            max_length = len(str(cell.value))
+                    except:
+                        pass
+                adjusted_width = min(max_length + 2, 50)
+                worksheet.column_dimensions[column].width = adjusted_width
+
+            # 为重点列添加红色字体
+            priority_columns = ['tx_power_set(dBm)', 'evm', 'evm_nss0', 'evm_nss1', 'spectralFlatness_margin']
+            for col_idx in range(1, worksheet.max_column + 1):
+                cell_value = worksheet.cell(row=1, column=col_idx).value
+                if cell_value in priority_columns:
+                    worksheet.cell(row=1, column=col_idx).font = openpyxl.styles.Font(color="FF0000")
+
+            if wifi_format_index is not None:
+                # 为不同wifi_format的行添加填充色
+                for row_idx in range(2, worksheet.max_row + 1):
+                    cell_value = worksheet.cell(row=row_idx, column=wifi_format_index + 1).value
+                    row_fill = None
+                    specific_formats = ['hesu', 'heer', 'vht', 'nht', 'ht', '11n', '11g', '11b', 'he', 'wifi7']
+                    for key in specific_formats:
+                        if isinstance(cell_value, str) and key.lower() in cell_value.strip().lower():
+                            row_fill = format_colors[key]
+                            break
+
+                    if row_fill:
+                        fill = openpyxl.styles.PatternFill(start_color=row_fill, end_color=row_fill, fill_type='solid')
+                        for col_idx in range(1, worksheet.max_column + 1):
+                            worksheet.cell(row=row_idx, column=col_idx).fill = fill
+
+                # 为evm相关列添加特殊填充色
+                evm_columns = ['evm', 'evm_nss0', 'evm_nss1']
                 for col_idx in range(1, worksheet.max_column + 1):
                     cell_value = worksheet.cell(row=1, column=col_idx).value
-                    if cell_value in priority_columns:
-                        worksheet.cell(row=1, column=col_idx).font = openpyxl.styles.Font(color="FF0000")
+                    if cell_value in evm_columns:
+                        # 为evm相关列添加黄色填充色
+                        for row_idx in range(2, worksheet.max_row + 1):
+                            evm_fill = openpyxl.styles.PatternFill(start_color='FFFF00', end_color='FFFF00', fill_type='solid')
+                            worksheet.cell(row=row_idx, column=col_idx).fill = evm_fill
 
-                flatness_writer.close()
-                print(f"Flatness失败记录已保存到: {flatness_fail_file}")
+        flatness_writer.close()
+        print(f"Flatness失败记录已保存到: {flatness_fail_file}")
 
-        # 检查SpecMargin失败记录
-        if 'spectrumMarginDb' in merged_df.columns:
-            specmargin_fail_rows = []
-            for index, row in merged_df.iterrows():
-                spectrum_margin = row['spectrumMarginDb']
-                # 解析SpecMargin数据（格式类似：'1.23:2.34:3.45:4.56'）
-                if isinstance(spectrum_margin, str):
-                    # 使用正则表达式解析数值
-                    specmargin_values = re.findall(r'[-+]?\d*\.\d+|\d+', spectrum_margin)
-                    # 检查是否有任何SpecMargin值小于0
-                    has_negative = False
-                    for value in specmargin_values:
-                        try:
-                            if float(value) < 0:
-                                has_negative = True
-                                break
-                        except:
-                            continue
-                    if has_negative:
-                        specmargin_fail_rows.append(index)
+    if specmargin_writer:
+        for sheet_name, df in specmargin_fail_data.items():
+            worksheet = specmargin_writer.sheets[sheet_name]
+            format_colors = {
+                '11b': 'FFCCFF',    # 浅粉色
+                '11g': 'CCFFFF',    # 浅青色
+                '11n': 'FFFFCC',    # 浅黄色
+                'ht': 'CCFFCC',     # 浅绿色
+                'vht': 'FFCCCC',    # 浅红色
+                'he': 'CCCCFF',     # 浅紫色
+                'hesu': 'E6CCFF',   # 淡紫色
+                'heer': 'D9B3FF',   # 深紫色
+                'nht': 'CCE5FF',    # 浅蓝色
+                'wifi7': 'FFFFE5'   # 浅橙色
+            }
 
-            if specmargin_fail_rows:
-                specmargin_fail_df = merged_df.loc[specmargin_fail_rows]
-                specmargin_writer = pd.ExcelWriter(specmargin_fail_file, engine='openpyxl')
-                specmargin_fail_df.to_excel(specmargin_writer, sheet_name='specmargin_fail', index=False)
+            # 查找wifi_format列的索引
+            wifi_format_index = None
+            for idx, cell in enumerate(worksheet[1]):
+                if cell.value == "wifi_format":
+                    wifi_format_index = idx
+                    break
 
-                # 设置列宽和格式
-                worksheet = specmargin_writer.sheets['specmargin_fail']
-                for col in worksheet.columns:
-                    max_length = 0
-                    column = col[0].column_letter
-                    for cell in col:
-                        try:
-                            if len(str(cell.value)) > max_length:
-                                max_length = len(str(cell.value))
-                        except:
-                            pass
-                    adjusted_width = min(max_length + 2, 50)
-                    worksheet.column_dimensions[column].width = adjusted_width
+            # 设置列宽
+            for col in worksheet.columns:
+                max_length = 0
+                column = col[0].column_letter
+                for cell in col:
+                    try:
+                        if len(str(cell.value)) > max_length:
+                            max_length = len(str(cell.value))
+                    except:
+                        pass
+                adjusted_width = min(max_length + 2, 50)
+                worksheet.column_dimensions[column].width = adjusted_width
 
-                # 重点列添加红色字体
-                priority_columns = ['tx_power_set(dBm)', 'evm', 'evm_nss0', 'evm_nss1', 'spectrumMarginDb']
+            # 为重点列添加红色字体
+            priority_columns = ['tx_power_set(dBm)', 'evm', 'evm_nss0', 'evm_nss1', 'spectrumMarginDb', 'spectrumMarginDb_nss1']
+            for col_idx in range(1, worksheet.max_column + 1):
+                cell_value = worksheet.cell(row=1, column=col_idx).value
+                if cell_value in priority_columns:
+                    worksheet.cell(row=1, column=col_idx).font = openpyxl.styles.Font(color="FF0000")
+
+            if wifi_format_index is not None:
+                # 为不同wifi_format的行添加填充色
+                for row_idx in range(2, worksheet.max_row + 1):
+                    cell_value = worksheet.cell(row=row_idx, column=wifi_format_index + 1).value
+                    row_fill = None
+                    specific_formats = ['hesu', 'heer', 'vht', 'nht', 'ht', '11n', '11g', '11b', 'he', 'wifi7']
+                    for key in specific_formats:
+                        if isinstance(cell_value, str) and key.lower() in cell_value.strip().lower():
+                            row_fill = format_colors[key]
+                            break
+
+                    if row_fill:
+                        fill = openpyxl.styles.PatternFill(start_color=row_fill, end_color=row_fill, fill_type='solid')
+                        for col_idx in range(1, worksheet.max_column + 1):
+                            worksheet.cell(row=row_idx, column=col_idx).fill = fill
+
+                # 为evm相关列添加特殊填充色
+                evm_columns = ['evm', 'evm_nss0', 'evm_nss1']
                 for col_idx in range(1, worksheet.max_column + 1):
                     cell_value = worksheet.cell(row=1, column=col_idx).value
-                    if cell_value in priority_columns:
-                        worksheet.cell(row=1, column=col_idx).font = openpyxl.styles.Font(color="FF0000")
+                    if cell_value in evm_columns:
+                        # 为evm相关列添加黄色填充色
+                        for row_idx in range(2, worksheet.max_row + 1):
+                            evm_fill = openpyxl.styles.PatternFill(start_color='FFFF00', end_color='FFFF00', fill_type='solid')
+                            worksheet.cell(row=row_idx, column=col_idx).fill = evm_fill
 
-                specmargin_writer.close()
-                print(f"SpecMargin失败记录已保存到: {specmargin_fail_file}")
+        specmargin_writer.close()
+        print(f"SpecMargin失败记录已保存到: {specmargin_fail_file}")
 
     # 保存文件
     try:
@@ -360,10 +642,11 @@ def merge_csv_to_xlsx(input_dir, output_file, crc_fail_file=None):
 
 def main():
     # 直接在代码中修改输入路径和输出文件路径
-    input_dir = r"D:\chip_test\dev\xian_test\Xian-Esp-Test-Scripts\py_script_fpga_tx_wifi7\Log\wifi_tx_rls4\regression_v1.0"
-    output_file = r"D:\chip_test\dev\xian_test\Xian-Esp-Test-Scripts\py_script_fpga_tx_wifi7\Log\wifi_tx_rls4\regression_v1.0/merged_tx_result.xlsx"
-    crc_fail_file = r"D:\chip_test\dev\xian_test\Xian-Esp-Test-Scripts\py_script_fpga_tx_wifi7\Log\wifi_tx_rls4\regression_v1.0/tx_crc_fail_result.xlsx"
-
+    input_dir = r"D:\chip_test\dev\chip_tx\eagletest\py_script_fpga_tx\Log\wifi_tx\vht_ht_hesu"
+    output_file = r"D:\chip_test\dev\chip_tx\eagletest\py_script_fpga_tx\Log\wifi_tx\vht_ht_hesu/merged_tx_result.xlsx"
+    crc_fail_file = r"D:\chip_test\dev\chip_tx\eagletest\py_script_fpga_tx\Log\wifi_tx\vht_ht_hesu/tx_crc_fail_result.xlsx"
+    flatness_fail_file = True
+    specmargin_fail_file = True
     print(f"输入路径: {input_dir}")
     print(f"输出文件: {output_file}")
     print(f"CRC失败记录文件: {crc_fail_file}")

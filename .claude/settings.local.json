@@ -20,7 +20,12 @@
       "Bash(CLAUDE_CODE_GIT_BASH_PATH=\"C:/Program Files/Git/bin/bash.exe\" claude plugin:*)",
       "Bash(python3:*)",
       "Bash(grep:*)",
-      "Bash(ls:*)"
+      "Bash(ls:*)",
+      "Bash(pdfinfo:*)",
+      "Bash(taskkill:*)",
+      "Bash(\"D:\\\\users\\\\gxu\\\\scripts\\\\explore_excel.py\":*)",
+      "Bash(mkdir:*)",
+      "Bash(mv:*)"
     ]
   },
   "plugins": {
