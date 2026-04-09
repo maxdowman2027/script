@@ -67,7 +67,7 @@ from datetime import datetime
 #### `compare_evm_generic.py`
 **功能**：通用的EVM对比脚本，支持比较任意两个版本的WiFi芯片测试结果
 **特点**：
-- 完全参数化的脚本，通过命令行参数接收输入文件路径和版本名称
+- 完全参数化的脚本，通过代码变量直接配置输入参数
 - 支持比较任意两个Excel文件的EVM测试结果
 - 自动匹配相同的测试条件（wifi_format、rate、tx_pwr）
 - 计算EVM差异和统计信息
@@ -76,18 +76,16 @@ from datetime import datetime
 - 可视化差异分布和趋势
 - 生成HTML报告
 **使用方法**：
-```bash
-# 基本用法
-python compare_evm_generic.py file1.xlsx file2.xlsx
+```python
+# 修改脚本顶部的变量
+file1 = r"D:\path\to\your\file1.xlsx"
+file2 = r"D:\path\to\your\file2.xlsx"
+version1 = "rls3"
+version2 = "rls4"
+output_dir = r"D:\path\to\your\output\directory"
 
-# 自定义版本名称
-python compare_evm_generic.py file1.xlsx file2.xlsx -v1 rls3 -v2 rls4
-
-# 指定输出目录
-python compare_evm_generic.py file1.xlsx file2.xlsx -o ./comparison_result
-
-# 完整参数说明
-python compare_evm_generic.py --help
+# 直接运行脚本
+python compare_evm_generic.py
 ```
 
 ### 2. 辅助脚本

@@ -4,26 +4,20 @@ import seaborn as sns
 import os
 import numpy as np
 from datetime import datetime
-import argparse
 
 
 def main():
-    # 解析命令行参数
-    parser = argparse.ArgumentParser(description="EVM Comparison Script for WiFi Test Results")
-    parser.add_argument("file1", help="Path to the first version Excel file")
-    parser.add_argument("file2", help="Path to the second version Excel file")
-    parser.add_argument("-v1", "--version1", default="version1", help="Name of the first version (default: version1)")
-    parser.add_argument("-v2", "--version2", default="version2", help="Name of the second version (default: version2)")
-    parser.add_argument("-o", "--output", help="Path to output directory (default: ./evm_comparison_result)")
-
-    args = parser.parse_args()
-
+    # 可配置变量 - 直接在这里修改即可使用
     # 文件路径
-    file1 = args.file1
-    file2 = args.file2
-    version1 = args.version1
-    version2 = args.version2
-    output_dir = args.output if args.output else os.path.join(os.getcwd(), "evm_comparison_result")
+    file1 = r"D:\chip_test\dev\xian_test\Xian-Esp-Test-Scripts\py_script_fpga_tx_wifi7\Log\wifi_tx_rls4\vht_ht_hesu_compare\merged_tx_result.xlsx"
+    file2 = r"D:\chip_test\dev\xian_test\Xian-Esp-Test-Scripts\py_script_fpga_tx_wifi7\Log\wifi_tx\20260407\vht_ht_hesu\merged_tx_result.xlsx"
+
+    # 版本名称
+    version1 = "rls4"
+    version2 = "wifi7"
+
+    # 输出目录
+    output_dir = r"D:\users\gxu\scripts\evm_comparison_scripts\rls4_wifi7_evm_comparison"
 
     # 创建输出目录
     os.makedirs(output_dir, exist_ok=True)
@@ -89,7 +83,7 @@ def main():
             print(f"\nWarning: No matching {version2} Sheet found for {version1} {sheet1}")
 
     # 保存对比结果
-    save_comparison_results(comparison_result, output_dir, version1, version2)
+    save_comparison_results(comparison_result, output_dir, version1, version2, file1, file2)
 
     print(f"\n分析完成！所有结果已保存在: {output_dir}")
 
@@ -333,21 +327,22 @@ def plot_comparison(stats, merged_df, sheet1, sheet2, output_dir, evm_col1, vers
     plt.close()
 
 
-def save_comparison_results(comparison_result, output_dir, version1, version2):
+def save_comparison_results(comparison_result, output_dir, version1, version2, file1, file2):
     # 保存HTML报告
     html_file = os.path.join(output_dir, 'evm_comparison_report.html')
-    generate_html_report(comparison_result, output_dir, html_file, version1, version2)
+    generate_html_report(comparison_result, output_dir, html_file, version1, version2, file1, file2)
 
     print(f"HTML报告已保存: {html_file}")
 
 
-def generate_html_report(comparison_result, output_dir, output_file, version1, version2):
+def generate_html_report(comparison_result, output_dir, output_file, version1, version2, file1, file2):
     # Generate HTML report
+    # 使用字符串替换而不是格式化字符串，避免CSS中的%符号导致的问题
     html_content = '''
     <!DOCTYPE html>
     <html>
     <head>
-        <title>%s vs %s Version EVM Comparison Analysis</title>
+        <title>VER1 vs VER2 Version EVM Comparison Analysis</title>
         <style>
             body {
                 font-family: Arial, sans-serif;
@@ -438,13 +433,13 @@ def generate_html_report(comparison_result, output_dir, output_file, version1, v
     </head>
     <body>
         <div class="container">
-            <h1>%s 与 %s 版本 EVM 对比分析</h1>
+            <h1>VER1 与 VER2 版本 EVM 对比分析</h1>
+    '''
 
-            <div class="section">
-                <h2>1. 整体对比统计</h2>
-                <div class="stats">
-    ''' % (version1, version2, version1, version2)
+    # 替换版本名称
+    html_content = html_content.replace('VER1', version1).replace('VER2', version2)
 
+    # 计算整体统计信息
     total_matched = 0
     total_version1_records = 0
     total_version2_records = 0
@@ -468,61 +463,61 @@ def generate_html_report(comparison_result, output_dir, output_file, version1, v
         else:
             avg_abs_diff = (avg_abs_diff + result['avg_abs_diff']) / 2
 
-    html_content += '''
-                <div class="stat-card">
-                    <h4>匹配记录数</h4>
-                    <div class="stat-value">%d</div>
-                    <p>%s总记录数: %d<br>%s总记录数: %d</p>
-                </div>
-                <div class="stat-card">
-                    <h4>平均EVM差值</h4>
-                    <div class="stat-value" style="color:%s;">%.2f dB</div>
-                    <p>平均值</p>
-                </div>
-                <div class="stat-card">
-                    <h4>最大EVM差值</h4>
-                    <div class="stat-value" style="color:%s;">%.2f dB</div>
-                    <p>最大值</p>
-                </div>
-                <div class="stat-card">
-                    <h4>最小EVM差值</h4>
-                    <div class="stat-value" style="color:%s;">%.2f dB</div>
-                    <p>最小值</p>
-                </div>
-    ''' % (
-        total_matched, version1, total_version1_records, version2, total_version2_records,
-        'green' if abs(avg_abs_diff) < 1 else 'orange' if abs(avg_abs_diff) < 2 else 'red',
-        avg_abs_diff,
-        'red' if max_diff > 2 else 'orange' if max_diff > 1 else 'green',
-        max_diff,
-        'green' if min_diff > -1 else 'orange' if min_diff > -2 else 'red',
-        min_diff
-    )
-
-    html_content += '''
+    html_content += f'''
+            <div class="section">
+                <h2>1. 整体对比统计</h2>
+                <div class="stats">
+                    <div class="stat-card">
+                        <h4>匹配记录数</h4>
+                        <div class="stat-value">{total_matched}</div>
+                        <p>{version1}总记录数: {total_version1_records}<br>{version2}总记录数: {total_version2_records}</p>
+                    </div>
+                    <div class="stat-card">
+                        <h4>平均EVM差值</h4>
+                        <div class="stat-value" style="color: {'green' if abs(avg_abs_diff) < 1 else 'orange' if abs(avg_abs_diff) < 2 else 'red'}">
+                            {avg_abs_diff:.2f} dB
+                        </div>
+                        <p>平均值</p>
+                    </div>
+                    <div class="stat-card">
+                        <h4>最大EVM差值</h4>
+                        <div class="stat-value" style="color: {'red' if max_diff > 2 else 'orange' if max_diff > 1 else 'green'}">
+                            {max_diff:.2f} dB
+                        </div>
+                        <p>最大值</p>
+                    </div>
+                    <div class="stat-card">
+                        <h4>最小EVM差值</h4>
+                        <div class="stat-value" style="color: {'green' if min_diff > -1 else 'orange' if min_diff > -2 else 'red'}">
+                            {min_diff:.2f} dB
+                        </div>
+                        <p>最小值</p>
+                    </div>
                 </div>
             </div>
+    '''
 
+    html_content += f'''
             <div class="section">
                 <h2>2. Sheet级对比详情</h2>
                 <table class="summary-table">
                     <thead>
                         <tr>
-                            <th>%s Sheet</th>
-                            <th>%s Sheet</th>
+                            <th>{version1} Sheet</th>
+                            <th>{version2} Sheet</th>
                             <th>匹配记录数</th>
-                            <th>%s记录数</th>
-                            <th>%s记录数</th>
+                            <th>{version1}记录数</th>
+                            <th>{version2}记录数</th>
                             <th>平均差值</th>
                             <th>最大差值</th>
                             <th>最小差值</th>
                             <th>平均绝对差值</th>
-                            <th>%s EVM列</th>
+                            <th>{version1} EVM列</th>
                             <th>详细结果</th>
                         </tr>
                     </thead>
                     <tbody>
-    ''' % (version1, version2, version1, version2, version1)
+    '''
 
     for result in comparison_result:
         avg_diff_class = 'success' if abs(result['mean_evm_diff']) < 1 else 'warning' if abs(result['mean_evm_diff']) < 2 else 'error'
@@ -530,39 +525,25 @@ def generate_html_report(comparison_result, output_dir, output_file, version1, v
         min_diff_class = 'success' if result['min_evm_diff'] >= -2 else 'warning' if result['min_evm_diff'] >= -5 else 'error'
         avg_abs_class = 'success' if result['avg_abs_diff'] < 1 else 'warning' if result['avg_abs_diff'] < 2 else 'error'
 
-        html_content += '''
+        html_content += f'''
                         <tr>
-                            <td>%s</td>
-                            <td>%s</td>
-                            <td>%d</td>
-                            <td>%d</td>
-                            <td>%d</td>
-                            <td class="%s">%.2f</td>
-                            <td class="%s">%.2f</td>
-                            <td class="%s">%.2f</td>
-                            <td class="%s">%.2f</td>
-                            <td>%s</td>
+                            <td>{result[f'{version1}_sheet']}</td>
+                            <td>{result[f'{version2}_sheet']}</td>
+                            <td>{result['matched_count']}</td>
+                            <td>{result[f'total_{version1}_records']}</td>
+                            <td>{result[f'total_{version2}_records']}</td>
+                            <td class="{avg_diff_class}">{result['mean_evm_diff']:.2f}</td>
+                            <td class="{max_diff_class}">{result['max_evm_diff']:.2f}</td>
+                            <td class="{min_diff_class}">{result['min_evm_diff']:.2f}</td>
+                            <td class="{avg_abs_class}">{result['avg_abs_diff']:.2f}</td>
+                            <td>{result[f'{version1}_evm_col']}</td>
                             <td>
-                                <a href="%s_vs_%s_detailed.xlsx" class="sheet-link">Detailed Data</a><br>
-                                <a href="%s_vs_%s_summary.xlsx" class="sheet-link">Statistical Summary</a><br>
-                                <a href="%s_vs_%s" class="sheet-link">Charts</a>
+                                <a href="{result[f'{version1}_sheet']}_vs_{result[f'{version2}_sheet']}_detailed.xlsx" class="sheet-link">Detailed Data</a><br>
+                                <a href="{result[f'{version1}_sheet']}_vs_{result[f'{version2}_sheet']}_summary.xlsx" class="sheet-link">Statistical Summary</a><br>
+                                <a href="{result[f'{version1}_sheet']}_vs_{result[f'{version2}_sheet']}" class="sheet-link">Charts</a>
                             </td>
                         </tr>
-        ''' % (
-            result[f'{version1}_sheet'],
-            result[f'{version2}_sheet'],
-            result['matched_count'],
-            result[f'total_{version1}_records'],
-            result[f'total_{version2}_records'],
-            avg_diff_class, result['mean_evm_diff'],
-            max_diff_class, result['max_evm_diff'],
-            min_diff_class, result['min_evm_diff'],
-            avg_abs_class, result['avg_abs_diff'],
-            result[f'{version1}_evm_col'],
-            result[f'{version1}_sheet'], result[f'{version2}_sheet'],
-            result[f'{version1}_sheet'], result[f'{version2}_sheet'],
-            result[f'{version1}_sheet'], result[f'{version2}_sheet']
-        )
+        '''
 
     html_content += '''
                     </tbody>
@@ -572,8 +553,8 @@ def generate_html_report(comparison_result, output_dir, output_file, version1, v
             <div class="section">
                 <h2>3. 主要发现</h2>
                 <ul>
-                    <li><strong>匹配记录百分比:</strong> %s记录中有%.2f%%在%s版本中找到了匹配项</li>
-                    <li><strong>整体EVM趋势:</strong> %s</li>
+                    <li><strong>匹配记录百分比:</strong> VER1记录中有MATCHED_PERCENT%在VER2版本中找到了匹配项</li>
+                    <li><strong>整体EVM趋势:</strong> TREND</li>
                     <li><strong>主要差异来源:</strong> 需要进一步分析特定Rate和Format组合的性能</li>
                 </ul>
             </div>
@@ -583,7 +564,7 @@ def generate_html_report(comparison_result, output_dir, output_file, version1, v
                 <ol>
                     <li>应优先检查具有较大差异的Sheet和Rate/Format组合</li>
                     <li>重点分析平均绝对差值大于2dB的配置</li>
-                    <li>检查%s版本是否覆盖了所有测试场景</li>
+                    <li>检查VER2版本是否覆盖了所有测试场景</li>
                     <li>如有必要，进行硬件验证以确认差异是否合理</li>
                 </ol>
             </div>
@@ -592,22 +573,23 @@ def generate_html_report(comparison_result, output_dir, output_file, version1, v
                 <h2>5. 文件描述</h2>
                 <ul>
                     <li><strong>分析脚本:</strong> compare_evm_generic.py</li>
-                    <li><strong>%s版本文件:</strong> %s</li>
-                    <li><strong>%s版本文件:</strong> %s</li>
-                    <li><strong>生成时间:</strong> %s</li>
+                    <li><strong>VER1版本文件:</strong> FILE1</li>
+                    <li><strong>VER2版本文件:</strong> FILE2</li>
+                    <li><strong>生成时间:</strong> TIME</li>
                 </ul>
             </div>
         </div>
     </body>
     </html>
-    ''' % (
-        version1, (total_matched / total_version1_records) * 100, version2,
-        f"{version2}版本整体EVM更好" if avg_abs_diff < -0.5 else f"{version2}版本整体EVM更差" if avg_abs_diff > 0.5 else f"{version1}和{version2}版本之间的EVM差异不显著",
-        version2,
-        version1, 'file1',
-        version2, 'file2',
-        datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-    )
+    '''
+
+    # 替换剩余的占位符
+    matched_percent = (total_matched / total_version1_records) * 100
+    trend = f"{version2}版本整体EVM更好" if avg_abs_diff < -0.5 else f"{version2}版本整体EVM更差" if avg_abs_diff > 0.5 else f"{version1}和{version2}版本之间的EVM差异不显著"
+    current_time = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+
+    html_content = html_content.replace('MATCHED_PERCENT', f"{matched_percent:.2f}").replace('TREND', trend)
+    html_content = html_content.replace('FILE1', file1).replace('FILE2', file2).replace('TIME', current_time)
 
     with open(output_file, 'w', encoding='utf-8') as f:
         f.write(html_content)

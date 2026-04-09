@@ -3,7 +3,7 @@ import os
 
 def main():
     repo_path = 'D:/users/gxu/scripts'  # 使用正确的Windows路径格式
-    commit_message = "添加merged_tx_result分析脚本和可视化脚本，包括说明文档"
+    commit_message = "整理EVM对比脚本，创建evm_comparison_scripts目录并添加技能文档"
 
     try:
         # 打开Git仓库
