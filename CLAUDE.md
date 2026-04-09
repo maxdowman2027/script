@@ -57,8 +57,8 @@
 #### 1. 数据合并与格式化工具
 | 脚本名称 | 功能说明 | 详细文档 |
 |---------|---------|---------|
-| `merge_csv_to_xlsx.py` | 合并多个 CSV 文件到单个 Excel 文件，按信道、编码方式分组 | CLAUDE.md: 数据合并工具 |
-| `file_merge.py` | 文件合并工具 | - |
+| `merge_csv_to_xlsx.py` | 合并多个 CSV 文件到单个 Excel 文件，按信道、编码方式分组 | merge_csv_to_xlsx.skill |
+| `file_merge.py` | 文件合并工具 | file_merge_Skill.md |
 | `file_rename.py` | 文件重命名工具 | - |
 
 #### 2. EVM 分析工具
@@ -75,7 +75,7 @@
 | `tx_mag_tracking_test.py` | 发射功率跟踪测试 | - |
 | `txmagtrk_analyse.py` | 发射功率跟踪数据分析 | txmagtrk_analyse_Skill.md |
 | `clac_pwr_for_ofdm_signal.py` | OFDM 信号功率计算 | - |
-| `compare_avg_pwr.py` | 平均功率比较分析 | - |
+| `compare_avg_pwr.py` | 平均功率比较分析 | compare_avg_pwr_Skill.md |
 
 #### 4. 频谱分析工具
 | 脚本名称 | 功能说明 | 详细文档 |
@@ -84,7 +84,7 @@
 | `spur_scan_regression.py` | 杂散扫描回归分析 | - |
 | `spur_analysis.py` | 杂散分析 | - |
 | `spur_visualization.py` | 杂散可视化 | - |
-| `psd_plot.py` | PSD（功率谱密度）绘图 | - |
+| `psd_plot.py` | PSD（功率谱密度）绘图 | psd_plot_Skill.md |
 | `plot_spectrum.py` | 频谱绘图 | - |
 
 #### 5. 灵敏度测试
@@ -101,12 +101,23 @@
 #### 7. 数据验证与检查工具
 | 脚本名称 | 功能说明 | 详细文档 |
 |---------|---------|---------|
-| `check_excel_colors.py` | 检查 Excel 文件颜色标记 | - |
-| `check_excel_fill.py` | 检查 Excel 填充色 | - |
-| `check_columns.py` | 检查列一致性 | - |
-| `validate_conversion.py` | 验证数据转换 | - |
+| `check_excel_colors.py` | 检查 Excel 文件颜色标记 | check_excel_colors_Skill.md |
+| `check_excel_fill.py` | 检查 Excel 填充色 | check_excel_fill_Skill.md |
+| `check_columns.py` | 检查列一致性 | check_columns_Skill.md |
+| `validate_conversion.py` | 验证数据转换 | validate_conversion_Skill.md |
 
-#### 8. 项目管理工具
+#### 8. 寄存器比较工具
+| 脚本名称 | 功能说明 | 详细文档 |
+|---------|---------|---------|
+| `compare_reg_csv.py` | 比较两个寄存器配置 CSV 文件 | compare_reg_csv_Skill.md |
+| `check_excel_colors.py` | 检查 Excel 文件中的颜色标记 | check_excel_colors_Skill.md |
+
+#### 9. 报告生成工具
+| 脚本名称 | 功能说明 | 详细文档 |
+|---------|---------|---------|
+| `generate_report.py` | 生成测试报告 | generate_report_Skill.md |
+
+#### 10. 项目管理工具
 | 脚本名称 | 功能说明 | 详细文档 |
 |---------|---------|---------|
 | `check_and_commit.py` | 检查并提交代码 | - |
