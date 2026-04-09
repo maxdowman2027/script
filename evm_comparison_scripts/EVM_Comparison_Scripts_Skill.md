@@ -64,6 +64,32 @@ from datetime import datetime
 - 生成详细的Excel报告和可视化图表
 - 提供针对格式间比较的建议
 
+#### `compare_evm_generic.py`
+**功能**：通用的EVM对比脚本，支持比较任意两个版本的WiFi芯片测试结果
+**特点**：
+- 完全参数化的脚本，通过命令行参数接收输入文件路径和版本名称
+- 支持比较任意两个Excel文件的EVM测试结果
+- 自动匹配相同的测试条件（wifi_format、rate、tx_pwr）
+- 计算EVM差异和统计信息
+- 为EVM值和差值添加填充色以提高可读性
+- 生成详细的对比结果和统计摘要
+- 可视化差异分布和趋势
+- 生成HTML报告
+**使用方法**：
+```bash
+# 基本用法
+python compare_evm_generic.py file1.xlsx file2.xlsx
+
+# 自定义版本名称
+python compare_evm_generic.py file1.xlsx file2.xlsx -v1 rls3 -v2 rls4
+
+# 指定输出目录
+python compare_evm_generic.py file1.xlsx file2.xlsx -o ./comparison_result
+
+# 完整参数说明
+python compare_evm_generic.py --help
+```
+
 ### 2. 辅助脚本
 
 #### `view_comparison_results.py`
@@ -109,10 +135,29 @@ evm_comparison_scripts/
 ├── compare_evm_wifi7_rls4.py       # WiFi7 vs RLS4.0比较
 ├── compare_evm_rls3_rls4.py        # RLS3.0 vs RLS4.0比较
 ├── compare_evm_by_wifi_format.py   # 不同wifi_format之间EVM比较
+├── compare_evm_generic.py          # 通用的EVM对比脚本（完全参数化）
 ├── view_comparison_results.py      # 结果查看辅助脚本
 ├── analyze_sample_results.py       # 示例结果分析脚本
 └── EVM_Comparison_Scripts_Skill.md # 技能文档
 ```
+
+## 版本提交记录
+
+### v1.0 (2026-04-08)
+- 初始版本，包含基础的EVM比较功能
+- 创建了`compare_evm_rls4_wifi7_hesu.py`、`compare_evm_rls4_wifi7.py`等专门版本的比较脚本
+- 支持hesu格式的EVM比较
+
+### v1.1 (2026-04-08)
+- 添加了`compare_evm_rls3_rls4.py`脚本，支持比较RLS3.0和RLS4.0版本
+- 添加了`compare_evm_by_wifi_format.py`脚本，支持比较不同wifi_format之间的EVM差异
+- 优化了脚本的输出格式和颜色填充功能
+
+### v1.2 (2026-04-09)
+- 添加了`compare_evm_generic.py`脚本，支持完全参数化的EVM比较
+- 支持比较任意两个版本的WiFi芯片测试结果
+- 通过命令行参数自定义版本名称和输出目录
+- 代码结构重构，提高了脚本的通用性和可维护性
 
 ## 输出格式
 
@@ -165,9 +210,37 @@ numpy
 
 ## 执行方式
 
+### 1. 使用专门版本脚本（针对特定版本比较）
 ```bash
 cd evm_comparison_scripts
+# RLS4.0 vs WiFi7 (hesu格式)
 python compare_evm_rls4_wifi7_hesu.py
+
+# RLS3.0 vs RLS4.0
+python compare_evm_rls3_rls4.py
+
+# 按发射功率分组比较
+python compare_evm_by_tx_pwr.py
+
+# 比较不同wifi_format之间的EVM差异
+python compare_evm_by_wifi_format.py
+```
+
+### 2. 使用通用脚本（支持任意版本比较）
+```bash
+cd evm_comparison_scripts
+
+# 基本用法（自动命名为version1和version2）
+python compare_evm_generic.py file1.xlsx file2.xlsx
+
+# 自定义版本名称
+python compare_evm_generic.py file1.xlsx file2.xlsx -v1 rls3 -v2 rls4
+
+# 指定输出目录
+python compare_evm_generic.py file1.xlsx file2.xlsx -o ./comparison_result
+
+# 完整参数说明
+python compare_evm_generic.py --help
 ```
 
 ## 输入文件格式
@@ -194,7 +267,7 @@ Excel文件应包含以下列：
 
 ---
 
-**文档版本**：1.1
-**更新日期**：2026-04-08
+**文档版本**：1.2
+**更新日期**：2026-04-09
 **作者**：[gxu]
 **联系邮箱**：[gxu@example.com]
