@@ -70,6 +70,9 @@ from datetime import datetime
 - 完全参数化的脚本，通过代码变量直接配置输入参数
 - 支持比较任意两个Excel文件的EVM测试结果
 - 自动匹配相同的测试条件（wifi_format、rate、tx_pwr）
+- **新增功能**：在比较EVM时，还会考虑其他参数列的一致性
+- 支持的额外参数列包括：giltf, heltf, short_gi, cbw, ht_dup, suer_dcm, afactor, pe
+- 智能识别两个DataFrame共有的参数列进行合并
 - 计算EVM差异和统计信息
 - 为EVM值和差值添加填充色以提高可读性
 - 生成详细的对比结果和统计摘要
