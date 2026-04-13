@@ -9,15 +9,15 @@ from datetime import datetime
 def main():
     # 可配置变量 - 直接在这里修改即可使用
     # 文件路径
-    file1 = r"D:\chip_test\dev\xian_test\Xian-Esp-Test-Scripts\py_script_fpga_tx_wifi7\Log\wifi_tx_rls4\vht_ht_hesu_compare\merged_tx_result.xlsx"
-    file2 = r"D:\chip_test\dev\xian_test\Xian-Esp-Test-Scripts\py_script_fpga_tx_wifi7\Log\wifi_tx\20260407\vht_ht_hesu\merged_tx_result.xlsx"
+    file1 = r"D:\chip_test\dev\xian_test\Xian-Esp-Test-Scripts\py_script_fpga_tx_wifi7\Log\wifi_tx_rls4\regression_v1.0\merged_tx_result.xlsx"
+    file2 = r"D:\chip_test\dev\xian_test\Xian-Esp-Test-Scripts\py_script_fpga_tx_wifi7\Log\wifi_tx_rls4\regression_v2.0\merged_tx_result.xlsx"
 
     # 版本名称
-    version1 = "rls4"
-    version2 = "wifi7"
+    version1 = "rls4_v1"
+    version2 = "rls4_v2"
 
     # 输出目录
-    output_dir = r"D:\users\gxu\scripts\evm_comparison_scripts\rls4_wifi7_evm_comparison"
+    output_dir = r"D:\users\gxu\scripts\output\evm_comparison_scripts\rls4_version_evm_comparison"
 
     # 创建输出目录
     os.makedirs(output_dir, exist_ok=True)
@@ -107,16 +107,29 @@ def find_matching_sheet(old_sheet, new_sheets):
 
 
 def compare_dataframes(df1, df2, sheet1, sheet2, comparison_result, output_dir, version1, version2):
-    # Ensure key columns exist
-    required_cols = ['wifi_format', 'rate', 'tx_power_set(dBm)']
-    missing_cols = []
-    for col in required_cols:
-        if col not in df1.columns or col not in df2.columns:
-            missing_cols.append(col)
+    # 核心关键列
+    core_cols = ['wifi_format', 'rate', 'tx_power_set(dBm)']
 
-    if missing_cols:
-        print(f"Warning: Missing key columns {', '.join(missing_cols)}, cannot complete comparison")
+    # 可能影响EVM的参数列
+    additional_cols = ['giltf', 'heltf', 'short_gi', 'cbw', 'ht_dup', 'suer_dcm', 'afactor', 'pe']
+
+    # 检查核心关键列是否存在
+    core_missing_cols = []
+    for col in core_cols:
+        if col not in df1.columns or col not in df2.columns:
+            core_missing_cols.append(col)
+
+    if core_missing_cols:
+        print(f"Warning: Missing key columns {', '.join(core_missing_cols)}, cannot complete comparison")
         return
+
+    # 确定两个DataFrame共有的参数列
+    shared_additional_cols = []
+    for col in additional_cols:
+        if col in df1.columns and col in df2.columns:
+            shared_additional_cols.append(col)
+
+    print(f"Found {len(shared_additional_cols)} shared additional parameter columns: {', '.join(shared_additional_cols)}")
 
     # 确定使用哪个EVM列
     evm_col1 = 'evm'
@@ -133,11 +146,12 @@ def compare_dataframes(df1, df2, sheet1, sheet2, comparison_result, output_dir, 
         print(f"Warning: No EVM column found in {version2} data")
         return
 
-    # Merge data
+    # 使用所有共有列进行合并，确保参数一致
+    merge_cols = core_cols + shared_additional_cols
     merged_df = pd.merge(
-        df1[required_cols + [evm_col1]],
-        df2[required_cols + ['evm']],
-        on=['wifi_format', 'rate', 'tx_power_set(dBm)'],
+        df1[merge_cols + [evm_col1]],
+        df2[merge_cols + ['evm']],
+        on=merge_cols,
         how='inner',
         suffixes=(f'_{version1}', f'_{version2}')
     )
