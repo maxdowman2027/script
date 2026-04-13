@@ -800,10 +800,10 @@ def tx_plot_and_analyse(logfile,save_filr):
 # 主函数，直接在代码中设置路径变量
 if __name__ == "__main__":
     # 输入目录：包含测试结果CSV文件的路径
-    input_dir = r'D:\chip_test\dev\chip_tx\eagletest\py_script_fpga_tx_wifi7\Log\wifi_tx\20260407\vht_ht_old'
+    input_dir = r'D:\chip_test\dev\xian_test\Xian-Esp-Test-Scripts\py_script_fpga_tx_wifi7\Log\wifi_tx_rls4\regression_v2.0'
 
     # 输出目录：结果文件（PDF和文本报告）的保存路径
-    output_dir = r'D:\chip_test\dev\chip_tx\eagletest\py_script_fpga_tx_wifi7\Log\wifi_tx\20260407\vht_ht_old\result'
+    output_dir = r'D:\chip_test\dev\xian_test\Xian-Esp-Test-Scripts\py_script_fpga_tx_wifi7\Log\wifi_tx_rls4\regression_v2.0\result'
 
     # 文件匹配模式：
     # - 芯片测试结果：使用 '*.csv'
