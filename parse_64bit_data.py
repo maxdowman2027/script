@@ -1,7 +1,8 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 """
-解析 64 位十六进制数据，拆分为两个 32 位数据，并提取 sample_q 和 sample_i
+解析 64 位十六进制数据，拆分为两个 32 位数据行（低 32 位在前，高 32 位在后），
+并从每个 32 位数据中提取 sample_q（[11:0]）和 sample_i（[23:12]）
 """
 
 import csv
@@ -60,35 +61,41 @@ def parse_64bit_data(input_file, output_file):
                     sample_q_high = to_signed_12bit(sample_q_high)
                     sample_i_high = to_signed_12bit(sample_i_high)
 
-                    # 保存结果
+                    # 保存低 32 位行
                     results.append({
                         'line_number': i,
                         'original_value': f'0x{line.zfill(16)}',
-                        'low_32bit': f'0x{low_32bit:08X}',
-                        'high_32bit': f'0x{high_32bit:08X}',
-                        'sample_q_low': sample_q_low,
-                        'sample_i_low': sample_i_low,
-                        'sample_q_high': sample_q_high,
-                        'sample_i_high': sample_i_high
+                        'data_32bit': f'0x{low_32bit:08X}',
+                        'bit_range': 'low_32bit',
+                        'sample_q': sample_q_low,
+                        'sample_i': sample_i_low
+                    })
+
+                    # 保存高 32 位行
+                    results.append({
+                        'line_number': i,
+                        'original_value': f'0x{line.zfill(16)}',
+                        'data_32bit': f'0x{high_32bit:08X}',
+                        'bit_range': 'high_32bit',
+                        'sample_q': sample_q_high,
+                        'sample_i': sample_i_high
                     })
 
                 except Exception as e:
                     print(f"解析第 {i} 行数据失败: {e}")
                     continue
 
-        print(f"成功解析 {len(results)} 条数据")
+        print(f"成功解析 {len(lines) - 1} 条 64 位数据，生成 {len(results)} 条 32 位数据行")
 
         # 保存结果到 CSV 文件
         with open(output_file, 'w', newline='', encoding='utf-8') as csvfile:
             fieldnames = [
                 'line_number',
                 'original_value',
-                'low_32bit',
-                'high_32bit',
-                'sample_q_low',
-                'sample_i_low',
-                'sample_q_high',
-                'sample_i_high'
+                'data_32bit',
+                'bit_range',
+                'sample_q',
+                'sample_i'
             ]
 
             writer = csv.DictWriter(csvfile, fieldnames=fieldnames)

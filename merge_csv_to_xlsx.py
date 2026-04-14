@@ -642,9 +642,9 @@ def merge_csv_to_xlsx(input_dir, output_file, crc_fail_file=None):
 
 def main():
     # 直接在代码中修改输入路径和输出文件路径
-    input_dir = r"D:\chip_test\dev\xian_test\Xian-Esp-Test-Scripts\py_script_fpga_tx_wifi7\Log\wifi_tx_rls4\regression_v2.0"
-    output_file = r"D:\chip_test\dev\xian_test\Xian-Esp-Test-Scripts\py_script_fpga_tx_wifi7\Log\wifi_tx_rls4\regression_v2.0/merged_tx_result.xlsx"
-    crc_fail_file = r"D:\chip_test\dev\xian_test\Xian-Esp-Test-Scripts\py_script_fpga_tx_wifi7\Log\wifi_tx_rls4\regression_v2.0/tx_crc_fail_result.xlsx"
+    input_dir = r"D:\chip_test\dev\xian_test\Xian-Esp-Test-Scripts\tx_script\Log\wifi_tx_e22\regression_spec_0414"
+    output_file = r"D:\chip_test\dev\xian_test\Xian-Esp-Test-Scripts\tx_script\Log\wifi_tx_e22\regression_spec_0414/merged_tx_result.xlsx"
+    crc_fail_file = r"D:\chip_test\dev\xian_test\Xian-Esp-Test-Scripts\tx_script\Log\wifi_tx_e22\regression_spec_0414/tx_crc_fail_result.xlsx"
     flatness_fail_file = True
     specmargin_fail_file = True
     print(f"输入路径: {input_dir}")

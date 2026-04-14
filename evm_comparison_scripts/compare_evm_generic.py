@@ -10,14 +10,14 @@ def main():
     # 可配置变量 - 直接在这里修改即可使用
     # 文件路径
     file1 = r"D:\chip_test\dev\xian_test\Xian-Esp-Test-Scripts\py_script_fpga_tx_wifi7\Log\wifi_tx_rls4\regression_v1.0\merged_tx_result.xlsx"
-    file2 = r"D:\chip_test\dev\xian_test\Xian-Esp-Test-Scripts\py_script_fpga_tx_wifi7\Log\wifi_tx_rls4\regression_v2.0\merged_tx_result.xlsx"
+    file2 = r"D:\chip_test\dev\xian_test\Xian-Esp-Test-Scripts\py_script_fpga_tx_wifi7\Log\wifi_tx_rls4\20260413\merged_tx_result.xlsx"
 
     # 版本名称
     version1 = "rls4_v1"
-    version2 = "rls4_v2"
+    version2 = "rls4_v2_0413"
 
     # 输出目录
-    output_dir = r"D:\users\gxu\scripts\output\evm_comparison_scripts\rls4_version_evm_comparison"
+    output_dir = r"D:\users\gxu\scripts\output\evm_comparison_scripts\rls4_version_evm_comparison_v2"
 
     # 创建输出目录
     os.makedirs(output_dir, exist_ok=True)

@@ -58,6 +58,6 @@ if __name__ == "__main__":
     print("--- Wi-Fi 帧长计算器 ---")
     
     # 示例 1:                                format  bw_mhz, n_sym, mcs, n_ss, encoding
-    len_frame = calculate_wifi_payload_length('ht',    20,     1264, 5,    1, "BCC")
+    len_frame = calculate_wifi_payload_length('he',    80,   320  , 0,    1, "LDPC")
     print(f"估算最大长度: {len_frame} Bytes")
 
