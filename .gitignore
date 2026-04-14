@@ -44,6 +44,9 @@ register_comparison_report_*.txt
 # EVM comparison output
 output/evm_comparison_scripts/
 
+# Parsed data files
+parsed_data.csv
+
 # MATLAB
 *.mat
 *.fig
