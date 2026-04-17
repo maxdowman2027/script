@@ -106,6 +106,7 @@
 | `check_columns.py` | 检查列一致性 | check_columns_Skill.md |
 | `validate_conversion.py` | 验证数据转换 | validate_conversion_Skill.md |
 | `tx_adcdump_data_parse.py` | 将 ADC 采样数据的 bit 字段转换为有符号数 | tx_adcdump_data_parse_Skill.md |
+| `analyze_diff_pwr_with_color.py` | 分析 diff_pwr 列数据，将小于指定值的行添加红色填充色，统计小于指定值的占比 | analyze_diff_pwr_with_color_Skill.md |
 
 #### 8. 寄存器比较工具
 | 脚本名称 | 功能说明 | 详细文档 |
