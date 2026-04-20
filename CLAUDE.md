@@ -97,6 +97,8 @@
 |---------|---------|---------|
 | `wifiRxProcess.py` | WiFi 接收数据处理 | wifiRxProcess_Skill.md |
 | `wifiRxPlot.py` | WiFi 接收数据绘图 | - |
+| `organize_rx_iq_data.py` | 整理和分类 RX IQ 测试数据，根据带宽、频率和通道信息重命名和移动文件 | organize_rx_iq_data_Skill.md |
+| `organize_dump_files.py` | 将源路径下的文件按照文件名的配置格式copy到目的路径下的对应层级目录中 | organize_dump_files_Skill.md |
 
 #### 7. 数据验证与检查工具
 | 脚本名称 | 功能说明 | 详细文档 |
