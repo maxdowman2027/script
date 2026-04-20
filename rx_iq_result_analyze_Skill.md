@@ -2,21 +2,23 @@
 
 ## 功能概述
 
-该脚本用于分析和比较 CSV 文件中 `diff_pwr` 列的数据，特别关注小于指定阈值的行，并在 Excel 输出中使用颜色标记。它包括两个主要功能：
+该脚本用于分析和比较 CSV 文件中 `diff_pwr` 列的数据，特别关注小于指定阈值的行，并在 Excel 输出中使用颜色标记。它包括三个主要功能：
 
 1. **所有行分析**：汇总所有 CSV 文件中的数据，将 `diff_pwr` 列小于指定阈值的行标记为红色，大于等于阈值的行标记为绿色，并统计小于阈值的行数和占比。
 2. **边缘点分析**：专门统计边缘点数据（如 `tone_freq` 为最大值和最小值的点），同样使用颜色标记，并统计小于阈值的行数和占比。
+3. **符合条件的行提取**：提取 `diff_pwr` 列值小于指定阈值的所有行，保存到 CSV 文件中，并添加源文件信息。
 
 ## 配置区域
 
 脚本顶部有以下可配置参数：
 
 ```python
-SEARCH_DIRECTORY = r"D:\users\gxu\rx_iq\E22\regression_v2_0414"  # 搜索目录
+SEARCH_DIRECTORY = r"D:\users\gxu\rx_iq\E22\regression_v3_260418"  # 搜索目录
 FILE_PATTERN = "rx_iq_cal_res_*.csv"  # 文件名匹配模式
 DIFF_PWR_THRESHOLD = 45  # diff_pwr 列的阈值（小于此值的行将被标记为红色）
-OUTPUT_FILE_ALL = r"D:\users\gxu\scripts\output\all_rows_analysis.xlsx"  # 所有行分析输出文件
-OUTPUT_FILE_EDGE = r"D:\users\gxu\scripts\output\edge_points_analysis.xlsx"  # 边缘点分析输出文件
+OUTPUT_FILE_ALL = r"D:\users\gxu\scripts\output\rx_iq_regression_0420\all_rows_analysis.xlsx"  # 所有行分析输出文件
+OUTPUT_FILE_EDGE = r"D:\users\gxu\scripts\output\rx_iq_regression_0420\edge_points_analysis.xlsx"  # 边缘点分析输出文件
+OUTPUT_FILE_FILTERED = r"D:\users\gxu\scripts\output\rx_iq_regression_0420\filtered_diff_pwr.csv"  # 过滤后的diff_pwr输出文件
 ```
 
 ## 使用方法
@@ -63,6 +65,13 @@ python rx_iq_result_analyze.py
   - 无效行数
   - 小于阈值的行数
   - 小于阈值的占比
+
+### 3. filtered_diff_pwr.csv
+
+包含 `diff_pwr` 列值小于指定阈值的所有行，每行包含原始数据和以下额外信息：
+
+- **source_file**：原始文件名
+- **full_path**：原始文件的完整路径
 
 ## 技术实现
 

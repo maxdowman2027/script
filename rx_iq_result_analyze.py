@@ -10,15 +10,17 @@ import os
 import glob
 import pandas as pd
 from openpyxl.styles import PatternFill
+import csv
 
 
 # ================= 配置区域 =================
 # 在这里修改配置
-SEARCH_DIRECTORY = r"D:\users\gxu\rx_iq\E22\regression_v2_0414"  # 要搜索的根目录
+SEARCH_DIRECTORY = r"D:\users\gxu\rx_iq\E22\regression_v3_260418"  # 要搜索的根目录
 FILE_PATTERN = "rx_iq_cal_res_*.csv"  # 文件名匹配模式（支持通配符）
 DIFF_PWR_THRESHOLD = 45  # diff_pwr列的阈值（值小于此数的行将被标记）
-OUTPUT_FILE_ALL = r"D:\users\gxu\scripts\output\all_rows_analysis.xlsx"  # 所有行分析输出文件
-OUTPUT_FILE_EDGE = r"D:\users\gxu\scripts\output\edge_points_analysis.xlsx"  # 边缘点分析输出文件
+OUTPUT_FILE_ALL = r"D:\users\gxu\scripts\output\rx_iq_regression_0420\all_rows_analysis.xlsx"  # 所有行分析输出文件
+OUTPUT_FILE_EDGE = r"D:\users\gxu\scripts\output\rx_iq_regression_0420\edge_points_analysis.xlsx"  # 边缘点分析输出文件
+OUTPUT_FILE_FILTERED = r"D:\users\gxu\scripts\output\rx_iq_regression_0420\filtered_diff_pwr.csv"  # 过滤后的diff_pwr输出文件
 # ===========================================
 
 
@@ -309,6 +311,105 @@ def extract_edge_points(csv_files: list, threshold: float, output_file: str):
     print(f"结果已保存到: {output_file}")
 
 
+def extract_rows_with_diff_pwr(csv_files: list, threshold: float, output_file: str):
+    """
+    从CSV文件中提取diff_pwr列值小于阈值的行，并保存到输出文件（CSV格式）
+
+    Args:
+        csv_files: 要处理的CSV文件列表
+        threshold: diff_pwr列的阈值
+        output_file: 输出文件路径
+    """
+    all_matching_rows = []
+    header = None
+
+    print(f"开始处理 {len(csv_files)} 个CSV文件...")
+
+    for file_path in csv_files:
+        print(f"正在处理: {file_path}")
+        try:
+            with open(file_path, "r", newline="", encoding="utf-8") as f:
+                # 读取CSV文件并去除列名的空格
+                lines = [line.strip() for line in f if line.strip()]
+                if not lines:
+                    print(f"警告: 文件 {file_path} 是空文件，已跳过")
+                    continue
+
+                # 处理列名，去除每个列名的前后空格
+                dialect = csv.Sniffer().sniff(lines[0])
+                reader = csv.DictReader(lines, dialect=dialect)
+
+                # 去除列名的前后空格
+                cleaned_fieldnames = [field.strip() for field in reader.fieldnames]
+                reader.fieldnames = cleaned_fieldnames
+
+                if header is None:
+                    header = cleaned_fieldnames
+
+                # 检查是否包含diff_pwr列（忽略大小写和空格）
+                has_diff_pwr = False
+                diff_pwr_column = None
+                for field in cleaned_fieldnames:
+                    if field.strip().lower() == "diff_pwr":
+                        has_diff_pwr = True
+                        diff_pwr_column = field
+                        break
+
+                if not has_diff_pwr:
+                    print(f"警告: 文件 {file_path} 不包含 diff_pwr 列，已跳过")
+                    continue
+
+                # 查找符合条件的行
+                for row in reader:
+                    try:
+                        # 去除值的空格后转换为浮点数
+                        diff_pwr_value = row[diff_pwr_column].strip()
+                        diff_pwr = float(diff_pwr_value)
+
+                        if diff_pwr < threshold:
+                            # 去除所有值的前后空格
+                            cleaned_row = {k: v.strip() if isinstance(v, str) else v for k, v in row.items()}
+                            # 添加文件名信息到行数据中，方便追踪来源
+                            cleaned_row["source_file"] = os.path.basename(file_path)
+                            cleaned_row["full_path"] = file_path
+                            all_matching_rows.append(cleaned_row)
+                    except (ValueError, KeyError) as e:
+                        print(f"警告: 文件 {file_path} 中某行数据格式错误: {e}")
+                        continue
+
+        except Exception as e:
+            print(f"错误: 无法读取文件 {file_path}: {e}")
+            continue
+
+    # 保存到输出文件
+    if all_matching_rows:
+        # 确保输出目录存在
+        output_dir = os.path.dirname(output_file)
+        if output_dir and not os.path.exists(output_dir):
+            os.makedirs(output_dir, exist_ok=True)
+            print(f"已创建输出目录: {output_dir}")
+
+        # 添加来源文件列到表头（如果不存在）
+        if header and "source_file" not in header:
+            header.append("source_file")
+        if header and "full_path" not in header:
+            header.append("full_path")
+
+        # 写入输出文件
+        try:
+            with open(output_file, "w", newline="", encoding="utf-8") as f:
+                writer = csv.DictWriter(f, fieldnames=header)
+                writer.writeheader()
+                writer.writerows(all_matching_rows)
+
+            print(f"处理完成! 共找到 {len(all_matching_rows)} 行符合条件的数据")
+            print(f"结果已保存到: {output_file}")
+        except Exception as e:
+            print(f"错误: 无法写入输出文件 {output_file}: {e}")
+    else:
+        print("未找到符合条件的数据")
+
+
 def main():
     print("配置信息:")
     print(f"  搜索目录: {SEARCH_DIRECTORY}")
@@ -316,6 +417,7 @@ def main():
     print(f"  阈值: {DIFF_PWR_THRESHOLD}")
     print(f"  所有行分析输出文件: {OUTPUT_FILE_ALL}")
     print(f"  边缘点分析输出文件: {OUTPUT_FILE_EDGE}")
+    print(f"  过滤行输出文件: {OUTPUT_FILE_FILTERED}")
     print()
 
     # 查找符合条件的CSV文件
@@ -334,6 +436,10 @@ def main():
     # 处理边缘点
     print("\n=== 处理边缘点 ===")
     extract_edge_points(csv_files, DIFF_PWR_THRESHOLD, OUTPUT_FILE_EDGE)
+
+    # 提取符合条件的行到CSV文件
+    print("\n=== 提取符合条件的行 ===")
+    extract_rows_with_diff_pwr(csv_files, DIFF_PWR_THRESHOLD, OUTPUT_FILE_FILTERED)
 
     print("\n所有处理完成!")
 
