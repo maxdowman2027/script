@@ -92,7 +92,7 @@ def copy_and_organize_files():
     """
     # 遍历源路径下的所有文件
     for filename in os.listdir(SOURCE_PATH):
-        if filename.startswith("dump_phymd") and filename.endswith(".csv"):
+        if filename.startswith("dump_phymd") and (filename.endswith(".csv") or filename.endswith(".pdf")):
             source_file = os.path.join(SOURCE_PATH, filename)
             print(f"正在处理: {filename}")
 
