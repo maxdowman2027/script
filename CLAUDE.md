@@ -97,8 +97,6 @@
 |---------|---------|---------|
 | `wifiRxProcess.py` | WiFi 接收数据处理 | wifiRxProcess_Skill.md |
 | `wifiRxPlot.py` | WiFi 接收数据绘图 | - |
-| `organize_rx_iq_data.py` | 整理和分类 RX IQ 测试数据，根据带宽、频率和通道信息重命名和移动文件 | organize_rx_iq_data_Skill.md |
-| `organize_dump_files.py` | 将源路径下的文件按照文件名的配置格式copy到目的路径下的对应层级目录中 | organize_dump_files_Skill.md |
 
 #### 7. 数据验证与检查工具
 | 脚本名称 | 功能说明 | 详细文档 |
@@ -108,7 +106,6 @@
 | `check_columns.py` | 检查列一致性 | check_columns_Skill.md |
 | `validate_conversion.py` | 验证数据转换 | validate_conversion_Skill.md |
 | `tx_adcdump_data_parse.py` | 将 ADC 采样数据的 bit 字段转换为有符号数 | tx_adcdump_data_parse_Skill.md |
-| `rx_iq_result_analyze.py` | 分析 diff_pwr 列数据，将小于指定值的行添加红色填充色，统计小于指定值的占比 | rx_iq_result_analyze_Skill.md |
 
 #### 8. 寄存器比较工具
 | 脚本名称 | 功能说明 | 详细文档 |
@@ -139,15 +136,14 @@
   - `rls3_rls4_evm_comparison/` - RLS3 vs RLS4 比较结果
   - `rls4_wifi7_evm_comparison/` - RLS4 vs WiFi7 比较结果
 
-#### register_comparison_scripts/
-- 位置: `./register_comparison_scripts/`
-- 包含: 寄存器比较脚本
-- 说明文档: Register_Comparison_Scripts_Skill.md
-- 输出文件:
-  - `register_comparison_report_phy_common_reg2csv.txt`
-  - `register_comparison_report_phy_txbf_reg2csv.txt`
-  - `register_comparison_report_phy_txdfe_reg_reg2csv.txt`
-  - `register_comparison_report_phy_txfreq_reg2csv.txt`
+#### rx_iq_test/
+- 位置: `./rx_iq_test/`
+- 包含: RX IQ 测试数据处理和分析脚本
+- 说明文档: 各脚本的 `_Skill.md` 文件（位于 skill/ 目录）
+- 主要脚本:
+  - organize_dump_files.py - 将源路径下的文件按照文件名的配置格式copy到目的路径下的对应层级目录中
+  - organize_rx_iq_data.py - 整理和分类 RX IQ 测试数据，根据带宽、频率和通道信息重命名和移动文件
+  - rx_iq_result_analyze.py - 分析 diff_pwr 列数据，将小于指定值的行添加红色填充色，统计小于指定值的占比
 
 #### skill/
 - 位置: `./skill/`

@@ -10,8 +10,8 @@ import re
 
 # ================= 配置区域 =================
 # 在这里修改配置
-SOURCE_PATH = r"D:\chip_test\dev\xian_test\Xian-Esp-Test-Scripts\rftest_data\dump_iqcomb_0x240\FPGA752_FPGA761_20260417"  # 源路径
-DESTINATION_PATH = r"D:\users\gxu\rx_iq\E22\regression_v3_260418\ch0"  # 目的路径
+SOURCE_PATH = r"D:\chip_test\dev\xian_test\Xian-Esp-Test-Scripts\rftest_data\dump_iqcomb_0x240\FPGA752_FPGA761_20260420"  # 源路径
+DESTINATION_PATH = r"D:\users\gxu\rx_iq\E22\regression_v3_260418\ch1"  # 目的路径
 # ===========================================
 
 
