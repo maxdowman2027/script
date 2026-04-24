@@ -1,0 +1,8 @@
+phy_common,0xc3026000
+phy_txfreq,0xc3026400
+phy_txdfe_reg,0xc3026800
+phy_rxfreq,0xc3026C00
+phy_rxtime,0xc3027000
+phy_txbf,0xc3027C00
+phy_fft,0xc3027e00
+phy_rx11b,0xc3027a00

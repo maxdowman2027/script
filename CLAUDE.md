@@ -50,6 +50,42 @@
 
 ---
 
+## 🚨 异常检测与报错规则 (Anomaly Detection Rules)
+
+在处理任何测试数据（CSV, Log, JSON）时，必须执行“异常审计”步骤。如果发现以下情况，必须在回复中显眼地标注 **[ANOMALY ALERT]**：
+
+### 1. 协议合规性异常 (Standard Violation)
+- **发射功率异常**：如果 Tx Power 设定值与实际读取值偏差 > 2dB。
+
+### 2. 统计学异常 (Statistical Outliers)
+- **剧烈波动**：同一测试项下，数据点波动（Standard Deviation）超过平均值的 15%。
+- **突发丢包**：PER（误包率）在原本稳定的序列中突然出现 > 5% 的跳变。
+- **零值/极值**：发现 RSSI 为 0 或 -127 等代表链路断开或寄存器读取错误的数值。
+
+### 3. 逻辑关联异常 (Correlation Logic)
+- **强信号低速率**：RSSI > -50dBm 但 MCS 无法达到最高阶。
+- **频率偏移关联**：Frequency Error > 20ppm 且伴随 EVM 恶化。
+
+### 4. MIMO/NSS2 跨链一致性异常 (Chain Imbalance)
+在 NSS2 模式下，必须对比 Chain 0 (ch0) 和 Chain 1 (ch1) 的数据。如果满足以下任一条件，必须触发报警：
+
+- **EVM 差值过大**：`abs(EVM_S0 - EVM_S1) > 3dB`。
+  - *分析*：提示可能存在单路射频干扰、PA 非线性不一致或某一路 IQ 校准失效。
+- **功率不平衡 (Power Imbalance)**：`abs(Tx_Pwr_S0 - Tx_Pwr_S1) > 1.5dB`。
+  - *分析*：提示可能存在耦合路径损耗差异、天线隔离度不足或校准表 (Cal Table) 增益补偿错误。
+- **RSSI 不对称**：接收端 `abs(RSSI_S0 - RSSI_S1) > 5dB`。
+  - *分析*：提示可能存在外部天线连接不良、底噪 (Noise Floor) 环境差异或 LNA 增益不一致。
+---
+
+## 📊 异常报告格式要求
+发现异常时，必须按以下结构输出：
+1. **异常项**：(例如：EVM Performance Drop)
+2. **数值证据**：(例如：Expected < -32dB, Actual -28.5dB)
+3. **潜在原因推断**：(例如：Possible PA compression or IQ imbalance)
+4. **建议动作**：(例如：Check matching circuit or reduce Tx power by 2dB)
+
+---
+
 ## 🛠️ 可用测试脚本库 (Scripts Directory)
 
 ### 脚本分类与功能索引
@@ -107,9 +143,10 @@
 | `validate_conversion.py` | 验证数据转换 | validate_conversion_Skill.md |
 | `tx_adcdump_data_parse.py` | 将 ADC 采样数据的 bit 字段转换为有符号数 | tx_adcdump_data_parse_Skill.md |
 
-#### 8. 寄存器比较工具
+#### 8. 寄存器查询与比较工具
 | 脚本名称 | 功能说明 | 详细文档 |
 |---------|---------|---------|
+| `reg_query.py` | E22 芯片寄存器查询工具 - 支持通过名称或地址查询 | reg_query.skill |
 | `compare_reg_csv.py` | 比较两个寄存器配置 CSV 文件 | compare_reg_csv_Skill.md |
 | `check_excel_colors.py` | 检查 Excel 文件中的颜色标记 | check_excel_colors_Skill.md |
 
@@ -145,6 +182,20 @@
   - organize_rx_iq_data.py - 整理和分类 RX IQ 测试数据，根据带宽、频率和通道信息重命名和移动文件
   - rx_iq_result_analyze.py - 分析 diff_pwr 列数据，将小于指定值的行添加红色填充色，统计小于指定值的占比
 
+#### reg_query/
+- 位置: `./reg_query/`
+- 包含: E22 芯片寄存器查询工具
+- 说明文档: reg_query.skill
+- 主要功能:
+  - 通过寄存器名称查询详细信息
+  - 通过物理地址查询寄存器所在文件和信息
+  - 支持指定CSV文件路径
+  - 列出可用的寄存器定义文件
+- 文件说明:
+  - `reg_query.py` - 主查询脚本
+  - `base_addr.txt` - 模块基地址定义文件
+  - `csv_files/` - 包含寄存器定义CSV文件的目录
+
 #### skill/
 - 位置: `./skill/`
 - 包含: Claude Code 技能脚本
@@ -157,6 +208,25 @@
 
 ### 常用命令示例
 
+#### 寄存器查询工具
+```bash
+# 查询寄存器名称
+python reg_query.py reg_mcs10_ldpc_man
+
+# 查询物理地址
+python reg_query.py 0xc3026cc0
+
+# 指定CSV文件路径
+python reg_query.py -c "D:\fpga_test\imag\E22_4.0\260420\csv" reg_mcs10_ldpc_man
+
+# 列出可用的CSV文件
+python reg_query.py -l
+
+# 查看使用帮助
+python reg_query.py --help
+```
+
+#### 其他工具命令
 ```bash
 # 合并 CSV 文件到 Excel
 python merge_csv_to_xlsx.py --input_dir ./data --output_file merged_data.xlsx
