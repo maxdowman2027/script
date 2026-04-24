@@ -1,0 +1,466 @@
+Address;RegName;Clk;Rst;Port;Public;Signal;BitPos;Default;SW(R/W);HW(W);MCU(W);MISC;Description
+0x0000;TEST_CONF;pclk;reset_n;;;;[31:1];31'h0;RO;;;;
+;;;;Not;;reg_clk_en;[0];1'b0;R/W;;;;~
+0x0004;RXFREQ_CRG_CONF0;pclk;reset_n;;;;[31:4];28'h0;RO;;;;
+;;;;;;reg_clk_rxfreq_cg_bypass;[3];1'h0;R/W;;;;~
+;;;;;;reg_rst_rxfreq_cg_bypass;[2];1'h0;R/W;;;;~
+;;;;;;reg_clk_rxmac_cg_bypass ;[1];1'h0;R/W;;;;~
+;;;;;;reg_rst_rxmac_cg_bypass ;[0];1'h0;R/W;;;;~
+0x0008;CHNEST_CONF0;pclk;reset_n;;;;[31:26];6'h0;RO;;;;
+;;;;;;reg_hltf_postsnr_rmvdc_num;[25:22];4'd6;R/W;;;;
+;;;;;;reg_dc_weight_rmvdc_num   ;[21:18];4'd4 ;R/W;;;;
+;;;;;;reg_bwdet_0threshold;[17:12];6'h20;R/W;;;;
+;;;;;;reg_bwdet_1threshold;[11:6];6'h8;R/W;;;;
+;;;;;;reg_bwdet_2threshold;[5:0];6'h3;R/W;;;;
+0x000C;CHNEST_CONF1;pclk;reset_n;;;;[31:24];8'h0;RO;;;;
+;;;;;;reg_sig_phase_avg_len;[23:21];3'h2;R/W;;;;
+;;;;;;reg_nonhe_data_phase_avg_0len;[20:18];3'd5;R/W;;;;
+;;;;;;reg_nonhe_data_phase_avg_1len;[17:15];3'd5;R/W;;;;
+;;;;;;reg_nonhe_data_phase_avg_2len;[14:12];3'd5;R/W;;;;
+;;;;;;reg_nonhe_data_phase_avg_3len;[11:9];3'd5;R/W;;;;
+;;;;;;reg_nonhe_data_phase_avg_4len;[8:6];3'd5;R/W;;;;
+;;;;;;reg_nonhe_data_phase_avg_5len;[5:3];3'd5;R/W;;;;
+;;;;;;reg_nonhe_data_phase_avg_6len;[2:0];3'd5;R/W;;;;~
+0x0010;CHNEST_CONF2;pclk;reset_n;;;;[31:21];11'h0;RO;;;;
+;;;;;;reg_he_data_phase_avg_0len;[20:18];3'd2;R/W;;;;
+;;;;;;reg_he_data_phase_avg_1len;[17:15];3'd2;R/W;;;;
+;;;;;;reg_he_data_phase_avg_2len;[14:12];3'd2;R/W;;;;
+;;;;;;reg_he_data_phase_avg_3len;[11:9];3'd2;R/W;;;;
+;;;;;;reg_he_data_phase_avg_4len;[8:6];3'd2;R/W;;;;
+;;;;;;reg_he_data_phase_avg_5len;[5:3];3'd2;R/W;;;;
+;;;;;;reg_he_data_phase_avg_6len;[2:0];3'd2;R/W;;;;~
+0x0014;CHNEST_CONF3;pclk;reset_n;;;;[31:14];18'h0;RO;;;;
+;;;;;;reg_tb_data_phase_avg_0len;[13:12];2'd2;R/W;;;;~
+;;;;;;reg_tb_data_phase_avg_1len;[11:10];2'd2;R/W;;;;~
+;;;;;;reg_tb_data_phase_avg_2len;[9:8];2'd2;R/W;;;;~
+;;;;;;reg_tb_data_phase_avg_3len;[7:6];2'd2;R/W;;;;~
+;;;;;;reg_tb_data_phase_avg_4len;[5:4];2'd2;R/W;;;;~
+;;;;;;reg_tb_data_phase_avg_5len;[3:2];2'd2;R/W;;;;~
+;;;;;;reg_tb_data_phase_avg_6len;[1:0];2'd2;R/W;;;;~
+0x0018;CHNEST_CONF4;pclk;reset_n;;;;[31:27];5'h0;RO;;;;
+;;;;;;reg_nonhe_datafreqoffset_dis_len;[26:24];3'h6;R/W;;;;
+;;;;;;reg_he_datafreqoffset_dis_len   ;[23:21];3'h6;R/W;;;;
+;;;;;;reg_aci_bwdet_threshold         ;[20:18];3'h1;R/W;;;;
+;;;;;;reg_aci_bwdet_min_threshold     ;[17:5];13'h400;R/W;;;;
+;;;;;;reg_heofdm_dymfftsize_en        ;[4];1'h1;R/W;;;;
+;;;;;;reg_mimodet_low_pwr_en          ;[3];1'h1;R/W;;;;~
+;;;;;;reg_minnoise                    ;[2:0];3'h1;R/W;;;;
+0x001C;CHNEST_CONF5;pclk;reset_n;;;;[31:6];26'h0;RO;;;;
+;;;;;;reg_smth_cg_bypass           ;[5];1'h0;R/W;;;;~
+;;;;;;reg_chnest_data_cg_bypass    ;[4];1'h0;R/W;;;;~
+;;;;;;reg_chnest_bwdet_cg_bypass   ;[3];1'h0;R/W;;;;~
+;;;;;;reg_chnest_preamble_cg_bypass;[2];1'h0;R/W;;;;~
+;;;;;;reg_chnest_hmem_a_cg_bypass  ;[1];1'h0;R/W;;;;~
+;;;;;;reg_chnest_hmem_b_cg_bypass  ;[0];1'h0;R/W;;;;~
+0x0020;CHNEST_CONF6;pclk;reset_n;;;;[31:28];4'h0;RO;;;;
+;;;;;;reg_sig_refinefreq_err_thre;[27:22];6'd31;R/W;;;;
+;;;;;;reg_data_refine_afactor;[21:20];2'd3;R/W;;;;
+;;;;;;reg_lltf_phase_err_thre    ;[19:9];11'd393;R/W;;;;
+;;;;;;reg_irc_smth_thre          ;[8:4];5'd13;R/W;;;;
+;;;;;;reg_hedlofdm_force_2xfft_en;[3];1'h1;R/W;;;;
+;;;;;;reg_sig_refineoffset_en    ;[2];1'h1;R/W;;;;
+;;;;;;reg_data_refineoffset_en   ;[1];1'h1;R/W;;;;
+;;;;;;reg_dlmumimo_irc_en        ;[0];1'h1;R/W;;;;
+0x0024;CHNEST_CONF7;pclk;reset_n;;;reg_lowsnr_datarefine_bypass_thre;[31:28];4'd14;R/W;;;;
+;;;;;;reg_nonhe_phase_corr_mask_symnum;[27:26];2'd0 ;R/W;;;;
+;;;;;;reg_he_phase_corr_mask_symnum;[25:24];2'd0;R/W;;;;
+;;;;;;reg_nonhe_data_refine_acc_num      ;[23:21];3'd7 ;R/W;;;;
+;;;;;;reg_he_data_refine_acc_num      ;[20:18];3'd7 ;R/W;;;;
+;;;;;;reg_lltf_noise_rmvdc_num     ;[17:15];3'd3 ;R/W;;;;
+;;;;;;reg_sig_phasediff_rmvdc_num  ;[14:12];3'd3 ;R/W;;;;
+;;;;;;reg_lltf_corr_err_num_maxthre;[11:8];4'd10;R/W;;;;
+;;;;;;reg_phase_correction_en;[7];1'h1;R/W;;;;
+;;;;;;reg_lltf_corr_err_neg_maxthre;[6:0];7'd63;R/W;;;;
+0x0028;CHNEST_CONF8;pclk;reset_n;;;;[31:22];10'h0;RO;;;;
+;;;;;;reg_amp_avg_mcs_thre   ;[21:18];4'd3;R/W;;;;
+;;;;;;reg_amp_avg_symnum_thre;[17:14];4'd10;R/W;;;;
+;;;;;;reg_tb_data_refine_acc_num   ;[13:12];2'd2;R/W;;;;~
+;;;;;;reg_tb_datafreqoffset_dis_len;[11:10];2'd3;R/W;;;;~
+;;;;;;reg_dc_weight_freqshift_thre;[9:0];10'd0;R/W;;;;
+0x002C;CHNEST_CONF9;pclk;reset_n;;;reg_hltf_smooth_snr_thre;[31:26];6'd45;R/W;;;;
+;;;;;;reg_data_amp_track_en      ;[25];1'd1 ;R/W;;;;
+;;;;;;reg_nonhe_data_amp_avg_len ;[24:22];3'd5 ;R/W;;;;
+;;;;;;reg_he_data_amp_avg_len    ;[21:19];3'd5 ;R/W;;;;
+;;;;;;reg_tb_data_amp_avg_len    ;[18:17];2'd2 ;R/W;;;;~
+;;;;;;reg_amp_avg_ref_thre       ;[16:11];6'd10;R/W;;;;
+;;;;;;reg_hltf_mumimo_smooth_thre;[10:7];4'd2;R/W;;;;
+;;;;;;reg_csi_en                 ;[6];1'd0;R/W;;;;
+;;;;;;reg_csi_pilot_deci_ratio   ;[5:2];4'd0 ;R/W;;;;
+;;;;;;reg_nonht_ftm_bw_mode;[1];1'h0;R/W;;;;
+;;;;;;reg_nonht_ftm_mode;[0];1'h0;R/W;;;;
+0x0030;CHNEST_CONF10;pclk;reset_n;;;;[31:5];27'h0;RO;;;;~
+;;;;;;reg_bw_det_bypass_en;[4:2];3'h0;R/W;;;;~
+;;;;;;reg_csi_test_en ;[1];1'h0;R/W;;;;~
+;;;;;;reg_csi_dump_en ;[0];1'h0;R/W;;;;~
+0x0034;CHNEST_CONF11;pclk;reset_n;;;reg_chnest_0rsv;[31:0];32'd0;R/W;;;;~
+0x0038;RXCTRLFD_CONF0;pclk;reset_n;;;;[31:11];21'h0;RO;;;;
+;;;;;;reg_hedlmu_user_sta_id;[10:0];11'h0;R/W;;;;~
+0x003C;RXCTRLFD_CONF1;pclk;reset_n;;;;[31:13];19'h0;RO;;;;
+;;;;;;reg_hedlmu_board0_id_en;[12];1'h0;R/W;;;;~
+;;;;;;;[11];1'h0;RO;;;;
+;;;;;;reg_hedlmu_board0_id;[10:0];11'h0;R/W;;;;~
+0x0040;RXCTRLFD_CONF2;pclk;reset_n;;;;[31:13];19'h0;RO;;;;
+;;;;;;reg_hedlmu_board1_id_en;[12];1'h0;R/W;;;;~
+;;;;;;;[11];1'h0;RO;;;;
+;;;;;;reg_hedlmu_board1_id;[10:0];11'h0;R/W;;;;~
+0x0044;RXCTRLFD_CONF3;pclk;reset_n;;;;[31:13];19'h0;RO;;;;
+;;;;;;reg_hedlmu_board2_id_en;[12];1'h0;R/W;;;;~
+;;;;;;;[11];1'h0;RO;;;;
+;;;;;;reg_hedlmu_board2_id;[10:0];11'h0;R/W;;;;~
+0x0048;RXCTRLFD_CONF4;pclk;reset_n;;;reg_vht_mumimo_useridx_0map;[31:0];32'h0;R/W;;;;~
+0x004C;RXCTRLFD_CONF5;pclk;reset_n;;;reg_vht_mumimo_useridx_1map;[31:0];32'h0;R/W;;;;~
+0x0050;RXCTRLFD_CONF6;pclk;reset_n;;;reg_vht_mumimo_useridx_2map;[31:0];32'h0;R/W;;;;~
+0x0054;RXCTRLFD_CONF7;pclk;reset_n;;;reg_vht_mumimo_useridx_3map;[31:0];32'h0;R/W;;;;~
+0x0058;RXCTRLFD_CONF8;pclk;reset_n;;;;[31:13];19'h0;RO;;;;
+;;;;;;reg_tb_mumimo_smooth_en;[12];1'd0;R/W;;;;~
+;;;;;;reg_tb_muofdm_smooth_en;[11];1'd1;R/W;;;;~
+;;;;;;reg_he_det_corr_thre    ;[10:5];6'd19;R/W;;;;
+;;;;;;reg_hltf_mumimo_smooth_en;[4];1'd0;R/W;;;;
+;;;;;;;[3];1'h0;RO;;;;
+;;;;;;reg_lltf_smooth_en      ;[2];1'd1;R/W;;;;
+;;;;;;reg_nonhe_hltf_smooth_en;[1];1'd1;R/W;;;;
+;;;;;;reg_he_hltf_smooth_en   ;[0];1'd1;R/W;;;;
+0x005C;RXCTRLFD_CONF9;pclk;reset_n;;;;[31:24];8'h0;RO;;;;
+;;;;;;reg_stbc_ant_disable_bypass;[23];1'd0;R/W;;;;~
+;;;;;;reg_last_sym_gicomb_bypass;[22];1'd1;R/W;;;;~
+;;;;;;reg_eht_su_staid_match_bypass;[21];1'd0;R/W;;;;~
+;;;;;;reg_eht_det_corr_thre;[20:15];6'd39;R/W;;;;~
+;;;;;;reg_eht_en;[14];1'd1;R/W;;;;~
+;;;;;;reg_ht_sounding_det_en;[13];1'd1;R/W;;;;~
+;;;;;;reg_clk_preamble_cg_bypass;[12];1'd0;R/W;;;;~
+;;;;;;reg_ant_broken_det_en     ;[11];1'd1;R/W;;;;~
+;;;;;;reg_pwr_sav_det_en        ;[10];1'd1;R/W;;;;~
+;;;;;;reg_ant_snrdiff_thre      ;[9:5];5'd20;R/W;;;;
+;;;;;;reg_ant_snr_low_thre      ;[4:0];5'd24;R/W;;;;
+0x0060;RXCTRLFD_CONF10;pclk;reset_n;;;;[31:30];2'h0;RO;;;;
+;;;;;;reg_ant_disable_mcs12_thre;[29:24];6'd40 ;R/W;;;;~
+;;;;;;reg_ant_disable_mcs0_thre;[23:18];6'd7 ;R/W;;;;
+;;;;;;reg_ant_disable_mcs1_thre;[17:12];6'd10;R/W;;;;
+;;;;;;reg_ant_disable_mcs2_thre;[11:6];6'd13;R/W;;;;
+;;;;;;reg_ant_disable_mcs3_thre;[5:0];6'd17;R/W;;;;
+0x0064;RXCTRLFD_CONF11;pclk;reset_n;;;;[31:30];2'h0;RO;;;;
+;;;;;;reg_ant_disable_mcs13_thre;[29:24];6'd43;R/W;;;;~
+;;;;;;reg_ant_disable_mcs4_thre;[23:18];6'd20;R/W;;;;
+;;;;;;reg_ant_disable_mcs5_thre;[17:12];6'd24;R/W;;;;
+;;;;;;reg_ant_disable_mcs6_thre;[11:6];6'd26;R/W;;;;
+;;;;;;reg_ant_disable_mcs7_thre;[5:0];6'd28;R/W;;;;
+0x0068;RXCTRLFD_CONF12;pclk;reset_n;;;;[31:24];8'h0;RO;;;;
+;;;;;;reg_ant_disable_mcs8_thre ;[23:18];6'd31;R/W;;;;
+;;;;;;reg_ant_disable_mcs9_thre ;[17:12];6'd32;R/W;;;;
+;;;;;;reg_ant_disable_mcs10_thre;[11:6];6'd36;R/W;;;;
+;;;;;;reg_ant_disable_mcs11_thre;[5:0];6'd37;R/W;;;;
+0x006C;RXCTRLFD_CONF13;pclk;reset_n;;;;[31:30];2'h0;RO;;;;
+;;;;;;reg_lowsnr_abort_mcs12_thre;[29:24];6'd20;R/W;;;;~
+;;;;;;reg_lowsnr_abort_mcs0_thre;[23:18];6'd54;R/W;;;;
+;;;;;;reg_lowsnr_abort_mcs1_thre;[17:12];6'd58;R/W;;;;
+;;;;;;reg_lowsnr_abort_mcs2_thre;[11:6];6'd0 ;R/W;;;;
+;;;;;;reg_lowsnr_abort_mcs3_thre;[5:0];6'd2 ;R/W;;;;
+0x0070;RXCTRLFD_CONF14;pclk;reset_n;;;;[31:30];2'h0;RO;;;;
+;;;;;;reg_lowsnr_abort_mcs13_thre;[29:24];6'd20;R/W;;;;~
+;;;;;;reg_lowsnr_abort_mcs4_thre;[23:18];6'd6 ;R/W;;;;
+;;;;;;reg_lowsnr_abort_mcs5_thre;[17:12];6'd10;R/W;;;;
+;;;;;;reg_lowsnr_abort_mcs6_thre;[11:6];6'd11;R/W;;;;
+;;;;;;reg_lowsnr_abort_mcs7_thre;[5:0];6'd13;R/W;;;;
+0x0074;RXCTRLFD_CONF15;pclk;reset_n;;;;[31:24];8'h0;RO;;;;
+;;;;;;reg_lowsnr_abort_mcs8_thre ;[23:18];6'd17;R/W;;;;
+;;;;;;reg_lowsnr_abort_mcs9_thre ;[17:12];6'd18;R/W;;;;
+;;;;;;reg_lowsnr_abort_mcs10_thre;[11:6];6'd20;R/W;;;;
+;;;;;;reg_lowsnr_abort_mcs11_thre;[5:0];6'd20;R/W;;;;
+0x0078;RXCTRLFD_CONF16;pclk;reset_n;;;reg_rx_err_abort_ctrl;[31:0];32'hfffd7fff;R/W;;;;~
+0x007C;RXCTRLFD_CONF17;pclk;reset_n;;;;[31:6];26'h0;RO;;;;
+;;;;;;reg_rxfreq_dump_sel;[5];1'd0;R/W;;;;~
+;;;;;;reg_dec_of_det_en  ;[4];1'd1;R/W;;;;~
+;;;;;;reg_dec_of_det_thre;[3:0];4'd8;R/W;;;;~
+0x0080;RXCTRLFD_CONF18;pclk;reset_n;;;reg_rxctrlfd_0rsv;[31:0];32'd0;R/W;;;;~
+0x0084;RXCTRLFD_CONF19;pclk;reset_n;;;reg_rxctrlfd_1rsv;[31:0];32'd0;R/W;;;;~
+0x0088;RXCTRLFD_CONF20;pclk;reset_n;;;reg_rxctrlfd_2rsv;[31:0];32'd0;R/W;;;;~
+0x008C;SMTH_CONF0;pclk;reset_n;;;;[31:24];8'h0;RO;;;;
+;;;;;;reg_chnull_stbc_disable;[23];1'b0;R/W;;;;
+;;;;;;reg_spur_smth_bypass ;[22];1'b1;R/W;;;;~
+;;;;;;reg_gicombine_heltf_idx_thr ;[21:19];3'd3;R/W;;;;
+;;;;;;reg_gicombine_htltf_idx_thr ;[18:16];3'd3;R/W;;;;
+;;;;;;reg_gicombine_lltf_idx_thr  ;[15:13];3'd3;R/W;;;;
+;;;;;;reg_chnull_mcs_thr;[12:9];4'd5;R/W;;;;
+;;;;;;reg_corr_lvl_thr0;[8:0];9'd461;R/W;;;;
+0x0090;SMTH_CONF1;pclk;reset_n;;;;[31:9];23'h0;RO;;;;
+;;;;;;reg_corr_lvl_thr1;[8:0];9'd358;R/W;;;;
+0x0094;SMTH_CONF2;pclk;reset_n;;;;[31:9];23'h0;RO;;;;
+;;;;;;reg_corr_lvl_thr2;[8:0];9'd205;R/W;;;;
+0x0098;SMTH_CONF3;pclk;reset_n;;;;[31:9];23'h0;RO;;;;
+;;;;;;reg_corr_lvl_thr3;[8:0];9'd410;R/W;;;;
+0x009C;SMTH_CONF4;pclk;reset_n;;;;[31:14];18'h0;RO;;;;
+;;;;;;reg_snr_lvl_thr0;[13:0];14'd10  ;R/W;;;;
+0x00A0;SMTH_CONF5;pclk;reset_n;;;;[31:14];18'h0;RO;;;;
+;;;;;;reg_snr_lvl_thr1;[13:0];14'd63  ;R/W;;;;
+0x00A4;SMTH_CONF6;pclk;reset_n;;;;[31:14];18'h0;RO;;;;
+;;;;;;reg_snr_lvl_thr2;[13:0];14'd400  ;R/W;;;;
+0x00A8;SMTH_CONF7;pclk;reset_n;;;;[31:14];18'h0;RO;;;;
+;;;;;;reg_snr_lvl_thr3;[13:0];14'd2524  ;R/W;;;;
+0x00AC;SMTH_CONF8;pclk;reset_n;;;;[31:14];18'h0;RO;;;;
+;;;;;;reg_snr_lvl_thr4;[13:0];14'd10048  ;R/W;;;;
+0x00B0;SMTH_CONF9;pclk;reset_n;;;reg_smth_force_corr_delay;[31:30];2'h0;R/W;;;;
+;;;;;;reg_chnull_thr          ;[29:25];5'd5;R/W;;;;
+;;;;;;reg_fft_win_adj_ex      ;[24:17];8'd3;R/W;;;;
+;;;;;;reg_fft_win_adj_ex_en   ;[16];1'd1;R/W;;;;
+;;;;;;reg_fft_win_adj_heltf_en;[15];1'd1;R/W;;;;
+;;;;;;reg_fft_win_adj_htltf_en;[14];1'd1;R/W;;;;
+;;;;;;reg_fft_win_adj_lltf_en ;[13];1'd1;R/W;;;;
+;;;;;;reg_smth_csd_est_en     ;[12];1'd0;RO;;;;
+;;;;;;reg_smth_edge_mode      ;[11:10];2'd2;R/W;;;;
+;;;;;;reg_smth_filt_heltf_idx ;[9:7];3'd7;R/W;;;;
+;;;;;;reg_smth_filt_htltf_idx ;[6:4];3'd7;R/W;;;;
+;;;;;;reg_smth_filt_lltf_idx  ;[3:1];3'd7;R/W;;;;
+;;;;;;reg_smth_rot_use_csd    ;[0];1'd1;R/W;;;;
+0x00B4;MIMO_EQU_CONF0;pclk;reset_n;;;;[31];1'h0;RO;;;;
+;;;;;;reg_llr_aci      ;[30:28];3'h0;R/W;;;;
+;;;;;;;[27:24];4'h0;RO;;;;
+;;;;;;reg_equ_mcs_thres;[23:20];4'd4 ;R/W;;;;
+;;;;;;reg_equ_snr_thres;[19:4];16'd1265;R/W;;;;
+;;;;;;reg_n0_min;[3:0];4'd1;R/W;;;;
+0x00B8;MIMO_EQU_CONF1;pclk;reset_n;;;;[31:30];2'h0;RO;;;;
+;;;;;;reg_mcs9_bcc_man;[29:27];3'd3;R/W;;;;
+;;;;;;reg_mcs8_bcc_man;[26:24];3'd2;R/W;;;;
+;;;;;;reg_mcs7_bcc_man;[23:21];3'd3;R/W;;;;
+;;;;;;reg_mcs6_bcc_man;[20:18];3'd2;R/W;;;;
+;;;;;;reg_mcs5_bcc_man;[17:15];3'd4;R/W;;;;
+;;;;;;reg_mcs4_bcc_man;[14:12];3'd3;R/W;;;;
+;;;;;;reg_mcs3_bcc_man;[11:9];3'd3;R/W;;;;
+;;;;;;reg_mcs2_bcc_man;[8:6];3'd2;R/W;;;;
+;;;;;;reg_mcs1_bcc_man;[5:3];3'd3;R/W;;;;
+;;;;;;reg_mcs0_bcc_man;[2:0];3'd1;R/W;;;;
+0x00BC;MIMO_EQU_CONF2;pclk;reset_n;;;;[31:30];2'h0;RO;;;;
+;;;;;;reg_mcs7_ldpc_man;[29:27];3'd2;R/W;;;;
+;;;;;;reg_mcs6_ldpc_man;[26:24];3'd4;R/W;;;;
+;;;;;;reg_mcs5_ldpc_man;[23:21];3'd3;R/W;;;;
+;;;;;;reg_mcs4_ldpc_man;[20:18];3'd2;R/W;;;;
+;;;;;;reg_mcs3_ldpc_man;[17:15];3'd4;R/W;;;;
+;;;;;;reg_mcs2_ldpc_man;[14:12];3'd4;R/W;;;;
+;;;;;;reg_mcs1_ldpc_man;[11:9];3'd4;R/W;;;;
+;;;;;;reg_mcs0_ldpc_man;[8:6];3'd2;R/W;;;;
+;;;;;;reg_mcs11_bcc_man;[5:3];3'd3;R/W;;;;
+;;;;;;reg_mcs10_bcc_man;[2:0];3'd3;R/W;;;;
+0x00C0;MIMO_EQU_CONF3;pclk;reset_n;;;;[31:28];4'h0;RO;;;;
+;;;;;;reg_mcs13_ldpc_exp;[27:23];5'd24;R/W;;;;~
+;;;;;;reg_mcs12_ldpc_exp;[22:18];5'd25;R/W;;;;~
+;;;;;;reg_mcs13_ldpc_man;[17:15];3'd2;R/W;;;;~
+;;;;;;reg_mcs12_ldpc_man;[14:12];3'd3;R/W;;;;~
+;;;;;;reg_mcs11_ldpc_man;[11:9];3'd2;R/W;;;;
+;;;;;;reg_mcs10_ldpc_man;[8:6];3'd2;R/W;;;;
+;;;;;;reg_mcs9_ldpc_man;[5:3];3'd2;R/W;;;;
+;;;;;;reg_mcs8_ldpc_man;[2:0];3'd4;R/W;;;;
+0x00C4;MIMO_EQU_CONF4;pclk;reset_n;;;;[31:30];2'h0;RO;;;;
+;;;;;;reg_mcs5_bcc_exp;[29:25];5'd28;R/W;;;;
+;;;;;;reg_mcs4_bcc_exp;[24:20];5'd29;R/W;;;;
+;;;;;;reg_mcs3_bcc_exp;[19:15];5'd30;R/W;;;;
+;;;;;;reg_mcs2_bcc_exp;[14:10];5'd31;R/W;;;;
+;;;;;;reg_mcs1_bcc_exp;[9:5];5'd0;R/W;;;;
+;;;;;;reg_mcs0_bcc_exp;[4:0];5'd0;R/W;;;;
+0x00C8;MIMO_EQU_CONF5;pclk;reset_n;;;;[31:30];2'h0;R/W;;;;
+;;;;;;reg_mcs11_bcc_exp;[29:25];5'd25;R/W;;;;
+;;;;;;reg_mcs10_bcc_exp;[24:20];5'd26;R/W;;;;
+;;;;;;reg_mcs9_bcc_exp;[19:15];5'd26;R/W;;;;
+;;;;;;reg_mcs8_bcc_exp;[14:10];5'd26;R/W;;;;
+;;;;;;reg_mcs7_bcc_exp;[9:5];5'd27;R/W;;;;
+;;;;;;reg_mcs6_bcc_exp;[4:0];5'd27;R/W;;;;
+0x00CC;MIMO_EQU_CONF6;pclk;reset_n;;;;[31:30];2'h0;R/W;;;;
+;;;;;;reg_mcs5_ldpc_exp;[29:25];5'd27;R/W;;;;
+;;;;;;reg_mcs4_ldpc_exp;[24:20];5'd28;R/W;;;;
+;;;;;;reg_mcs3_ldpc_exp;[19:15];5'd30;R/W;;;;
+;;;;;;reg_mcs2_ldpc_exp;[14:10];5'd31;R/W;;;;
+;;;;;;reg_mcs1_ldpc_exp;[9:5];5'd0;R/W;;;;
+;;;;;;reg_mcs0_ldpc_exp;[4:0];5'd0;R/W;;;;
+0x00D0;MIMO_EQU_CONF7;pclk;reset_n;;;;[31:30];2'h0;RO;;;;
+;;;;;;reg_mcs11_ldpc_exp;[29:25];5'd24;R/W;;;;
+;;;;;;reg_mcs10_ldpc_exp;[24:20];5'd25;R/W;;;;
+;;;;;;reg_mcs9_ldpc_exp;[19:15];5'd25;R/W;;;;
+;;;;;;reg_mcs8_ldpc_exp;[14:10];5'd26;R/W;;;;
+;;;;;;reg_mcs7_ldpc_exp;[9:5];5'd26;R/W;;;;
+;;;;;;reg_mcs6_ldpc_exp;[4:0];5'd27;R/W;;;;
+0x00D4;MIMO_EQU_CONF8;pclk;reset_n;;;;[31:28];4'h0;RO;;;;
+;;;;;;reg_4096qam_scale;[27:24];4'd13;R/W;;;;~
+;;;;;;reg_1024qam_scale;[23:20];4'd13;R/W;;;;
+;;;;;;reg_256qam_scale;[19:16];4'd13;R/W;;;;
+;;;;;;reg_64qam_scale;[15:12];4'd13;R/W;;;;
+;;;;;;reg_16qam_scale;[11:8];4'd6;R/W;;;;
+;;;;;;reg_qpsk_scale;[7:4];4'd3;R/W;;;;
+;;;;;;reg_bpsk_scale;[3:0];4'd2;R/W;;;;
+0x00D8;MIMO_EQU_CONF9;pclk;reset_n;;;;[31:11];21'h0;RO;;;;
+;;;;;;reg_mimo_nsts2_cg_bypass;[10];1'd0;R/W;;;;~
+;;;;;;reg_mimo_nsts1_cg_bypass;[9];1'd0;R/W;;;;~
+;;;;;;reg_mimo_irc_cg_bypass;[8];1'd0;R/W;;;;~
+;;;;;;reg_mimo_after_equ_cg_bypass;[7];1'd0;R/W;;;;~
+;;;;;;reg_mimo_mld_cg_bypass;[6];1'd0;R/W;;;;~
+;;;;;;reg_mimo_avrsnr_cg_bypass;[5];1'd0;R/W;;;;~
+;;;;;;reg_mimo_sym_cg_bypass;[4];1'd0;R/W;;;;~
+;;;;;;reg_mimo_iq_dect_cg_bypass;[3];1'd0;R/W;;;;~
+;;;;;;reg_mimo_evm_cg_bypass;[2];1'd0;R/W;;;;~
+;;;;;;reg_mimo_ptsnr_wh_cg_bypass;[1];1'd0;R/W;;;;~
+;;;;;;reg_mimo_dfx_cg_bypass;[0];1'd0;R/W;;;;~
+0x00DC;MIMO_EQU_CONF10;pclk;reset_n;;;;[31:27];5'h0;RO;;;;
+;;;;;;reg_snr_limit_llr;[26:22];5'd7;R/W;;;;
+;;;;;;reg_sigma_n0_min;[21:16];6'd30;R/W;;;;
+;;;;;;reg_equ_ratio_thres;[15:0];16'd400;R/W;;;;
+0x00E0;MIMO_EQU_CONF11;pclk;reset_n;;;;[31:28];4'h0;RO;;;;
+;;;;;;reg_he_dc_weight_fac1;[27:24];4'd1;R/W;;;;
+;;;;;;reg_he_dc_weight_fac2;[23:20];4'd2;R/W;;;;
+;;;;;;reg_he_dc_weight_fac3;[19:16];4'd4;R/W;;;;
+;;;;;;reg_he_dc_weight_fac4;[15:12];4'd4;R/W;;;;
+;;;;;;reg_he_dc_weight_fac5;[11:8];4'd4;R/W;;;;
+;;;;;;reg_he_dc_weight_fac6;[7:4];4'd8;R/W;;;;
+;;;;;;reg_he_dc_weight_fac7;[3:0];4'd8;R/W;;;;
+0x00E4;MIMO_EQU_CONF12;pclk;reset_n;;;;[31:23];9'h0;RO;;;;
+;;;;;;reg_evm_rpt_sym_idx;[22:12];11'd0;R/W;;;;~
+;;;;;;reg_nonhe_dc_weight_fac1;[11:8];4'd2;R/W;;;;
+;;;;;;reg_nonhe_dc_weight_fac2;[7:4];4'd4;R/W;;;;
+;;;;;;reg_nonhe_dc_weight_fac3;[3:0];4'd8;R/W;;;;
+0x00E8;MIMO_EQU_CONF13;pclk;reset_n;;;;[31:27];5'd0;RO;;;;
+;;;;;;reg_evm_rpt_sel;[26];1'd0;R/W;;;;~
+;;;;;;reg_mld_evm_subnode;[25:24];2'd0;R/W;;;;~
+;;;;;;reg_evm_cal_en;[23];1'd1;R/W;;;;~
+;;;;;;reg_evm_cal_user_id;[22:19];4'd0;R/W;;;;~
+;;;;;;reg_dce_alpha;[18:13];6'd1;R/W;;;;~
+;;;;;;reg_dce_power_th;[12:1];12'd256;R/W;;;;~
+;;;;;;reg_dce_enable;[0];1'd1;R/W;;;;~
+0x00EC;MIMO_EQU_CONF14;pclk;reset_n;;;;[31:26];6'd0;RO;;;;
+;;;;;;reg_evm_rpt_thres;[25:15];11'd50;R/W;;;;~
+;;;;;;reg_dc_psnr_fix_min;[14:10];5'd4;R/W;;;;
+;;;;;;reg_dc_psnr_min_man;[9:5];5'd16;R/W;;;;
+;;;;;;reg_dc_psnr_min_exp;[4:0];5'd2;R/W;;;;
+0x00F0;MIMO_EQU_CONF15;pclk;reset_n;;;reg_mimo_reserve0;[31:0];32'd4610;R/W;;;;~
+0x00F4;MIMO_EQU_CONF16;pclk;reset_n;;;reg_mimo_reserve1;[31:0];32'd0;R/W;;;;~
+0x00F8;MIMO_EQU_CONF17;pclk;reset_n;;;reg_mimo_reserve2;[31:0];32'd0;R/W;;;;~
+0x00FC;MIMO_EQU_CONF18;pclk;reset_n;;;reg_mimo_reserve3;[31:0];32'd0;R/W;;;;~
+0x0100;DECODER_LDPC_MAX_ITER_CON0;pclk;reset_n;;;;[31:30];2'h0;RO;;;;
+;;;;;;reg_mcs8_gi0_ldpc_max_dec_iter;[29:25];5'd12;R/W;;;;
+;;;;;;reg_mcs8_gi1_ldpc_max_dec_iter;[24:20];5'd13;R/W;;;;
+;;;;;;reg_mcs8_gi2_ldpc_max_dec_iter;[19:15];5'd14;R/W;;;;
+;;;;;;reg_mcs9_gi0_ldpc_max_dec_iter;[14:10];5'd14;R/W;;;;
+;;;;;;reg_mcs9_gi1_ldpc_max_dec_iter;[9:5];5'd14;R/W;;;;
+;;;;;;reg_mcs9_gi2_ldpc_max_dec_iter;[4:0];5'd14;R/W;;;;
+0x0104;DECODER_LDPC_MAX_ITER_CON1;pclk;reset_n;;;;[31:30];2'h0;RO;;;;
+;;;;;;reg_mcs10_gi0_ldpc_max_dec_iter;[29:25];5'd9;R/W;;;;
+;;;;;;reg_mcs10_gi1_ldpc_max_dec_iter;[24:20];5'd10;R/W;;;;
+;;;;;;reg_mcs10_gi2_ldpc_max_dec_iter;[19:15];5'd11;R/W;;;;
+;;;;;;reg_mcs11_gi0_ldpc_max_dec_iter;[14:10];5'd13;R/W;;;;
+;;;;;;reg_mcs11_gi1_ldpc_max_dec_iter;[9:5];5'd14;R/W;;;;
+;;;;;;reg_mcs11_gi2_ldpc_max_dec_iter;[4:0];5'd14;R/W;;;;
+0x0108;DECODER_LDPC_MAX_ITER_CON2;pclk;reset_n;;;;[31:27];5'd0;RO;;;;
+;;;;;;reg_tb_ldpc_max_dec_iter;[26:22];5'd15;R/W;;;;~
+;;;;;;reg_last_ldpc_max_dec_iter;[21:17];5'd14;R/W;;;;~
+;;;;;;reg_ldpc_adapt_max_dec_iter_en;[16];1'd0;R/W;;;;
+;;;;;;reg_ldpc_adapt_max_dec_iter_thresh;[15:11];5'd22;R/W;;;;~
+;;;;;;reg_ldpc_force_max_dec_iter;[10];1'd0;R/W;;;;
+;;;;;;reg_vht_mcs8_ldpc_max_dec_iter;[9:5];5'd13;R/W;;;;
+;;;;;;reg_others_ldpc_max_dec_iter;[4:0];5'd15;R/W;;;;
+0x010C;DECODER_CLK_GATE_BYPASS;pclk;reset_n;;;;[31:7];25'h0;RO;;;;
+;;;;;;reg_bcc_clk_cg_bypass;[6];1'd0;R/W;;;;~
+;;;;;;reg_deinter_clk_cg_bypass;[5];1'd0;R/W;;;;~
+;;;;;;reg_vitb_clk_cg_bypass;[4];1'd0;R/W;;;;~
+;;;;;;reg_vitb_ram_clk_cg_bypass;[3];1'd0;R/W;;;;~
+;;;;;;reg_ldpc_clk_cg_bypass;[2];1'd0;R/W;;;;~
+;;;;;;reg_ldpc_stbc_clk_cg_bypass;[1];1'd0;R/W;;;;~
+;;;;;;reg_ldpc_stream_clk_cg_bypass;[0];1'd0;R/W;;;;~
+0x0110;DECODER_LDPC_ERR_CON0;pclk;reset_n;;;;[31:6];26'h0;RO;;;;
+;;;;;;reg_ldpc_decoder_err_thresh;[5:0];6'd10;R/W;;;;
+0x0114;DECODER_RESERVE_CFG0;pclk;reset_n;;;reg_decoder_0rsv;[31:0];32'd0;R/W;;;;~
+0x0118;DECODER_RESERVE_CFG1;pclk;reset_n;;;reg_decoder_1rsv;[31:0];32'd0;R/W;;;;~
+0x011C;DECODER_RESERVE_CFG2;pclk;reset_n;;;reg_decoder_2rsv;[31:0];32'd0;R/W;;;;~
+0x0120;DECODER_RESERVE_CFG3;pclk;reset_n;;;reg_decoder_3rsv;[31:0];32'd0;R/W;;;;~
+0x0124;RXFREQ_DFX_RPT0;pclk;reset_n;;;;[31:29];3'd0;RO;;;;
+;;;;;;reg_rpt_ofdm_err_code;[28:24];5'd0;RO;;;;~
+;;;;;;;[23:22];2'd0;RO;;;;
+;;;;;;reg_rpt_date_demod_type;[21:19];3'd0;RO;;;;~
+;;;;;;reg_rpt_ldpc_buf_err;[18];1'd0;RO;;;;~
+;;;;;;reg_rpt_lltf_ch1_snr;[17:9];9'd0;RO;;;;~
+;;;;;;reg_rpt_lltf_ch0_snr;[8:0];9'd0;RO;;;;~
+0x0128;RXFREQ_DFX_RPT1;pclk;reset_n;;;;[31:17];15'd0;RO;;;;
+;;;;;;reg_rpt_s0_avg_postsnr;[16:0];17'd0;RO;;;;~
+0x012C;RXFREQ_DFX_RPT2;pclk;reset_n;;;;[31:17];15'd0;RO;;;;
+;;;;;;reg_rpt_s1_avg_postsnr;[16:0];17'd0;RO;;;;~
+0x0130;RXFREQ_DFX_RPT3;pclk;reset_n;;;reg_rpt_ofdm_abort_cnt;[31:24];8'd0;RO;;;;~
+;;;;;;reg_rpt_ofdm_sync_cnt    ;[23:16];8'd0;RO;;;;~
+;;;;;;reg_rpt_ofdm_dec_over_cnt;[15:8];8'd0;RO;;;;~
+;;;;;;reg_rpt_mac_if_send_cnt  ;[7:0];8'd0;RO;;;;~
+0x0134;RXFREQ_DFX_RPT4;pclk;reset_n;;;;[31:27];5'd0;RO;;;;
+;;;;;;reg_rpt_s1_evm;[26:16];11'd0;RO;;;;~
+;;;;;;;[15:11];5'd0;RO;;;;
+;;;;;;reg_rpt_s0_evm;[10:0];11'd0;RO;;;;~
+0x0138;RXFREQ_DFX_CFG0;pclk;reset_n;;;;[31:1];31'h0;RO;;;;
+;;;;;;reg_rpt_clr;[0];1'd0;R/W;;;;~
+0x013C;RXFREQ_DFX_CFG1;pclk;reset_n;;;;[31:15];17'h0;RO;;;;
+;;;;;;reg_dfx_errcode_tri_cfg;[14:10];5'd0;R/W;;;;~
+;;;;;;reg_dfx_tri_sel1_cfg    ;[9:5];5'd1;R/W;;;;
+;;;;;;reg_dfx_tri_sel0_cfg    ;[4:0];5'd0;R/W;;;;~
+0x0140;DECODER_LDPC_MAX_ITER_CON3;pclk;reset_n;;;;[31:30];2'h0;RO;;;;
+;;;;;;reg_mcs12_gi0_ldpc_max_dec_iter;[29:25];5'd8;R/W;;;;
+;;;;;;reg_mcs12_gi1_ldpc_max_dec_iter;[24:20];5'd8;R/W;;;;
+;;;;;;reg_mcs12_gi2_ldpc_max_dec_iter;[19:15];5'd9;R/W;;;;
+;;;;;;reg_mcs13_gi0_ldpc_max_dec_iter;[14:10];5'd10;R/W;;;;
+;;;;;;reg_mcs13_gi1_ldpc_max_dec_iter;[9:5];5'd11;R/W;;;;
+;;;;;;reg_mcs13_gi2_ldpc_max_dec_iter;[4:0];5'd13;R/W;;;;
+0x0144;DECODER_LDPC_MAX_ITER_CON4;pclk;reset_n;;;;[31:30];2'h0;RO;;;;
+;;;;;;reg_mcs10_mru0_gi0_ldpc_max_dec_iter;[29:25];5'd13;R/W;;;;~
+;;;;;;reg_mcs10_mru0_gi1_ldpc_max_dec_iter;[24:20];5'd14;R/W;;;;~
+;;;;;;reg_mcs10_mru0_gi2_ldpc_max_dec_iter;[19:15];5'd14;R/W;;;;~
+;;;;;;reg_mcs12_mru0_gi0_ldpc_max_dec_iter;[14:10];5'd11;R/W;;;;~
+;;;;;;reg_mcs12_mru0_gi1_ldpc_max_dec_iter;[9:5];5'd11;R/W;;;;~
+;;;;;;reg_mcs12_mru0_gi2_ldpc_max_dec_iter;[4:0];5'd13;R/W;;;;~
+0x0148;DECODER_LDPC_MAX_ITER_CON5;pclk;reset_n;;;;[31:30];2'h0;RO;;;;
+;;;;;;reg_mcs10_mru1_gi0_ldpc_max_dec_iter;[29:25];5'd11;R/W;;;;~
+;;;;;;reg_mcs10_mru1_gi1_ldpc_max_dec_iter;[24:20];5'd12;R/W;;;;~
+;;;;;;reg_mcs10_mru1_gi2_ldpc_max_dec_iter;[19:15];5'd13;R/W;;;;~
+;;;;;;reg_mcs12_mru1_gi0_ldpc_max_dec_iter;[14:10];5'd9;R/W;;;;~
+;;;;;;reg_mcs12_mru1_gi1_ldpc_max_dec_iter;[9:5];5'd10;R/W;;;;~
+;;;;;;reg_mcs12_mru1_gi2_ldpc_max_dec_iter;[4:0];5'd11;R/W;;;;~
+0x014C;DECODER_LDPC_MAX_ITER_CON6;pclk;reset_n;;;;[31:15];17'd0;RO;;;;
+;;;;;;reg_mcs13_mru0_gi0_ldpc_max_dec_iter;[14:10];5'd12;R/W;;;;~
+;;;;;;reg_mcs13_mru0_gi1_ldpc_max_dec_iter;[9:5];5'd13;R/W;;;;~
+;;;;;;reg_mcs13_mru0_gi2_ldpc_max_dec_iter;[4:0];5'd14;R/W;;;;~
+0x0150;DECODER_LDPC_ERR_CW_RPT;pclk;reset_n;;;;[31:29];3'd0;RO;;;;
+;;;;;;reg_rpt_ldpc_err_ncw;[28:16];13'd0;RO;;;;~
+;;;;;;;[15:13];3'd0;RO;;;;
+;;;;;;reg_rpt_ldpc_ncw;[12:0];13'd0;RO;;;;~
+0x0154;RXFREQ_MLD_CFG0;pclk;reset_n;;;reg_mld_bcc_margin;[31:27];5'd8;R/W;;;;
+;;;;;;reg_mld_ldpc_margin;[26:22];5'd8;R/W;;;;
+;;;;;;reg_force_mld;[21];1'd0;R/W;;;;
+;;;;;;reg_en_mld;[20];1'd0;R/W;;;;
+;;;;;;reg_mld_ht_awgn20_thr;[19:15];5'd3;R/W;;;;
+;;;;;;reg_mld_ht_awgn40_thr;[14:10];5'd3;R/W;;;;
+;;;;;;reg_mld_ht_awgn80_thr;[9:5];5'd3;R/W;;;;
+;;;;;;reg_mld_ht_awgn160_thr;[4:0];5'd3;R/W;;;;
+0x0158;RXFREQ_MLD_CFG1;pclk;reset_n;;;;[31:30];2'd0;RO;;;;
+;;;;;;reg_mld_ax_awgn20_thr;[29:25];5'd3;R/W;;;;
+;;;;;;reg_mld_ax_awgn40_thr;[24:20];5'd3;R/W;;;;
+;;;;;;reg_mld_ax_awgn80_thr;[19:15];5'd4;R/W;;;;
+;;;;;;reg_mld_ax_awgn160_thr;[14:10];5'd5;R/W;;;;
+;;;;;;reg_mld_bpsk_clip;[9:5];5'd10;R/W;;;;
+;;;;;;reg_mld_qpsk_clip;[4:0];5'd10;R/W;;;;
+0x015C;RXFREQ_MLD_CFG2;pclk;reset_n;;;reg_mcs1_sen_db;[31:26];6'd4 ;R/W;;;;
+;;;;;;reg_mcs0_sen_db;[25:20];6'd1;R/W;;;;
+;;;;;;reg_mld_qam16_clip;[19:15];5'd20;R/W;;;;
+;;;;;;reg_mld_qam64_clip;[14:10];5'd20;R/W;;;;
+;;;;;;reg_mld_qam256_clip;[9:5];5'd20;R/W;;;;
+;;;;;;reg_mld_qam1024_clip;[4:0];5'd12;R/W;;;;
+0x0160;RXFREQ_MLD_CFG3;pclk;reset_n;;;;[31:30];2'd0;RO;;;;
+;;;;;;reg_mcs6_sen_db;[29:24];6'd20;R/W;;;;
+;;;;;;reg_mcs5_sen_db;[23:18];6'd19;R/W;;;;
+;;;;;;reg_mcs4_sen_db;[17:12];6'd14;R/W;;;;
+;;;;;;reg_mcs3_sen_db;[11:6];6'd11;R/W;;;;
+;;;;;;reg_mcs2_sen_db;[5:0];6'd7 ;R/W;;;;
+0x0164;RXFREQ_MLD_CFG4;pclk;reset_n;;;;[31:30];2'd0;RO;;;;
+;;;;;;reg_mcs11_sen_db;[29:24];6'd33;R/W;;;;
+;;;;;;reg_mcs10_sen_db;[23:18];6'd32;R/W;;;;
+;;;;;;reg_mcs9_sen_db;[17:12];6'd26;R/W;;;;
+;;;;;;reg_mcs8_sen_db;[11:6];6'd25;R/W;;;;
+;;;;;;reg_mcs7_sen_db;[5:0];6'd21;R/W;;;;
+0x0168;RXFREQ_MLD_CFG5;pclk;reset_n;;;;[31:30];2'd0;RO;;;;
+;;;;;;reg_en_mld_snrllr_scaling;[29];1'd1;R/W;;;;
+;;;;;;reg_txbf_disable_mld;[28];1'd1;R/W;;;;
+;;;;;;reg_mcs4_dcm_sen_db;[27:21];7'd11;R/W;;;;
+;;;;;;reg_mcs3_dcm_sen_db;[20:14];7'd8;R/W;;;;
+;;;;;;reg_mcs1_dcm_sen_db;[13:7];7'd1;R/W;;;;
+;;;;;;reg_mcs0_dcm_sen_db;[6:0];7'd126;R/W;;;;
+0x016C;RXFREQ_MLD_CFG6;pclk;reset_n;;;;[31:13];19'd0;RO;;;;
+;;;;;;reg_mld_llrscaling_mcsthr;[12:9];4'd7;R/W;;;;
+;;;;;;reg_mld_llrscaling_thr;[8:3];6'd31;R/W;;;;
+;;;;;;reg_mld_min_num;[2:0];3'd7;R/W;;;;
