@@ -191,8 +191,10 @@
   - 通过物理地址查询寄存器所在文件和信息
   - 支持指定CSV文件路径
   - 列出可用的寄存器定义文件
+  - 提供GUI界面，支持可视化操作
 - 文件说明:
   - `reg_query.py` - 主查询脚本
+  - `reg_query_gui.py` - GUI界面程序
   - `base_addr.txt` - 模块基地址定义文件
   - `csv_files/` - 包含寄存器定义CSV文件的目录
 
@@ -224,6 +226,9 @@ python reg_query.py -l
 
 # 查看使用帮助
 python reg_query.py --help
+
+# 启动GUI程序
+python reg_query_gui.py
 ```
 
 #### 其他工具命令
