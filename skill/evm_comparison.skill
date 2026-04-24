@@ -15,6 +15,13 @@ evm_comparison.py 是一个专门用于对比两个 Wi-Fi TX 测试文件中 EVM
 - 使用数据透视表按发射功率和 MCS 计算每个空间流的平均 EVM（evm_nss0 和 evm_nss1 分别计算）
 - 格式化图表坐标轴范围
 - 识别所有唯一的 MCS（调制与编码方案）
+- 新增 psdu_crc 列处理，支持显示两个版本的 psdu_crc 结果
+- 对 psdu_crc 为 Fail 的单元格添加红色填充色标记，便于快速识别错误
+
+### 3. 数据对比增强
+- 在生成的详细对比 Excel 文件（{sheet1}_vs_{sheet2}_detailed.xlsx）中新增 psdu_crc 列
+- 支持同时显示两个版本的 psdu_crc 结果
+- 对 Fail 情况进行可视化标记，提高数据审查效率
 
 ### 3. 图表绘制
 - 绘制对比图表，显示 Mag Tracking 开启和关闭时每个 MCS 的 EVM 随功率变化

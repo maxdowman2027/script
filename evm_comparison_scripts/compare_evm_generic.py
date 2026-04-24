@@ -9,15 +9,15 @@ from datetime import datetime
 def main():
     # 可配置变量 - 直接在这里修改即可使用
     # 文件路径
-    file1 = r"D:\chip_test\dev\xian_test\Xian-Esp-Test-Scripts\py_script_fpga_tx_wifi7\Log\wifi_tx_rls4\regression_v1.0\merged_tx_result.xlsx"
-    file2 = r"D:\chip_test\dev\xian_test\Xian-Esp-Test-Scripts\py_script_fpga_tx_wifi7\Log\wifi_tx_rls4\20260413\merged_tx_result.xlsx"
+    file1 = r"D:\chip_test\dev\xian_test\Xian-Esp-Test-Scripts\py_script_fpga_tx_wifi7\Log\wifi_tx_rls4\regression_v2.0\merged_tx_result.xlsx"
+    file2 = r"D:\chip_test\dev\xian_test\Xian-Esp-Test-Scripts\py_script_fpga_tx_wifi7\Log\wifi_tx_rls4\regression_v3_260424\merged_tx_result.xlsx"
 
     # 版本名称
-    version1 = "rls4_v1"
-    version2 = "rls4_v2_0413"
+    version1 = "rls4_v2"
+    version2 = "rls4_v3_0424"
 
     # 输出目录
-    output_dir = r"D:\users\gxu\scripts\output\evm_comparison_scripts\rls4_version_evm_comparison_v2"
+    output_dir = r"D:\users\gxu\scripts\output\evm_comparison_scripts\rls4_version_evm_comparison_v3"
 
     # 创建输出目录
     os.makedirs(output_dir, exist_ok=True)
@@ -148,9 +148,17 @@ def compare_dataframes(df1, df2, sheet1, sheet2, comparison_result, output_dir, 
 
     # 使用所有共有列进行合并，确保参数一致
     merge_cols = core_cols + shared_additional_cols
+    # 添加psdu_crc列（如果存在）
+    df1_cols = merge_cols + [evm_col1]
+    df2_cols = merge_cols + ['evm']
+    if 'psdu_crc' in df1.columns:
+        df1_cols.append('psdu_crc')
+    if 'psdu_crc' in df2.columns:
+        df2_cols.append('psdu_crc')
+
     merged_df = pd.merge(
-        df1[merge_cols + [evm_col1]],
-        df2[merge_cols + ['evm']],
+        df1[df1_cols],
+        df2[df2_cols],
         on=merge_cols,
         how='inner',
         suffixes=(f'_{version1}', f'_{version2}')
@@ -233,6 +241,32 @@ def compare_dataframes(df1, df2, sheet1, sheet2, comparison_result, output_dir, 
             diff_value = cell.value
             if isinstance(diff_value, (int, float)):
                 cell.fill = get_diff_fill(diff_value)
+
+    # 为psdu_crc为Fail的单元格添加红色填充色
+    psdu_crc1_idx = None
+    psdu_crc2_idx = None
+    for idx, cell in enumerate(ws[1]):
+        if f'psdu_crc_{version1}' in str(cell.value):
+            psdu_crc1_idx = idx + 1
+        if f'psdu_crc_{version2}' in str(cell.value):
+            psdu_crc2_idx = idx + 1
+
+    # 定义psdu_crc Fail的填充色（红色）
+    fail_fill = PatternFill(start_color='FF0000', end_color='FF0000', fill_type='solid')
+
+    if psdu_crc1_idx:
+        for row in range(2, ws.max_row + 1):
+            cell = ws.cell(row=row, column=psdu_crc1_idx)
+            cell_value = str(cell.value).strip().lower() if cell.value else ''
+            if cell_value == 'fail':
+                cell.fill = fail_fill
+
+    if psdu_crc2_idx:
+        for row in range(2, ws.max_row + 1):
+            cell = ws.cell(row=row, column=psdu_crc2_idx)
+            cell_value = str(cell.value).strip().lower() if cell.value else ''
+            if cell_value == 'fail':
+                cell.fill = fail_fill
 
     wb.save(output_file)
 
