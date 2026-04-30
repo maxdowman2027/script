@@ -367,7 +367,7 @@ if __name__ == "__main__":
     NFFT = 8000  # FFT点数
     rfGain = 98  # 射频增益 (dB)
     output_dir = r'D:\users\gxu\spur_scan\260309\scan_spur_data\xtal_duty_disable\loop_num5\20m'  # 输出目录
-    config_file = r'D:\users\gxu\spur_scan\260309\scan_spur_data\normal\loop_num3\20m\result\spur_scan_result_coef.csv'  # 配置文件路径
+    config_file = r"D:\users\gxu\spur_scan\260309\scan_spur_data\normal\loop_num3\20m\result\spur_scan_result_coef.csv"  # 配置文件路径
 
     # 读取杂散配置
     spur_config = read_spur_config(config_file)

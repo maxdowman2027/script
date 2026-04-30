@@ -296,26 +296,6 @@ def process_single_csv(input_csv_path, output_csv_path, Q=10.0):
             for f0 in valid_freqs:
                 new_row = original_row.copy()  # 复制原行数据
                 new_row['Used_Frequency'] = f0  # 记录当前使用的频率
-                # if abs(f0) > 60 :
-                #     if abs(abs(f0) - 70) > 7: 
-                #         fs = 40.0
-                #     else :
-                #         fs = 20.0
-                # elif abs(f0) > 40 :
-                #     if abs(abs(f0) - 50) > 7 :
-                #         fs = 40.0
-                #     else :
-                #         fs = 20.0    
-                # elif abs(f0) > 20 :
-                #     if abs(abs(f0) - 30) > 7:
-                #         fs = 40.0
-                #     else : 
-                #         fs = 20.0                                           
-                # else :
-                #     if abs(abs(f0) - 10) > 7:
-                #         fs = 40.0
-                #     else :
-                #         fs = 20.0   
                 print(f"phy_mode is {original_row['phy_mode']}")
                 if (original_row['phy_mode'] == 0) :
                     m20_pos = 0
@@ -338,7 +318,7 @@ def process_single_csv(input_csv_path, output_csv_path, Q=10.0):
                     fs = 20.0
                 print(f"f0 :{f0} ,m20_pos:{m20_pos} ,notch_freq:{notch_freq}")
                 # 计算该频率的系数
-                B, A = iir_filter.iir_notch_coef(0, Q, fs)
+                B, A = iir_filter.iir_notch_coef(notch_freq, Q, fs)
                 order = 2
                 iir_filter.setCoef(B, A,order)
                 x_fixed, y_fixed = iir_filter.setCoefFixed()
@@ -426,8 +406,8 @@ def batch_process_csv(input_dir, output_dir, Q=10.0, recursive=False):
 
 
 if __name__ == "__main__":
-    INPUT_DIR = r"D:\users\gxu\temp\0310"       # 输入目录（Windows路径，r前缀避免转义）
-    OUTPUT_DIR = r"D:\users\gxu\temp\0310"     # 输出目录
+    INPUT_DIR = r"D:\users\gxu\spur_scan\scan_data\2G\result"       # 输入目录（Windows路径，r前缀避免转义）
+    OUTPUT_DIR = r"D:\users\gxu\spur_scan\scan_data\2G\result"     # 输出目录
     QUALITY_FACTOR = 5.0             # 陷波滤波器Q值
     RECURSIVE_SEARCH = False          # 是否递归搜索子目录（True=是，False=仅当前目录）
 

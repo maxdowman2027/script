@@ -111,9 +111,9 @@ def parse_64bit_data(input_file, output_file):
 
 if __name__ == "__main__":
     # 输入文件路径
-    input_file = r"D:\chip_test\dev\xian_test\Xian-Esp-Test-Scripts\rftest_data\dump_node_200\FPGA752_0x1097bdf7e5a8_20260414\dump__FPGA752_0x1097bdf7e5a8_20260414_204610.csv"
+    input_file = r"D:\chip_test\dev\xian_test\Xian-Esp-Test-Scripts\rftest_data\dump_node_124\FPGA752_0x_20260428\dump__FPGA752_0x_20260428_104813.csv"
 
     # 输出文件路径
-    output_file = r"D:\chip_test\dev\xian_test\Xian-Esp-Test-Scripts\rftest_data\dump_node_200\FPGA752_0x1097bdf7e5a8_20260414\parsed_data.csv"
+    output_file = r"D:\chip_test\dev\xian_test\Xian-Esp-Test-Scripts\rftest_data\dump_node_124\FPGA752_0x_20260428\parsed_data.csv"
 
     parse_64bit_data(input_file, output_file)

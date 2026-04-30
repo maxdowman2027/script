@@ -672,9 +672,9 @@ def tx_plot_and_analyse(logfile,save_filr):
 
     pp.close()
 # os.chdir(r'D:/workspace/fpgaTxTest/20230704/mimo_len_check')
-logfile = 'D:\chip_test\dev\xian_test\Xian-Esp-Test-Scripts\py_script_fpga_tx_wifi7\Log\wifi_tx\260324'
+logfile = r'D:\chip_test\dev\xian_test\Xian-Esp-Test-Scripts\py_script_fpga_tx_wifi7\Log\wifi_tx\260428_regression'
 os.chdir(logfile)
-save_file = 'D:\chip_test\dev\xian_test\Xian-Esp-Test-Scripts\py_script_fpga_tx_wifi7\Log\wifi_tx\260324\result'
+save_file = r'D:\chip_test\dev\xian_test\Xian-Esp-Test-Scripts\py_script_fpga_tx_wifi7\Log\wifi_tx\260428_regression\result'
 # os.chdir(r'D:/workspace/fpgaTxTest/20240605/')
 #os.chdir(r'D:/workspace/fpgaTxTest/20230704/mimo')
 #flatness_log_file = 'D:/workspace/fpgaTxTest/tx_regress_log/tx_flatness_log.txt'

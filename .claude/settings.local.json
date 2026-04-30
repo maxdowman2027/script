@@ -25,7 +25,10 @@
       "Bash(taskkill:*)",
       "Bash(\"D:\\\\users\\\\gxu\\\\scripts\\\\explore_excel.py\":*)",
       "Bash(mkdir:*)",
-      "Bash(mv:*)"
+      "Bash(mv:*)",
+      "Bash(find:*)",
+      "Bash(cp:*)",
+      "Bash(copy:*)"
     ]
   },
   "plugins": {

@@ -22,10 +22,10 @@ def convert_csv_file():
     # ==================== 配置区域 ====================
 
     # 输入文件路径（请修改为您要处理的文件路径）
-    input_file = r"D:\chip_test\dev\xian_test\Xian-Esp-Test-Scripts\rftest_data\dump_node_124\FPGA752_0x1097bdf7e5a8_20260416\dump_tx_vector_FPGA752_0x1097bdf7e5a8_20260416_152710.csv"
+    input_file = r"D:\chip_test\dev\xian_test\Xian-Esp-Test-Scripts\rftest_data\dump_node_124\FPGA752_0x_20260428\dump__FPGA752_0x_20260428_195309.csv"
 
     # 输出文件路径（可选，留空则自动生成）
-    output_file = r"D:\users\gxu\scripts\output\adcdump_convert.csv"
+    output_file = r"D:\chip_test\dev\xian_test\Xian-Esp-Test-Scripts\rftest_data\dump_node_124\FPGA752_0x_20260428\vht_5180_pwr0_mcs8_bcc_bw20m_dacdata.csv"
 
     # 要转换的字段列表，格式为 [high:low]
     bit_fields = [

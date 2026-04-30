@@ -17,7 +17,21 @@ __pycache__/
 
 # Excel files (results files)
 *.xlsx
+# Excel files (results files)
+*.xlsx
+
+# Generated CSV files
 *.csv
+
+# CSV files in reg_query directory (register definitions)
+!reg_query/csv_files/*.csv
+
+# GUI program temporary files
+*.pyc
+__pycache__/
+*.pyo
+*.swp
+*.swo
 
 # Generated images and charts
 *.png
