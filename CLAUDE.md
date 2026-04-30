@@ -96,6 +96,7 @@
 | `merge_csv_to_xlsx.py` | 合并多个 CSV 文件到单个 Excel 文件，按信道、编码方式分组 | merge_csv_to_xlsx.skill |
 | `file_merge.py` | 文件合并工具 | file_merge_Skill.md |
 | `file_rename.py` | 文件重命名工具 | - |
+| `process_ila_files.py` | 处理FPGA导出的ILA信号文件，解压缩并提取waveform.csv，按原始文件名重命名 | process_ila_files.skill |
 
 #### 2. EVM 分析工具
 | 脚本名称 | 功能说明 | 详细文档 |
