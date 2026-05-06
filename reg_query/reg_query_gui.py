@@ -291,6 +291,7 @@ class RegQueryGUI:
         self.query_entry = ttk.Entry(main_frame)
         self.query_entry.grid(row=1, column=1, sticky=(tk.W, tk.E), pady=(0, 5))
         self.query_entry.bind("<Return>", lambda x: self.perform_query())
+        ttk.Label(main_frame, text="支持多个查询，用逗号或换行分隔").grid(row=1, column=2, sticky=tk.W, padx=(5, 0), pady=(0, 5))
 
         # CSV路径选择
         ttk.Label(main_frame, text="CSV目录:").grid(row=2, column=0, sticky=tk.W, pady=(0, 5))
@@ -349,17 +350,42 @@ class RegQueryGUI:
     def query_thread(self, query_text):
         """查询线程"""
         try:
-            if self.query_type.get() == "name":
-                info, error = find_register_info(query_text, self.csv_dir)
-            else:
-                info, error = find_register_by_address(query_text, self.csv_dir)
+            # 解析多个查询内容（支持逗号、换行分隔）
+            queries = []
+            # 按逗号分割
+            split_by_comma = query_text.split(',')
+            for q in split_by_comma:
+                # 按换行分割
+                split_by_newline = q.split('\n')
+                for q2 in split_by_newline:
+                    q2 = q2.strip()
+                    if q2:
+                        queries.append(q2)
 
-            if error:
-                self.root.after(0, lambda: self.result_text.insert(tk.END, error))
-            else:
-                self.root.after(0, lambda: self.result_text.insert(tk.END, format_register_info(info)))
+            results = []
+            errors = []
 
-            self.root.after(0, lambda: self.status_var.set("查询完成"))
+            for query in queries:
+                if self.query_type.get() == "name":
+                    info, error = find_register_info(query, self.csv_dir)
+                else:
+                    info, error = find_register_by_address(query, self.csv_dir)
+
+                if error:
+                    errors.append(f"查询 '{query}' 时出错: {error}")
+                else:
+                    results.append(format_register_info(info))
+
+            # 显示结果
+            self.root.after(0, lambda: self.result_text.delete(1.0, tk.END))
+
+            if results:
+                self.root.after(0, lambda: self.result_text.insert(tk.END, '\n\n'.join(results) + '\n'))
+
+            if errors:
+                self.root.after(0, lambda: self.result_text.insert(tk.END, '\n' + '-'*60 + '\n查询错误:\n' + '\n'.join(errors) + '\n'))
+
+            self.root.after(0, lambda: self.status_var.set(f"查询完成: 成功 {len(results)} 个, 失败 {len(errors)} 个"))
         except Exception as e:
             self.root.after(0, lambda: self.result_text.insert(tk.END, f"查询错误: {str(e)}"))
             self.root.after(0, lambda: self.status_var.set("查询出错"))
