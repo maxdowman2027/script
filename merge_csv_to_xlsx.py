@@ -1,7 +1,11 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 """
-合并risc_wifitx格式的CSV文件到XLSX文件，按channel和编码方式（BCC/LDPC）划分Sheet
+合并risc_wifitx格式的CSV文件到XLSX文件，按channel和编码方式（BCC/LDPC）划分Sheet。
+
+另：将指定功率点（默认 15 dBm）的 EVM 透视统计写入单独 XLSX；
+各行对应 band / LDPC(BCC) / cbw / rate / NSS(STBC)，各列为不同 wifi_format 的平均 EVM，
+并在每个 wifi_format 列内按全部 rate 行标出最优（最负）与最差（最不负）EVM 单元格底色。
 """
 
 import os
@@ -12,7 +16,241 @@ import argparse
 import openpyxl
 
 
-def merge_csv_to_xlsx(input_dir, output_file, crc_fail_file=None):
+def _infer_band_from_rf_chan(rf):
+    """Infer 2G / 5G from rf_chan (channel index or center frequency in MHz)."""
+    if rf is None or (isinstance(rf, float) and pd.isna(rf)):
+        return "unknown"
+    try:
+        v = float(rf)
+    except (TypeError, ValueError):
+        return "unknown"
+    if v > 1000:
+        return "2G" if v < 3000 else "5G"
+    if v <= 14:
+        return "2G"
+    if v >= 36:
+        return "5G"
+    return "unknown"
+
+
+def _stream_cfg_from_sheet(sheet_name):
+    """Parse NSS / STBC from sheet name (same convention as grouping keys)."""
+    if not sheet_name:
+        return "unknown"
+    u = str(sheet_name).upper()
+    if "STBC" in u:
+        return "STBC"
+    if "NSS2" in u:
+        return "NSS2"
+    if "NSS1" in u:
+        return "NSS1"
+    return "NSS1"
+
+
+def _fec_label_row(row):
+    """LDPC/BCC from fec_coding (0=BCC, 1=LDPC) or sheet name fallback."""
+    fc = row.get("fec_coding")
+    if fc is not None and not (isinstance(fc, float) and pd.isna(fc)):
+        try:
+            return "LDPC" if int(float(fc)) != 0 else "BCC"
+        except (TypeError, ValueError):
+            pass
+    ss = str(row.get("_source_sheet", "") or "")
+    if "LDPC" in ss:
+        return "LDPC"
+    if "BCC" in ss:
+        return "BCC"
+    return "unknown"
+
+
+def _resolve_evm_column(df):
+    for col in ("evm", "evm_aver(dB)", "aver_evmAll"):
+        if col in df.columns:
+            return col
+    if "evm_nss0" in df.columns:
+        return "evm_nss0"
+    return None
+
+
+def build_evm_wifi_format_summary(df_all, tx_pwr_dbm=15.0, tx_pwr_tol=0.51):
+    """
+    For tx_power_set(dBm) ~= tx_pwr_dbm, pivot mean EVM by:
+    band (2G/5G), coding (LDPC/BCC), cbw, rate, stream config (NSS1/NSS2/STBC),
+    columns = wifi_format.
+    """
+    if df_all is None or df_all.empty:
+        return pd.DataFrame()
+
+    df = df_all.copy()
+    df.columns = [str(c).strip() for c in df.columns]
+
+    pwr_col = "tx_power_set(dBm)"
+    if pwr_col not in df.columns:
+        print("统计表: 缺少列 tx_power_set(dBm)，跳过生成 evm 透视表")
+        return pd.DataFrame()
+
+    evm_col = _resolve_evm_column(df)
+    if not evm_col:
+        print("统计表: 未找到 evm / evm_aver(dB) / aver_evmAll / evm_nss0，跳过")
+        return pd.DataFrame()
+
+    if "wifi_format" not in df.columns:
+        print("统计表: 缺少列 wifi_format，跳过")
+        return pd.DataFrame()
+
+    if "rf_chan" in df.columns:
+        df["_band"] = df["rf_chan"].map(_infer_band_from_rf_chan)
+    else:
+        df["_band"] = "unknown"
+    df["_coding"] = df.apply(_fec_label_row, axis=1)
+    df["_stream_cfg"] = df["_source_sheet"].map(_stream_cfg_from_sheet) if "_source_sheet" in df.columns else "unknown"
+
+    bw_col = "cbw" if "cbw" in df.columns else None
+    if bw_col is None:
+        print("统计表: 缺少列 cbw，带宽列将填空")
+        df["_bw"] = ""
+    else:
+        df["_bw"] = df[bw_col]
+
+    if "rate" not in df.columns:
+        print("统计表: 缺少列 rate，跳过")
+        return pd.DataFrame()
+
+    df["_rate"] = df["rate"]
+    df["_evm_num"] = pd.to_numeric(df[evm_col], errors="coerce")
+    df["_pwr_num"] = pd.to_numeric(df[pwr_col], errors="coerce")
+
+    m = df["_pwr_num"].sub(float(tx_pwr_dbm)).abs() <= float(tx_pwr_tol)
+    sub = df.loc[m].dropna(subset=["_evm_num", "wifi_format"])
+
+    if sub.empty:
+        print(
+            f"统计表: tx_power_set(dBm) 在 {tx_pwr_dbm}±{tx_pwr_tol} dBm 范围内无数据，"
+            "跳过透视表（请确认日志是否包含该功率点）"
+        )
+        return pd.DataFrame()
+
+    idx_cols = ["_band", "_coding", "_bw", "_rate", "_stream_cfg"]
+    pt = pd.pivot_table(
+        sub,
+        values="_evm_num",
+        index=idx_cols,
+        columns="wifi_format",
+        aggfunc="mean",
+    )
+    pt = pt.round(3)
+    out = pt.reset_index()
+    rename = {
+        "_band": "band",
+        "_coding": "coding_LDPC_BCC",
+        "_bw": "bw_cbw",
+        "_rate": "rate",
+        "_stream_cfg": "NSS_STBC",
+    }
+    out = out.rename(columns=rename)
+    # Stable column order: keys then wifi_format columns sorted
+    fmt_cols = [c for c in out.columns if c not in rename.values()]
+    fmt_cols = sorted(fmt_cols, key=lambda x: str(x).lower())
+    out = out[[c for c in rename.values()] + fmt_cols]
+    return out
+
+
+KEY_COL_NAMES = ("band", "coding_LDPC_BCC", "bw_cbw", "rate", "NSS_STBC")
+SUMMARY_GROUP_KEYS = ("band", "coding_LDPC_BCC", "bw_cbw", "NSS_STBC")
+
+
+def _evm_close(a, b, eps=1e-6):
+    try:
+        return abs(float(a) - float(b)) <= eps
+    except (TypeError, ValueError):
+        return False
+
+
+def _set_summary_column_widths(ws):
+    for col in ws.columns:
+        letter = col[0].column_letter
+        maxlen = min(max(len(str(c.value or "")) for c in col), 55)
+        ws.column_dimensions[letter].width = maxlen + 2
+
+
+def _apply_rate_group_evm_fills(ws, summary_tbl):
+    """
+    在每个 (band, coding, bw, NSS_STBC) 分组内，按 rate 比较：
+    对每个 wifi_format 列分别标出该组内 EVM 最优（最负）与最差（最不负）。
+    """
+    fill_best = openpyxl.styles.PatternFill(
+        start_color="C6EFCE", end_color="C6EFCE", fill_type="solid"
+    )
+    fill_worst = openpyxl.styles.PatternFill(
+        start_color="FFC7CE", end_color="FFC7CE", fill_type="solid"
+    )
+
+    headers = {}
+    for j in range(1, ws.max_column + 1):
+        h = ws.cell(row=1, column=j).value
+        if h is not None:
+            headers[str(h).strip()] = j
+
+    fmt_cols = [c for c in summary_tbl.columns if c not in SUMMARY_GROUP_KEYS]
+
+    for fmt in fmt_cols:
+        if fmt not in headers:
+            continue
+        col_idx = headers[fmt]
+        for _, grp in summary_tbl.groupby(list(SUMMARY_GROUP_KEYS), dropna=False):
+            ser = pd.to_numeric(grp[fmt], errors="coerce")
+            valid = ser.dropna()
+            if valid.size == 0:
+                continue
+            vmin = float(valid.min())
+            vmax = float(valid.max())
+            for orig_idx in grp.index:
+                val = grp.at[orig_idx, fmt]
+                if pd.isna(val):
+                    continue
+                fv = float(val)
+                row_excel = int(orig_idx) + 2
+                if vmin == vmax:
+                    if _evm_close(fv, vmin):
+                        ws.cell(row=row_excel, column=col_idx).fill = fill_best
+                else:
+                    if _evm_close(fv, vmin):
+                        ws.cell(row=row_excel, column=col_idx).fill = fill_best
+                    elif _evm_close(fv, vmax):
+                        ws.cell(row=row_excel, column=col_idx).fill = fill_worst
+
+
+def _style_evm_summary_workbook(path_xlsx, sheet_name, summary_tbl):
+    """列宽 + 分组内（跨 rate）最优/最差 EVM 填充。"""
+    wb = openpyxl.load_workbook(path_xlsx)
+    if sheet_name not in wb.sheetnames:
+        wb.close()
+        return
+    ws = wb[sheet_name]
+    _set_summary_column_widths(ws)
+    _apply_rate_group_evm_fills(ws, summary_tbl)
+    wb.save(path_xlsx)
+    wb.close()
+
+
+def write_evm_summary_file(summary_tbl, output_path, summary_tx_pwr_dbm):
+    """将透视表写入独立 xlsx 并着色。若文件路径无效则跳过。"""
+    if summary_tbl is None or summary_tbl.empty:
+        return False
+    db = float(summary_tx_pwr_dbm)
+    pwr_tag = str(int(db)) if db == int(db) else str(db).replace(".", "p")
+    stat_sheet = f"evm_{pwr_tag}dBm_stat"[:31]
+    out_dir = os.path.dirname(os.path.abspath(output_path))
+    if out_dir:
+        os.makedirs(out_dir, exist_ok=True)
+    summary_tbl.to_excel(output_path, sheet_name=stat_sheet, index=False)
+    _style_evm_summary_workbook(output_path, stat_sheet, summary_tbl)
+    return True
+
+
+def merge_csv_to_xlsx(input_dir, output_file, crc_fail_file=None,
+                      summary_tx_pwr_dbm=15.0, add_evm_summary=True,
+                      evm_summary_output_file=None):
     """
     合并指定文件夹中的CSV文件到XLSX文件
 
@@ -20,6 +258,10 @@ def merge_csv_to_xlsx(input_dir, output_file, crc_fail_file=None):
         input_dir: 包含CSV文件的文件夹路径
         output_file: 输出的XLSX文件路径
         crc_fail_file: 保存psdu_crc为Fail的情况的XLSX文件路径
+        summary_tx_pwr_dbm: 统计表筛选的发射功率（dBm），默认 15
+        add_evm_summary: 是否生成独立 EVM 统计 xlsx
+        evm_summary_output_file: EVM 统计输出路径；默认与合并文件同目录，
+            文件名 {merged_basename}_evm_{功率}dBm_stat.xlsx
     """
     # 查找所有risc_wifitx_*.csv文件
     csv_files = glob.glob(os.path.join(input_dir, 'risc_wifitx_*.csv'))
@@ -67,6 +309,8 @@ def merge_csv_to_xlsx(input_dir, output_file, crc_fail_file=None):
     if crc_fail_file:
         crc_writer = pd.ExcelWriter(crc_fail_file, engine='openpyxl')
 
+    all_for_summary = []
+
     # 处理每个分组的文件
     for sheet_name, files in grouped_files.items():
         print(f"处理Sheet: {sheet_name} ({len(files)}个文件)")
@@ -113,6 +357,11 @@ def merge_csv_to_xlsx(input_dir, output_file, crc_fail_file=None):
                 # 如果没有evm列，但有evm_nss列，则在适当位置添加evm列（可选）
                 # 这里我们保持原样，因为用户只要求将evm_nss列放在evm列之后
                 pass
+
+            if add_evm_summary:
+                part = merged_df.copy()
+                part["_source_sheet"] = sheet_name
+                all_for_summary.append(part)
 
             # 写入到Sheet
             merged_df.to_excel(writer, sheet_name=sheet_name, index=False)
@@ -177,7 +426,7 @@ def merge_csv_to_xlsx(input_dir, output_file, crc_fail_file=None):
             if crc_writer and 'psdu_crc' in merged_df.columns:
                 crc_fail_df = merged_df[merged_df['psdu_crc'] == 'Fail']
                 if not crc_fail_df.empty:
-                            # 写入到Sheet
+                    # 写入到Sheet
                     crc_fail_df.to_excel(crc_writer, sheet_name=sheet_name, index=False)
                     print(f"找到 {len(crc_fail_df)} 行psdu_crc为Fail的记录，已写入到 {crc_fail_file}")
 
@@ -630,6 +879,31 @@ def merge_csv_to_xlsx(input_dir, output_file, crc_fail_file=None):
 
     # 保存文件
     try:
+        if add_evm_summary and all_for_summary:
+            summary_concat = pd.concat(all_for_summary, ignore_index=True)
+            summary_tbl = build_evm_wifi_format_summary(
+                summary_concat, tx_pwr_dbm=summary_tx_pwr_dbm
+            )
+            if not summary_tbl.empty:
+                if evm_summary_output_file:
+                    evm_out = evm_summary_output_file
+                else:
+                    base_dir = os.path.dirname(os.path.abspath(output_file))
+                    base_name = os.path.splitext(os.path.basename(output_file))[0]
+                    db = float(summary_tx_pwr_dbm)
+                    pwr_tag = str(int(db)) if db == int(db) else str(db).replace(".", "p")
+                    evm_out = os.path.join(
+                        base_dir, f"{base_name}_evm_{pwr_tag}dBm_stat.xlsx"
+                    )
+                if write_evm_summary_file(
+                    summary_tbl, evm_out, summary_tx_pwr_dbm
+                ):
+                    print(
+                        f"已写入独立 EVM 统计文件: {evm_out} "
+                        f"（{len(summary_tbl)} 行，功率点 {summary_tx_pwr_dbm} dBm；"
+                        "分组内跨 rate 最优/最差已着色）"
+                    )
+
         writer.close()
         print(f"合并完成！文件已保存到: {output_file}")
 
@@ -641,17 +915,31 @@ def merge_csv_to_xlsx(input_dir, output_file, crc_fail_file=None):
 
 
 def main():
-    # 直接在代码中修改输入路径和输出文件路径
-    input_dir = r"D:\chip_test\dev\xian_test\Xian-Esp-Test-Scripts\py_script_fpga_tx_wifi7\Log\wifi_tx\260428_regression"
-    output_file = r"D:\chip_test\dev\xian_test\Xian-Esp-Test-Scripts\py_script_fpga_tx_wifi7\Log\wifi_tx\260428_regression/merged_tx_result.xlsx"
-    crc_fail_file = r"D:\chip_test\dev\xian_test\Xian-Esp-Test-Scripts\py_script_fpga_tx_wifi7\Log\wifi_tx\260428_regression/tx_crc_fail_result.xlsx"
-    flatness_fail_file = True
-    specmargin_fail_file = True
-    print(f"输入路径: {input_dir}")
-    print(f"输出文件: {output_file}")
-    print(f"CRC失败记录文件: {crc_fail_file}")
+    parser = argparse.ArgumentParser(description="合并 risc_wifitx CSV 到 XLSX，并生成 15dBm EVM 透视统计表")
+    parser.add_argument("--input_dir", default=r"D:\chip_test\dev\xian_test\Xian-Esp-Test-Scripts\py_script_fpga_tx_wifi7\Log\wifi_tx_19p\0507")
+    parser.add_argument("--output_file", default=r"D:\chip_test\dev\xian_test\Xian-Esp-Test-Scripts\py_script_fpga_tx_wifi7\Log\wifi_tx_19p\0507/merged_tx_result.xlsx")
+    parser.add_argument("--crc_fail_file", default=r"D:\chip_test\dev\xian_test\Xian-Esp-Test-Scripts\py_script_fpga_tx_wifi7\Log\wifi_tx_19p\0507/tx_crc_fail_result.xlsx")
+    parser.add_argument("--summary_tx_pwr", type=float, default=15.0, help="统计表使用的 tx 功率点 (dBm)")
+    parser.add_argument("--no_evm_summary", action="store_true", help="不生成独立 EVM 统计 xlsx")
+    parser.add_argument(
+        "--evm_summary_out",
+        default=None,
+        help="EVM 统计输出 xlsx 路径（默认与合并结果同目录：{basename}_evm_{功率}dBm_stat.xlsx）",
+    )
+    args = parser.parse_args()
 
-    merge_csv_to_xlsx(input_dir, output_file, crc_fail_file)
+    print(f"输入路径: {args.input_dir}")
+    print(f"输出文件: {args.output_file}")
+    print(f"CRC失败记录文件: {args.crc_fail_file}")
+
+    merge_csv_to_xlsx(
+        args.input_dir,
+        args.output_file,
+        args.crc_fail_file,
+        summary_tx_pwr_dbm=args.summary_tx_pwr,
+        add_evm_summary=not args.no_evm_summary,
+        evm_summary_output_file=args.evm_summary_out,
+    )
 
 
 if __name__ == '__main__':

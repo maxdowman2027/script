@@ -154,7 +154,7 @@
 #### 1. 数据合并与格式化工具
 | 脚本名称 | 功能说明 | 详细文档 |
 |---------|---------|---------|
-| `merge_csv_to_xlsx.py` | 合并多个 CSV 文件到单个 Excel 文件，按信道、编码方式分组 | merge_csv_to_xlsx.skill |
+| `merge_csv_to_xlsx.py` | 合并多个 CSV 文件到单个 Excel 文件，按信道、编码方式分组 | merge_csv_to_xlsx_skill.md |
 | `file_merge.py` | 文件合并工具 | file_merge_Skill.md |
 | `file_rename.py` | 文件重命名工具 | - |
 | `process_ila_files.py` | 处理FPGA导出的ILA信号文件，解压缩并提取waveform.csv，按原始文件名重命名 | process_ila_files.skill |
@@ -259,7 +259,7 @@
 #### skill/
 - **位置**: `./skill/`
 - **内容**: Claude Code 技能（`*.skill`）与各脚本配套的 `*_Skill.md`
-- **常见技能文件**: `txAnalyse.skill`、`evm_comparison.skill`、`txmagtrk_analyse.skill`、`merge_csv_to_xlsx.skill`、`process_ila_files.skill`、`my_ag.skill` 等（完整列表以目录为准）
+- **常见技能文件**: `txAnalyse.skill`、`evm_comparison.skill`、`txmagtrk_analyse.skill`、`merge_csv_to_xlsx_skill.md`、`process_ila_files.skill`、`my_ag.skill` 等（完整列表以目录为准）
 - **子目录 `merged_tx_result_analysis/`**: 合并 TX 结果分析相关说明脚本与 `generate_report.py` 等，与根目录 `generate_report.py`、`analyze_merged_tx_result.py` 等配合使用
 
 ### 常用命令示例
