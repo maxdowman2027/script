@@ -88,6 +88,67 @@
 
 ## 🛠️ 可用测试脚本库 (Scripts Directory)
 
+### 仓库目录结构总览
+
+本目录为 WiFi PHY 测试与数据处理脚本集合；**仓库根目录**即本文档所在目录（与 `CLAUDE.md` 同级）。
+
+```
+.                                 # 仓库根
+├── CLAUDE.md                     # 知识库与脚本索引（本文件）
+├── .gitignore
+├── .claude/                      # Cursor / Claude 本地配置（如 settings.local.json）
+├── skill/                        # Claude Code 技能（*.skill / *_Skill.md）
+├── evm_comparison_scripts/       # EVM 多版本、多条件对比脚本与 HTML 报告输出
+├── reg_query/                    # E22 寄存器查询（CLI / GUI）与寄存器定义 CSV
+├── register_comparison_scripts/  # 寄存器配置差异比较
+├── rx_iq_test/                   # RX/TX IQ 数据整理与结果分析
+└── *.py                          # 根目录主流程与工具脚本（见下「根目录按主题速查」）
+```
+
+#### 一级子目录说明
+
+| 目录 | 内容摘要 |
+|------|-----------|
+| **`evm_comparison_scripts/`** | RLS3 / RLS4 / WiFi7、新旧版本、按 Tx 功率或 WiFi 格式等维度的 EVM 对比；说明见 `EVM_Comparison_Scripts_Skill.md`；部分结果生成于子目录 HTML 报告 |
+| **`reg_query/`** | `reg_query.py`、`reg_query_gui.py`、`reg_query.skill`、`base_addr.txt`、`csv_files/`（各模块寄存器定义 CSV） |
+| **`register_comparison_scripts/`** | `compare_registers.py`；说明见 `Register_Comparison_Scripts_Skill.md` |
+| **`rx_iq_test/`** | `organize_dump_files.py`、`organize_rx_iq_data.py`、`rx_iq_result_analyze.py`、`tx_iq_result_analyse.py`；配套说明在 `skill/` 下对应 `_Skill.md` |
+| **`skill/`** | 与根目录或其他目录脚本绑定的技能文件；含子目录 **`merged_tx_result_analysis/`**（合并多表/多 sheet 结果分析、`generate_report.py` 等辅助脚本与文档） |
+
+#### 根目录脚本按主题速查
+
+下列为主题归类，**非完整文件列表**（根目录脚本数量多，细目见下文分类表）。
+
+| 主题 | 代表性脚本 / 说明 |
+|------|-------------------|
+| 发射 / EVM | `txAnalyse.py`、`txAnalyse_wifi7.py`、`txAnalyse_compatible.py`、`evm_comparison.py`、`tx_adcdump_data_parse.py`、`fake_tb_para.py`、`tx_test.py` |
+| 功率 / Mag Track | `tx_mag_tracking_test.py`、`txmagtrk_analyse.py`、`clac_pwr_for_ofdm_signal.py`、`compare_avg_pwr.py`、`compare_avg_pwr_ABCD.py` |
+| 杂散 / 频谱 / PSD | `spur_scan_process.py`、`spur_scan_regression.py`、`spur_analysis.py`、`spur_visualization.py`、`spur_diff_and_mark_red.py`、`simple_spur_comparison.py`、`psd_plot.py`、`psd_plot_1kHz.py`、`plot_spectrum.py`、`plot_spectrum_2462.py`、`plot_psd_2462.py`、`plot_csv_data.py`、`pwelch.py` |
+| 接收 / 灵敏度 | `wifiRxProcess.py`、`wifiRxPlot.py`、`calculate_sensitivity_and_plot.py` |
+| RU / 符号 / 参数 | `find_ru26.py`、`find_ru26_nsym.py`、`find_precise_ru26.py`、`find_nsym_16.py`、`find_nsym_340.py`、`calculate_ru26_params.py`、`cal_symbol_num.py`、`generate_ru26_cases.py`、`notch_cal.py` 等 |
+| Excel / CSV / 校验 | `merge_csv_to_xlsx.py`、`file_merge.py`、`compare_data.py`、`cac_diff_xlsx.py`；大量 `check_*.py`；`analyze_*.py`、`explore_excel.py`、`detect_outliers.py`、`validate_conversion.py` 等 |
+| 寄存器（根目录） | `compare_reg_csv.py`（详细查询与 CSV 源文件在 `reg_query/`） |
+| 报告 / 汇总 | `generate_report.py`、`analyze_merged_tx_result.py`、`analyze_all_sheets.py`、`analyze_multi_sheet.py`、`summarize_fail_configs.py`、`view_comparison_results.py`、`verify_merged_files.py`、`my_ag.py` 等 |
+| 文件与路径工具 | `file_rename.py`、`cp_files.py`、`mv_files.py`、`unlock_files.py`、`unlock_files_simple.py`、`process_ila_files.py`、`force_remove_dir.py`、`force_remove_file.py` 等 |
+| 通用与杂项 | `hex_to_decimal.py`、`parse_64bit_data.py`、`2to1.py`、`debug_05d.py` 等 |
+| Git / 提交辅助 | `check_and_commit.py`、`commit_all_changes.py`、`commit_changes.py` 及多份 **`commit_*.py`**、`simple_commit.py` — 历史/一次性提交流程较多，按需使用 |
+
+#### `evm_comparison_scripts/` 脚本一览
+
+| 脚本 | 说明 |
+|------|------|
+| `compare_evm.py` | EVM 对比（主入口之一） |
+| `compare_evm_generic.py` | 通用 / 可配置对比 |
+| `compare_evm_rls3_rls4.py` | RLS3 vs RLS4 |
+| `compare_evm_rls4_wifi7.py` | RLS4 vs WiFi7 |
+| `compare_evm_rls4_wifi7_hesu.py` | RLS4 vs WiFi7（HE/SU 等） |
+| `compare_evm_wifi7_rls4.py` | WiFi7 vs RLS4（对比视角依脚本设计） |
+| `compare_evm_by_tx_pwr.py` | 按发射功率 |
+| `compare_evm_by_wifi_format.py` | 按 WiFi 格式 |
+| `compare_evm_old_new.py` | 新旧数据/版本 |
+
+对比结果示例目录：`evm_by_wifi_format_comparison/`、`rls3_rls4_evm_comparison/`、`rls4_wifi7_evm_comparison/`（内含 HTML 等输出）。
+
 ### 脚本分类与功能索引
 
 #### 1. 数据合并与格式化工具
@@ -147,67 +208,59 @@
 #### 8. 寄存器查询与比较工具
 | 脚本名称 | 功能说明 | 详细文档 |
 |---------|---------|---------|
-| `reg_query.py` | E22 芯片寄存器查询工具 - 支持通过名称或地址查询 | reg_query.skill |
+| `reg_query/reg_query.py` | E22 芯片寄存器查询（名称或地址）；同目录 `reg_query_gui.py` 为 GUI | reg_query/reg_query.skill |
 | `compare_reg_csv.py` | 比较两个寄存器配置 CSV 文件 | compare_reg_csv_Skill.md |
-| `check_excel_colors.py` | 检查 Excel 文件中的颜色标记 | check_excel_colors_Skill.md |
 
 #### 9. 报告生成工具
 | 脚本名称 | 功能说明 | 详细文档 |
 |---------|---------|---------|
 | `generate_report.py` | 生成测试报告 | generate_report_Skill.md |
 
-#### 10. 项目管理工具
+#### 10. 项目管理 / Git 辅助
 | 脚本名称 | 功能说明 | 详细文档 |
 |---------|---------|---------|
 | `check_and_commit.py` | 检查并提交代码 | - |
 | `commit_all_changes.py` | 提交所有变更 | - |
 | `commit_changes.py` | 提交变更 | - |
+| *(另有多份根目录 `commit_*.py`、`simple_commit.py`)* | 历史或场景化提交流程，按需选用 | - |
 
-### 子目录说明文档
+### 子目录补充说明（与「仓库目录结构总览」对应）
 
 #### evm_comparison_scripts/
-- 位置: `./evm_comparison_scripts/`
-- 包含: EVM 比较分析脚本（RLS3/RLS4/WiFi7 比较）
-- 说明文档: EVM_Comparison_Scripts_Skill.md
-- 子文件夹:
-  - `evm_by_wifi_format_comparison/` - WiFi 格式比较结果
-  - `rls3_rls4_evm_comparison/` - RLS3 vs RLS4 比较结果
-  - `rls4_wifi7_evm_comparison/` - RLS4 vs WiFi7 比较结果
+- **位置**: `./evm_comparison_scripts/`
+- **说明文档**: `EVM_Comparison_Scripts_Skill.md`
+- **脚本列表**: 见上文「`evm_comparison_scripts/` 脚本一览」
+- **结果子目录**:
+  - `evm_by_wifi_format_comparison/` — WiFi 格式比较结果
+  - `rls3_rls4_evm_comparison/` — RLS3 vs RLS4
+  - `rls4_wifi7_evm_comparison/` — RLS4 vs WiFi7
 
 #### rx_iq_test/
-- 位置: `./rx_iq_test/`
-- 包含: RX IQ 测试数据处理和分析脚本
-- 说明文档: 各脚本的 `_Skill.md` 文件（位于 skill/ 目录）
-- 主要脚本:
-  - organize_dump_files.py - 将源路径下的文件按照文件名的配置格式copy到目的路径下的对应层级目录中
-  - organize_rx_iq_data.py - 整理和分类 RX IQ 测试数据，根据带宽、频率和通道信息重命名和移动文件
-  - rx_iq_result_analyze.py - 分析 diff_pwr 列数据，将小于指定值的行添加红色填充色，统计小于指定值的占比
+- **位置**: `./rx_iq_test/`
+- **说明文档**: `skill/` 下 `organize_dump_files_Skill.md`、`organize_rx_iq_data_Skill.md`、`rx_iq_result_analyze_Skill.md` 等
+- **主要脚本**:
+  - `organize_dump_files.py` — 按文件名配置将文件复制到目标层级目录
+  - `organize_rx_iq_data.py` — 按带宽、频率、通道整理与重命名
+  - `rx_iq_result_analyze.py` — 分析 `diff_pwr` 等列，条件着色与统计
+  - `tx_iq_result_analyse.py` — TX IQ 结果分析
 
 #### reg_query/
-- 位置: `./reg_query/`
-- 包含: E22 芯片寄存器查询工具
-- 说明文档: reg_query.skill
-- 主要功能:
-  - 通过寄存器名称查询详细信息
-  - 通过物理地址查询寄存器所在文件和信息
-  - 支持指定CSV文件路径
-  - 列出可用的寄存器定义文件
-  - 提供GUI界面，支持可视化操作
-- 文件说明:
-  - `reg_query.py` - 主查询脚本
-  - `reg_query_gui.py` - GUI界面程序
-  - `base_addr.txt` - 模块基地址定义文件
-  - `csv_files/` - 包含寄存器定义CSV文件的目录
+- **位置**: `./reg_query/`
+- **说明文档**: `reg_query.skill`
+- **入口**: `reg_query.py`（CLI）、`reg_query_gui.py`（GUI）
+- **数据**: `base_addr.txt`、`csv_files/*.csv`
+- **功能摘要**: 按寄存器名或物理地址查询；可指定 CSV 目录；列出可用定义文件
+
+#### register_comparison_scripts/
+- **位置**: `./register_comparison_scripts/`
+- **脚本**: `compare_registers.py`
+- **说明文档**: `Register_Comparison_Scripts_Skill.md`
 
 #### skill/
-- 位置: `./skill/`
-- 包含: Claude Code 技能脚本
-- 说明文档: 各脚本的 `_Skill.md` 文件
-- 主要技能:
-  - txAnalyse.skill - EVM 分析
-  - evm_comparison.skill - EVM 比较
-  - txmagtrk_analyse.skill - 功率跟踪分析
-  - my_ag.skill - 通用分析
+- **位置**: `./skill/`
+- **内容**: Claude Code 技能（`*.skill`）与各脚本配套的 `*_Skill.md`
+- **常见技能文件**: `txAnalyse.skill`、`evm_comparison.skill`、`txmagtrk_analyse.skill`、`merge_csv_to_xlsx.skill`、`process_ila_files.skill`、`my_ag.skill` 等（完整列表以目录为准）
+- **子目录 `merged_tx_result_analysis/`**: 合并 TX 结果分析相关说明脚本与 `generate_report.py` 等，与根目录 `generate_report.py`、`analyze_merged_tx_result.py` 等配合使用
 
 ### 常用命令示例
 
@@ -219,24 +272,26 @@
 - 避免使用中文或其他非英文内容
 
 #### 寄存器查询工具
+在仓库根目录执行（或按需改为 `cd reg_query` 后去掉路径前缀）：
+
 ```bash
 # 查询寄存器名称
-python reg_query.py reg_mcs10_ldpc_man
+python reg_query/reg_query.py reg_mcs10_ldpc_man
 
 # 查询物理地址
-python reg_query.py 0xc3026cc0
+python reg_query/reg_query.py 0xc3026cc0
 
-# 指定CSV文件路径
-python reg_query.py -c "D:\fpga_test\imag\E22_4.0\260420\csv" reg_mcs10_ldpc_man
+# 指定寄存器 CSV 目录
+python reg_query/reg_query.py -c "D:\fpga_test\imag\E22_4.0\260420\csv" reg_mcs10_ldpc_man
 
-# 列出可用的CSV文件
-python reg_query.py -l
+# 列出可用的 CSV 定义文件
+python reg_query/reg_query.py -l
 
 # 查看使用帮助
-python reg_query.py --help
+python reg_query/reg_query.py --help
 
-# 启动GUI程序
-python reg_query_gui.py
+# 启动 GUI
+python reg_query/reg_query_gui.py
 ```
 
 #### 其他工具命令
