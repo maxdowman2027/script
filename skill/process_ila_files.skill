@@ -10,6 +10,8 @@
 - **自动识别ILA文件格式**：智能识别并处理 FPGA 导出的 `.ila` 文件（ZIP 压缩包格式）
 - **提取waveform.csv**：自动提取每个 ILA 文件中的 `waveform.csv` 文件
 - **智能重命名**：按照原始 ILA 文件名自动重命名提取的 CSV 文件
+- **列筛选**：提取后可只保留指定列
+- **列重命名**：提取后可按映射关系重命名列名
 - **批量处理**：支持同时处理多个 ILA 文件
 - **进度显示**：提供详细的处理进度和状态信息
 - **容错处理**：完善的错误处理和容错机制
@@ -47,6 +49,19 @@ KEEP_ORIGINAL = True
 
 # 是否处理后删除原始ILA文件
 DELETE_ORIGINAL = False
+
+# 提取后的CSV保留列（None表示保留全部列）
+KEEP_COLUMNS = None
+
+# 提取后的CSV列重命名映射（None表示不重命名）
+# 支持以下格式：
+# 1) 字典：{"old_col": "new_col"}
+# 2) 字符串："old1:new1,old2:new2"
+# 3) 列表：
+#    - ["old1:new1", "old2:new2"]
+#    - [("old1","new1"), ("old2","new2")]
+#    - ["new1","new2"]  # 当KEEP_COLUMNS存在且等长时，按顺序映射
+RENAME_COLUMNS = None
 ```
 
 ### 2. 命令行方式
@@ -72,6 +87,8 @@ python process_ila_files.py [输入目录] [选项]
 - `-r, --recursive`：递归处理子目录
 - `-k, --keep`：保留原始ILA文件
 - `-d, --delete`：处理后删除原始ILA文件
+- `--keep_columns`：提取后仅保留指定列（逗号分隔）
+- `--rename_columns`：提取后重命名列（`old:new`，逗号分隔多个）
 
 #### 使用示例
 
@@ -90,6 +107,24 @@ python process_ila_files.py "D:\test_data\rls4\260428\tx_data2" -o "D:\test_data
 python process_ila_files.py "D:\test_data\rls4" -r -o "D:\test_data\rls4\processed"
 ```
 
+仅保留指定列：
+```bash
+python process_ila_files.py "D:\test_data\rls4\260428\tx_data2" --keep_columns "Time,sample_i,sample_q"
+```
+
+保留列并重命名：
+```bash
+python process_ila_files.py "D:\test_data\rls4\260428\tx_data2" --keep_columns "sample_i,sample_q" --rename_columns "sample_i:i_data,sample_q:q_data"
+```
+
+代码配置方式（`KEEP_COLUMNS` + 新列名列表）：
+```python
+KEEP_COLUMNS = ["dac_i_ch0[11:0]", "dac_q_ch0[11:0]"]
+RENAME_COLUMNS = ["dac_i_ch0", "dac_q_ch0"]
+```
+上述配置会按顺序映射为：
+`dac_i_ch0[11:0] -> dac_i_ch0`，`dac_q_ch0[11:0] -> dac_q_ch0`
+
 ## 📊 输出结果
 
 ### 处理过程输出
@@ -102,6 +137,11 @@ python process_ila_files.py "D:\test_data\rls4" -r -o "D:\test_data\rls4\process
 [INFO] 处理完成: 成功 9 个, 失败 0 个
 [INFO] 输出目录: D:\test_data\rls4\260428\tx_data2
 ```
+
+### 日志颜色说明
+- `[SUCCESS]`：终端显示为绿色
+- `[ERROR]`：终端显示为红色
+- 当输出被重定向到文件时，自动降级为纯文本（不写入ANSI颜色码）
 
 ### 生成的文件
 - **原始ILA文件**：`vht_5180_pwr0_mcs7_bcc_bw20m_dacdata.ila`
@@ -169,6 +209,19 @@ A: 确保脚本有足够的权限读取输入文件和写入输出目录。
 - 支持基本的 ILA 文件处理功能
 - 实现 waveform.csv 自动提取和重命名
 - 提供命令行接口和代码配置两种使用方式
+
+### v1.1.0 (2026-05-08)
+- 新增提取后 CSV 列筛选功能（只保留指定列）
+- 新增提取后 CSV 列重命名功能（支持 `old:new` 映射）
+- 新增 `--keep_columns` 与 `--rename_columns` 命令行参数
+
+### v1.1.1 (2026-05-08)
+- `RENAME_COLUMNS` 增强：支持字典、`old:new` 字符串、元组列表，以及与 `KEEP_COLUMNS` 等长的“新列名列表”写法
+- 增加格式兼容与错误防护，避免因配置类型不符导致运行时报错（如 list 调用 `.items()`）
+
+### v1.2.0 (2026-05-08)
+- 新增日志颜色输出：`[SUCCESS]` 绿色，`[ERROR]` 红色
+- 保持重定向场景兼容性（非TTY输出保持纯文本）
 
 ---
 

@@ -16,12 +16,14 @@ import zipfile
 import argparse
 from pathlib import Path
 from tqdm import tqdm
+import pandas as pd
+import sys
 
 # ===========================================
 # 配置参数 - 可根据需要修改
 # ===========================================
 # 输入目录：包含.ila文件的目录
-INPUT_DIR = r"D:\test_data\rls4\260428\tx_data2"
+INPUT_DIR = r"D:\test_data\temp"
 
 # 输出目录：用于保存提取后的CSV文件（默认与输入目录相同）
 # 如果需要保存到其他目录，请修改此处
@@ -36,10 +38,49 @@ KEEP_ORIGINAL = True
 # 是否处理后删除原始ILA文件
 DELETE_ORIGINAL = False
 
+# 提取后的CSV保留列（None表示保留所有列）
+# 示例：["Time", "sample_i", "sample_q"]
+KEEP_COLUMNS = ["dac_i_ch0[11:0]" ,"dac_q_ch0[11:0]"]
+
+# 提取后的CSV列重命名映射（None表示不重命名）
+# 示例：{"sample_i": "i_data", "sample_q": "q_data"}
+RENAME_COLUMNS =  ["dac_i_ch0" ,"dac_q_ch0"]
+
 # ===========================================
 # 核心处理函数
 # ===========================================
-def process_ila_file(ila_path: Path, output_dir: Path, keep_original: bool = True) -> bool:
+RED = "\033[31m"
+GREEN = "\033[32m"
+RESET = "\033[0m"
+
+
+def colorize_status_message(message: str) -> str:
+    """Colorize log line by status tag."""
+    if message.startswith("[ERROR]"):
+        return f"{RED}{message}{RESET}"
+    if message.startswith("[SUCCESS]"):
+        return f"{GREEN}{message}{RESET}"
+    return message
+
+
+def log(message: str):
+    """
+    Print message with status color.
+    Colors are enabled only for terminal output; redirected output stays plain text.
+    """
+    if sys.stdout and sys.stdout.isatty():
+        print(colorize_status_message(message))
+    else:
+        print(message)
+
+
+def process_ila_file(
+    ila_path: Path,
+    output_dir: Path,
+    keep_original: bool = True,
+    keep_columns=None,
+    rename_columns=None,
+) -> bool:
     """
     处理单个ILA文件
 
@@ -54,12 +95,12 @@ def process_ila_file(ila_path: Path, output_dir: Path, keep_original: bool = Tru
     try:
         # 检查文件是否存在
         if not ila_path.exists():
-            print(f"[ERROR] 文件不存在: {ila_path}")
+            log(f"[ERROR] 文件不存在: {ila_path}")
             return False
 
         # 检查是否是ZIP压缩包
         if not zipfile.is_zipfile(str(ila_path)):
-            print(f"[ERROR] 不是有效的ZIP压缩包: {ila_path}")
+            log(f"[ERROR] 不是有效的ZIP压缩包: {ila_path}")
             return False
 
         # 创建输出目录
@@ -82,12 +123,133 @@ def process_ila_file(ila_path: Path, output_dir: Path, keep_original: bool = Tru
             with open(extracted_path, 'wb') as f:
                 f.write(zip_ref.read(waveform_file))
 
-        print(f"[SUCCESS] 处理完成: {ila_path.name} -> {extracted_path.name}")
+        # 可选：只保留指定列，并可选重命名列
+        if keep_columns or rename_columns:
+            df = pd.read_csv(extracted_path)
+
+            if keep_columns:
+                missing_cols = [c for c in keep_columns if c not in df.columns]
+                if missing_cols:
+                    log(
+                        f"[WARNING] 文件 {ila_path.name} 缺少列: {missing_cols}，"
+                        "将仅保留存在的列"
+                    )
+                valid_keep_cols = [c for c in keep_columns if c in df.columns]
+                if not valid_keep_cols:
+                    log(
+                        f"[ERROR] 文件 {ila_path.name} 不包含任何指定保留列，处理失败"
+                    )
+                    return False
+                df = df[valid_keep_cols]
+
+            if rename_columns:
+                if not isinstance(rename_columns, dict):
+                    log(
+                        f"[ERROR] 文件 {ila_path.name} 的重命名配置格式无效，"
+                        "应为字典映射"
+                    )
+                    return False
+                valid_rename_map = {k: v for k, v in rename_columns.items() if k in df.columns}
+                invalid_rename_cols = [k for k in rename_columns.keys() if k not in df.columns]
+                if invalid_rename_cols:
+                    log(
+                        f"[WARNING] 文件 {ila_path.name} 中重命名源列不存在: {invalid_rename_cols}"
+                    )
+                if valid_rename_map:
+                    df = df.rename(columns=valid_rename_map)
+
+            df.to_csv(extracted_path, index=False)
+
+        log(f"[SUCCESS] 处理完成: {ila_path.name} -> {extracted_path.name}")
         return True
 
     except Exception as e:
-        print(f"[ERROR] 处理文件 {ila_path} 时出错: {str(e)}")
+        log(f"[ERROR] 处理文件 {ila_path} 时出错: {str(e)}")
         return False
+
+
+def normalize_keep_columns(value):
+    """Normalize keep columns to list[str] or None."""
+    if value is None:
+        return None
+    if isinstance(value, str):
+        cols = [c.strip() for c in value.split(",") if c.strip()]
+        return cols if cols else None
+    if isinstance(value, (list, tuple)):
+        cols = [str(c).strip() for c in value if str(c).strip()]
+        return cols if cols else None
+    return None
+
+
+def normalize_rename_columns(value, keep_columns=None):
+    """
+    Normalize rename columns to dict[str, str] or None.
+    Supported input:
+      1) dict: {"old":"new"}
+      2) string: "old1:new1,old2:new2"
+      3) list/tuple:
+         - ["old1:new1", "old2:new2"]
+         - [("old1","new1"), ("old2","new2")]
+         - ["new1", "new2"]  # when keep_columns is provided, zip map
+    """
+    if value is None:
+        return None
+
+    if isinstance(value, dict):
+        out = {}
+        for k, v in value.items():
+            ks = str(k).strip()
+            vs = str(v).strip()
+            if ks and vs:
+                out[ks] = vs
+        return out if out else None
+
+    # string mode: old:new pairs
+    if isinstance(value, str):
+        out = {}
+        for pair in value.split(","):
+            pair = pair.strip()
+            if not pair:
+                continue
+            if ":" not in pair:
+                return None
+            old_name, new_name = pair.split(":", 1)
+            old_name = old_name.strip()
+            new_name = new_name.strip()
+            if not old_name or not new_name:
+                return None
+            out[old_name] = new_name
+        return out if out else None
+
+    if isinstance(value, (list, tuple)):
+        # 如果是 new-name 列表，且 keep_columns 等长，则按顺序映射
+        if keep_columns and all(
+            isinstance(x, str) and ":" not in x for x in value
+        ) and len(value) == len(keep_columns):
+            return {
+                str(old).strip(): str(new).strip()
+                for old, new in zip(keep_columns, value)
+                if str(old).strip() and str(new).strip()
+            }
+
+        out = {}
+        for item in value:
+            if isinstance(item, (list, tuple)) and len(item) == 2:
+                old_name = str(item[0]).strip()
+                new_name = str(item[1]).strip()
+                if old_name and new_name:
+                    out[old_name] = new_name
+                continue
+            if isinstance(item, str) and ":" in item:
+                old_name, new_name = item.split(":", 1)
+                old_name = old_name.strip()
+                new_name = new_name.strip()
+                if old_name and new_name:
+                    out[old_name] = new_name
+                continue
+        return out if out else None
+
+    return None
 
 
 def main():
@@ -118,6 +280,14 @@ def main():
         action="store_true",
         help="处理后删除原始ILA文件（默认使用代码中配置的DELETE_ORIGINAL）"
     )
+    parser.add_argument(
+        "--keep_columns",
+        help="提取后CSV仅保留的列，逗号分隔，例如: \"Time,sample_i,sample_q\""
+    )
+    parser.add_argument(
+        "--rename_columns",
+        help="提取后CSV列重命名映射，逗号分隔，格式 old:new，例如: \"sample_i:i_data,sample_q:q_data\""
+    )
 
     args = parser.parse_args()
 
@@ -130,9 +300,20 @@ def main():
     keep_original = args.keep if args.keep is not None else KEEP_ORIGINAL
     delete_original = args.delete if args.delete is not None else DELETE_ORIGINAL
 
+    keep_columns = normalize_keep_columns(KEEP_COLUMNS)
+    if args.keep_columns:
+        keep_columns = normalize_keep_columns(args.keep_columns)
+
+    rename_columns = normalize_rename_columns(RENAME_COLUMNS, keep_columns)
+    if args.rename_columns:
+        rename_columns = normalize_rename_columns(args.rename_columns, keep_columns)
+        if rename_columns is None:
+            log("[ERROR] --rename_columns 参数格式错误，请使用 old:new,old2:new2")
+            return
+
     # 检查输入目录是否存在
     if not input_path.exists():
-        print(f"[ERROR] 输入目录不存在: {input_path}")
+        log(f"[ERROR] 输入目录不存在: {input_path}")
         return
 
     # 查找所有.ila文件
@@ -152,7 +333,13 @@ def main():
     failed_count = 0
 
     for ila_file in tqdm(ila_files, desc="处理进度"):
-        success = process_ila_file(ila_file, output_path, keep_original and not delete_original)
+        success = process_ila_file(
+            ila_file,
+            output_path,
+            keep_original and not delete_original,
+            keep_columns=keep_columns,
+            rename_columns=rename_columns,
+        )
         if success:
             success_count += 1
             # 如果需要删除原始文件
@@ -160,7 +347,7 @@ def main():
                 try:
                     ila_file.unlink()
                 except Exception as e:
-                    print(f"[ERROR] 无法删除文件 {ila_file}: {str(e)}")
+                    log(f"[ERROR] 无法删除文件 {ila_file}: {str(e)}")
         else:
             failed_count += 1
 
