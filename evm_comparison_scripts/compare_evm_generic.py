@@ -9,15 +9,15 @@ from datetime import datetime
 def main():
     # 可配置变量 - 直接在这里修改即可使用
     # 文件路径
-    file1 = r"D:\chip_test\dev\xian_test\Xian-Esp-Test-Scripts\py_script_fpga_tx_wifi7\Log\wifi_tx_rls4\regression_v2.0\merged_tx_result.xlsx"
-    file2 = r"D:\chip_test\dev\xian_test\Xian-Esp-Test-Scripts\py_script_fpga_tx_wifi7\Log\wifi_tx_rls4\regression_v3_260424\merged_tx_result.xlsx"
+    file1 = r"D:\chip_test\dev\xian_test\Xian-Esp-Test-Scripts\py_script_fpga_tx_wifi7\Log\wifi_tx_9p\0507\merged_tx_result.xlsx"
+    file2 = r"D:\chip_test\dev\xian_test\Xian-Esp-Test-Scripts\py_script_fpga_tx_wifi7\Log\wifi_tx_19p\0507\merged_tx_result.xlsx"
 
     # 版本名称
-    version1 = "rls4_v2"
-    version2 = "rls4_v3_0424"
+    version1 = "wifi7_9p"
+    version2 = "wifi7_19p"
 
     # 输出目录
-    output_dir = r"D:\users\gxu\scripts\output\evm_comparison_scripts\rls4_version_evm_comparison_v3"
+    output_dir = r"D:\chip_test\dev\xian_test\Xian-Esp-Test-Scripts\py_script_fpga_tx_wifi7\Log\wifi7_version_evm_comparison"
 
     # 创建输出目录
     os.makedirs(output_dir, exist_ok=True)
@@ -106,6 +106,21 @@ def find_matching_sheet(old_sheet, new_sheets):
     return None
 
 
+def count_version1_rows_with_key_in_df2(df1, df2, merge_cols):
+    """
+    Count rows in df1 whose merge key appears at least once in df2 (same merge_cols).
+    Each df1 row is counted at most once; avoids inflate from Cartesian product of duplicate keys.
+    """
+    if df1.empty or not merge_cols:
+        return 0
+    missing = [c for c in merge_cols if c not in df1.columns or c not in df2.columns]
+    if missing:
+        return 0
+    keys_v2 = df2[merge_cols].drop_duplicates()
+    chk = df1[merge_cols].merge(keys_v2, on=merge_cols, how="left", indicator=True)
+    return int((chk["_merge"] == "both").sum())
+
+
 def compare_dataframes(df1, df2, sheet1, sheet2, comparison_result, output_dir, version1, version2):
     # 核心关键列
     core_cols = ['wifi_format', 'rate', 'tx_power_set(dBm)']
@@ -164,7 +179,15 @@ def compare_dataframes(df1, df2, sheet1, sheet2, comparison_result, output_dir, 
         suffixes=(f'_{version1}', f'_{version2}')
     )
 
-    print(f"Found {len(merged_df)} matching records")
+    v1_rows_with_match = count_version1_rows_with_key_in_df2(df1, df2, merge_cols)
+    inner_join_rows = len(merged_df)
+    v1_match_rate_pct = (v1_rows_with_match / len(df1)) * 100 if len(df1) else 0.0
+
+    print(
+        f"Inner join rows: {inner_join_rows}; "
+        f"version1 rows with key in version2: {v1_rows_with_match}/{len(df1)} "
+        f"({v1_match_rate_pct:.2f}%)"
+    )
 
     # 计算EVM差异
     merged_df['evm_diff'] = merged_df[f'evm_{version2}'] - merged_df[f'{evm_col1}_{version1}']
@@ -296,7 +319,11 @@ def compare_dataframes(df1, df2, sheet1, sheet2, comparison_result, output_dir, 
     comparison_result.append({
         f'{version1}_sheet': sheet1,
         f'{version2}_sheet': sheet2,
-        'matched_count': len(merged_df),
+        # Inner join row count (can exceed len(df1) if duplicate merge keys — Cartesian expand)
+        'matched_count': inner_join_rows,
+        'inner_join_rows': inner_join_rows,
+        'version1_rows_with_key_in_v2': v1_rows_with_match,
+        'version1_match_rate_pct': v1_match_rate_pct,
         f'total_{version1}_records': len(df1),
         f'total_{version2}_records': len(df2),
         'mean_evm_diff': stats['mean_diff'].mean(),
@@ -487,8 +514,9 @@ def generate_html_report(comparison_result, output_dir, output_file, version1, v
     # 替换版本名称
     html_content = html_content.replace('VER1', version1).replace('VER2', version2)
 
-    # 计算整体统计信息
-    total_matched = 0
+    # 计算整体统计信息（匹配率：版本1 中有连接键落在版本2 的行占比，不会超过 100%）
+    total_inner_join_rows = 0
+    total_v1_rows_with_key_in_v2 = 0
     total_version1_records = 0
     total_version2_records = 0
     max_diff = None
@@ -496,7 +524,8 @@ def generate_html_report(comparison_result, output_dir, output_file, version1, v
     avg_abs_diff = None
 
     for result in comparison_result:
-        total_matched += result['matched_count']
+        total_inner_join_rows += result.get('inner_join_rows', result.get('matched_count', 0))
+        total_v1_rows_with_key_in_v2 += result.get('version1_rows_with_key_in_v2', 0)
         total_version1_records += result[f'total_{version1}_records']
         total_version2_records += result[f'total_{version2}_records']
 
@@ -511,21 +540,45 @@ def generate_html_report(comparison_result, output_dir, output_file, version1, v
         else:
             avg_abs_diff = (avg_abs_diff + result['avg_abs_diff']) / 2
 
+    overall_match_rate_pct = (
+        (total_v1_rows_with_key_in_v2 / total_version1_records) * 100
+        if total_version1_records
+        else 0.0
+    )
+
+    if avg_abs_diff is None:
+        avg_abs_diff = 0.0
+    if max_diff is None:
+        max_diff = 0.0
+    if min_diff is None:
+        min_diff = 0.0
+
     html_content += f'''
             <div class="section">
                 <h2>1. 整体对比统计</h2>
                 <div class="stats">
                     <div class="stat-card">
-                        <h4>匹配记录数</h4>
-                        <div class="stat-value">{total_matched}</div>
-                        <p>{version1}总记录数: {total_version1_records}<br>{version2}总记录数: {total_version2_records}</p>
+                        <h4>版本1 行匹配率</h4>
+                        <div class="stat-value">{overall_match_rate_pct:.2f}%</div>
+                        <p>版本1 中连接键在版本2 至少出现一次的行数 / 版本1 总行数<br>
+                        （{total_v1_rows_with_key_in_v2} / {total_version1_records}）</p>
+                    </div>
+                    <div class="stat-card">
+                        <h4>Inner 配对行数</h4>
+                        <div class="stat-value">{total_inner_join_rows}</div>
+                        <p>merge 结果行数；若同一连接键在两侧重复，该值可大于版本1 行数（笛卡尔积）</p>
+                    </div>
+                    <div class="stat-card">
+                        <h4>版本记录数</h4>
+                        <div class="stat-value" style="font-size:18px">{version1}: {total_version1_records}<br>{version2}: {total_version2_records}</div>
+                        <p>各 Sheet 合并对比时的原始行数之和</p>
                     </div>
                     <div class="stat-card">
                         <h4>平均EVM差值</h4>
                         <div class="stat-value" style="color: {'green' if abs(avg_abs_diff) < 1 else 'orange' if abs(avg_abs_diff) < 2 else 'red'}">
                             {avg_abs_diff:.2f} dB
                         </div>
-                        <p>平均值</p>
+                        <p>各 Sheet 平均绝对差值的算术平均</p>
                     </div>
                     <div class="stat-card">
                         <h4>最大EVM差值</h4>
@@ -553,7 +606,9 @@ def generate_html_report(comparison_result, output_dir, output_file, version1, v
                         <tr>
                             <th>{version1} Sheet</th>
                             <th>{version2} Sheet</th>
-                            <th>匹配记录数</th>
+                            <th>Inner配对行数</th>
+                            <th>V1可匹配行数</th>
+                            <th>V1行匹配率</th>
                             <th>{version1}记录数</th>
                             <th>{version2}记录数</th>
                             <th>平均差值</th>
@@ -573,11 +628,17 @@ def generate_html_report(comparison_result, output_dir, output_file, version1, v
         min_diff_class = 'success' if result['min_evm_diff'] >= -2 else 'warning' if result['min_evm_diff'] >= -5 else 'error'
         avg_abs_class = 'success' if result['avg_abs_diff'] < 1 else 'warning' if result['avg_abs_diff'] < 2 else 'error'
 
+        ij = result.get('inner_join_rows', result['matched_count'])
+        v1m = result.get('version1_rows_with_key_in_v2', 0)
+        v1pct = result.get('version1_match_rate_pct', 0.0)
+
         html_content += f'''
                         <tr>
                             <td>{result[f'{version1}_sheet']}</td>
                             <td>{result[f'{version2}_sheet']}</td>
-                            <td>{result['matched_count']}</td>
+                            <td>{ij}</td>
+                            <td>{v1m}</td>
+                            <td>{v1pct:.2f}%</td>
                             <td>{result[f'total_{version1}_records']}</td>
                             <td>{result[f'total_{version2}_records']}</td>
                             <td class="{avg_diff_class}">{result['mean_evm_diff']:.2f}</td>
@@ -601,7 +662,7 @@ def generate_html_report(comparison_result, output_dir, output_file, version1, v
             <div class="section">
                 <h2>3. 主要发现</h2>
                 <ul>
-                    <li><strong>匹配记录百分比:</strong> VER1记录中有MATCHED_PERCENT%在VER2版本中找到了匹配项</li>
+                    <li><strong>版本1 行匹配率:</strong> VER1 记录中 MATCHED_PERCENT% 的连接键在 VER2 中至少存在一行（同一 Sheet 对比内按 merge 键统计；不会超过 100%）。Inner merge 的详细配对行数见「Inner 配对行数」及各 Sheet「Inner配对行数」列（重复键时可为笛卡尔积）。</li>
                     <li><strong>整体EVM趋势:</strong> TREND</li>
                     <li><strong>主要差异来源:</strong> 需要进一步分析特定Rate和Format组合的性能</li>
                 </ul>
@@ -632,7 +693,7 @@ def generate_html_report(comparison_result, output_dir, output_file, version1, v
     '''
 
     # 替换剩余的占位符
-    matched_percent = (total_matched / total_version1_records) * 100
+    matched_percent = overall_match_rate_pct
     trend = f"{version2}版本整体EVM更好" if avg_abs_diff < -0.5 else f"{version2}版本整体EVM更差" if avg_abs_diff > 0.5 else f"{version1}和{version2}版本之间的EVM差异不显著"
     current_time = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
 
