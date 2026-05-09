@@ -340,6 +340,7 @@ def crc_check(filelist,logpath):
 def _business_config_string(df, log_path):
     """
     Build a human-readable label from TX CSV business columns (bw, format, channel, coding, …).
+    Always includes **BCC/LDPC** and **bandwidth (MHz)** when inferable from columns or filename.
     Falls back to filename stem when columns are missing.
     """
     def norm_val(v):
@@ -368,14 +369,87 @@ def _business_config_string(df, log_path):
             pass
         return norm_val(ser.iloc[0])
 
+    def format_bw_token(raw):
+        """Normalize bandwidth token for display (prefer …MHz)."""
+        if raw is None:
+            return None
+        if isinstance(raw, (int, float)) and not (isinstance(raw, float) and pd.isna(raw)):
+            try:
+                x = float(raw)
+                if x == int(x):
+                    return f"{int(x)}MHz"
+                return f"{x:g}MHz"
+            except (TypeError, ValueError):
+                pass
+        s = str(raw).strip()
+        if not s:
+            return None
+        if re.fullmatch(r"\d+", s):
+            return f"{s}MHz"
+        s_low = s.lower().replace(" ", "")
+        m = re.match(r"(\d+(?:\.\d+)?)mhz\Z", s_low)
+        if m:
+            x = float(m.group(1))
+            return f"{int(x)}MHz" if x == int(x) else f"{x:g}MHz"
+        m = re.match(r"(\d+(?:\.\d+)?)m\Z", s_low)
+        if m:
+            x = float(m.group(1))
+            return f"{int(x)}MHz" if x == int(x) else f"{x:g}MHz"
+        return s
+
+    def bandwidth_from_df():
+        for col in ("cbw", "bandwidth", "bw_mhz", "chan_bw", "BW"):
+            if col not in df.columns:
+                continue
+            t = format_bw_token(first_stable(col))
+            if t:
+                return t
+        return None
+
+    def bandwidth_from_path():
+        name = os.path.basename(log_path or "")
+        stem0 = os.path.splitext(name)[0]
+        for pat in (
+            r"(?:^|_)risc_wifitx_(\d+)\s*m(?:_|$)",
+            r"_(\d+)\s*m_(?=\[)",
+            r"_(\d+)\s*m_",
+            r"(\d+)mhz",
+        ):
+            m = re.search(pat, stem0, flags=re.I)
+            if m:
+                return format_bw_token(m.group(1) + "m")
+        return None
+
+    def coding_from_df():
+        if "fec_coding" not in df.columns:
+            return None
+        fc = df["fec_coding"].dropna()
+        if fc.empty:
+            return None
+        labels = []
+        for val in fc:
+            try:
+                labels.append("LDPC" if int(float(val)) != 0 else "BCC")
+            except (TypeError, ValueError):
+                continue
+        if not labels:
+            return None
+        # majority vote for mixed logs
+        return max(set(labels), key=labels.count)
+
+    def coding_from_path():
+        stem = os.path.splitext(os.path.basename(log_path or ""))[0]
+        if re.search(r"(?<![A-Za-z])LDPC(?![A-Za-z])", stem, re.I):
+            return "LDPC"
+        if re.search(r"(?<![A-Za-z])BCC(?![A-Za-z])", stem, re.I):
+            return "BCC"
+        return None
+
     parts = []
 
-    cbw = first_stable("cbw")
-    if cbw:
-        if re.fullmatch(r"\d+", str(cbw)):
-            parts.append(f"{cbw}MHz")
-        else:
-            parts.append(str(cbw))
+    bw = bandwidth_from_df() or bandwidth_from_path()
+    if bw:
+        parts.append(bw)
 
     wf = first_stable("wifi_format")
     if wf:
@@ -392,14 +466,9 @@ def _business_config_string(df, log_path):
         except (TypeError, ValueError):
             parts.append(f"ch{ch}")
 
-    if "fec_coding" in df.columns:
-        fc = df["fec_coding"].dropna()
-        if len(fc):
-            try:
-                v0 = int(float(fc.iloc[0]))
-                parts.append("LDPC" if v0 != 0 else "BCC")
-            except (TypeError, ValueError):
-                pass
+    code = coding_from_df() or coding_from_path()
+    if code:
+        parts.append(code)
 
     if "Nsts" in df.columns:
         ns = df["Nsts"].dropna()

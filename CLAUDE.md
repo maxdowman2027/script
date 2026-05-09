@@ -163,7 +163,7 @@
 | 脚本名称 | 功能说明 | 详细文档 |
 |---------|---------|---------|
 | `txAnalyse.py` | 主要的 EVM 分析脚本（支持 WiFi 6） | txAnalyse.skill |
-| `txAnalyse_wifi7.py` | WiFi 7 专用 TX 分析 / 多子图 PDF；子图标题由 CSV 业务列（cbw、wifi_format、rf_chan、fec_coding、Nsts、GI 等）拼装，非文件名切片 | txAnalyse.skill |
+| `txAnalyse_wifi7.py` | WiFi 7 专用 TX 分析 / 多子图 PDF；子图标题含带宽(MHz)、BCC/LDPC（列或文件名推断）及 wifi_format、信道、Nsts、GI 等 | txAnalyse.skill |
 | `txAnalyse_compatible.py` | 兼容性版本的 EVM 分析脚本 | txAnalyse.skill |
 | `evm_comparison.py` | EVM 比较分析脚本 | evm_comparison.skill |
 

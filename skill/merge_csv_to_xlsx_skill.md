@@ -27,7 +27,7 @@
    与独立运行 `txAnalyse_wifi7.py` 相同：需 CSV 中含功率、EVM、IQ、谱模板等列；缺列时绘图可能在导入脚本中报错，合并脚本会捕获并打印失败原因。
 
 5. **图标题（业务配置）**  
-   **`txAnalyse_wifi7.py`** 中各子图标题不再依赖文件名分段，而是由 **`_business_config_string`** 按 CSV 列拼装，例如：`cbw`、`wifi_format`、`rf_chan`、`fec_coding`（BCC/LDPC）、`Nsts`、`Gi_type` 等；列缺失时退回为去掉 `risc_wifitx_` 后的文件名主干。  
+   **`txAnalyse_wifi7.py`** 中各子图标题由 **`_business_config_string`** 拼装：**带宽** 优先来自 `cbw` / `bandwidth` / `BW` 等列（格式化为 `…MHz`），缺失时从文件名中的 `risc_wifitx_20m_`、`_20m_` 等模式推断；**编码** **BCC/LDPC** 来自 **`fec_coding`**（列内多数表决），缺失时从文件名中的 `BCC`/`LDPC` 匹配。另含 **`wifi_format`**、**`rf_chan`**、**`Nsts`**、**GI** 等；仍无时退回为去掉 `risc_wifitx_` 后的文件名主干。  
    同一段字符串用于 TXT 检查结果的分组标题。
 
 ### EVM 异常扫描（`merge_csv_to_xlsx.py` 内）
