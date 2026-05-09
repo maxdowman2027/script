@@ -107,6 +107,120 @@ def calculate_reg_default(rows, addr_row_idx):
     return default_hex, default_32bit, default_dec, bit_fields
 
 
+def parse_bit_range(bit_pos):
+    """
+    解析位域字符串，返回 (msb, lsb)。
+    支持格式: [31:0], [7]；解析失败时默认 (31, 0)。
+    """
+    if not bit_pos:
+        return 31, 0
+    bit_pos = str(bit_pos).strip()
+    m = re.search(r'\[(\d+)(?::(\d+))?\]', bit_pos)
+    if not m:
+        return 31, 0
+    msb = int(m.group(1))
+    lsb = int(m.group(2)) if m.group(2) is not None else msb
+    if msb < lsb:
+        msb, lsb = lsb, msb
+    return msb, lsb
+
+
+def parse_default_to_int(default_str):
+    """
+    解析默认值字符串(如 3'd2, 8'hff, 1'b0, d0)为整数。
+    无法解析时返回 None。
+    """
+    if default_str is None:
+        return None
+    s = str(default_str).strip().lower()
+    if not s:
+        return None
+    if s.endswith('d0'):
+        return 0
+    m = re.search(r"(\d+)'([bdh])?([0-9a-f]+)", s)
+    if not m:
+        return None
+    base_type = m.group(2) or 'b'
+    val_str = m.group(3)
+    base = 2
+    if base_type == 'd':
+        base = 10
+    elif base_type == 'h':
+        base = 16
+    try:
+        return int(val_str, base)
+    except ValueError:
+        return None
+
+
+def parse_write_value_to_hex(write_value_text):
+    """
+    将用户输入的写值解析为十六进制字符串（0x...）。
+    支持十六进制(0x)和十进制输入；空值返回(None, None)。
+    """
+    if write_value_text is None:
+        return None, None
+    s = str(write_value_text).strip()
+    if not s:
+        return None, None
+    try:
+        val = int(s, 0)
+    except ValueError:
+        return None, f"写寄存器值格式错误: {write_value_text}"
+    if val < 0:
+        return None, "写寄存器值不支持负数"
+    return f"0x{val:X}", None
+
+
+def generate_rw_commands(info, write_value_text=None):
+    """
+    根据查询结果生成读写命令：
+    - 写命令模板: test_top.mem.wrm(addr , msb, lsb , <value_hex>)
+    - 读命令: hex(test_top.mem.rdm(addr , msb, lsb))
+    """
+    full_addr = str(info.get('full_addr', '')).strip().lower()
+    if not full_addr:
+        full_addr = "0x00000000"
+    msb, lsb = parse_bit_range(info.get('bit_pos', ''))
+    read_cmd = f"hex(test_top.mem.rdm({full_addr} , {msb}, {lsb}))"
+    write_cmd_template = f"test_top.mem.wrm({full_addr} , {msb}, {lsb} , <value_hex>)"
+
+    default_val = None
+    if info.get('bit_default'):
+        default_val = parse_default_to_int(info.get('bit_default'))
+    if default_val is None and info.get('reg_default'):
+        try:
+            default_val = int(str(info.get('reg_default')), 16)
+        except ValueError:
+            default_val = None
+
+    write_cmd_default = None
+    if default_val is not None:
+        write_cmd_default = f"test_top.mem.wrm({full_addr} , {msb}, {lsb} , 0x{default_val:X})"
+
+    configured_write_hex, write_parse_error = parse_write_value_to_hex(write_value_text)
+    write_cmd_configured = None
+    if configured_write_hex is not None:
+        write_cmd_configured = f"test_top.mem.wrm({full_addr} , {msb}, {lsb} , {configured_write_hex})"
+
+    write_cmd_for_execute = (
+        write_cmd_configured
+        or write_cmd_default
+        or write_cmd_template
+    )
+
+    return {
+        'msb': msb,
+        'lsb': lsb,
+        'read_cmd': read_cmd,
+        'write_cmd_template': write_cmd_template,
+        'write_cmd_default': write_cmd_default,
+        'write_cmd_configured': write_cmd_configured,
+        'write_cmd_for_execute': write_cmd_for_execute,
+        'write_parse_error': write_parse_error,
+    }
+
+
 def find_register_info(reg_name, csv_dir=None):
     """通过寄存器名称查找寄存器信息"""
     if csv_dir is None:
@@ -233,7 +347,7 @@ def find_register_by_address(search_addr, csv_dir=None):
     return None, "未找到该地址的寄存器"
 
 
-def format_register_info(info):
+def format_register_info(info, write_value_text=None):
     """格式化寄存器信息为字符串"""
     lines = []
     lines.append("=" * 60)
@@ -255,6 +369,20 @@ def format_register_info(info):
 
     lines.append(f"\n寄存器32bit默认值: {info['reg_default']} ({info['reg_default_dec']} 十进制)")
     lines.append(f"二进制默认值: 0b{info['reg_default_binary']}")
+
+    # 生成读写命令
+    rw = generate_rw_commands(info, write_value_text=write_value_text)
+    lines.append("\n寄存器读写命令:")
+    lines.append(f"  位域范围: [{rw['msb']}:{rw['lsb']}]")
+    lines.append(f"  读命令: {rw['read_cmd']}")
+    lines.append(f"  写命令(模板): {rw['write_cmd_template']}")
+    if rw.get('write_parse_error'):
+        lines.append(f"  写值解析错误: {rw['write_parse_error']}")
+    if rw.get('write_cmd_configured'):
+        lines.append(f"  写命令(使用配置值): {rw['write_cmd_configured']}")
+    if rw.get('write_cmd_default'):
+        lines.append(f"  写命令(默认值示例): {rw['write_cmd_default']}")
+
     lines.append("=" * 60)
 
     return '\n'.join(lines)
@@ -279,7 +407,8 @@ class RegQueryGUI:
         self.root.columnconfigure(0, weight=1)
         self.root.rowconfigure(0, weight=1)
         main_frame.columnconfigure(1, weight=1)
-        main_frame.rowconfigure(4, weight=1)
+        main_frame.rowconfigure(7, weight=1)
+        main_frame.rowconfigure(9, weight=1)
 
         # 查询方式选择
         self.query_type = tk.StringVar(value="name")
@@ -300,23 +429,34 @@ class RegQueryGUI:
         self.csv_dir_entry.insert(0, self.csv_dir)
         ttk.Button(main_frame, text="浏览", command=self.browse_csv_dir).grid(row=2, column=2, padx=(5, 0), pady=(0, 5))
 
+        # 写寄存器值配置（可选）
+        ttk.Label(main_frame, text="写寄存器值(可选):").grid(row=3, column=0, sticky=tk.W, pady=(0, 5))
+        self.write_value_entry = ttk.Entry(main_frame)
+        self.write_value_entry.grid(row=3, column=1, sticky=(tk.W, tk.E), pady=(0, 5))
+        ttk.Label(main_frame, text="示例: 0x40201000 或 123").grid(row=3, column=2, sticky=tk.W, padx=(5, 0), pady=(0, 5))
+
         # 查询按钮
-        ttk.Button(main_frame, text="查询", command=self.perform_query, style="Accent.TButton").grid(row=3, column=0, columnspan=3, pady=(10, 0))
+        ttk.Button(main_frame, text="查询", command=self.perform_query, style="Accent.TButton").grid(row=4, column=0, columnspan=3, pady=(10, 0))
 
         # 列出可用CSV文件按钮
-        ttk.Button(main_frame, text="列出可用CSV文件", command=self.list_csv_files).grid(row=4, column=0, columnspan=3, pady=(5, 0))
+        ttk.Button(main_frame, text="列出可用CSV文件", command=self.list_csv_files).grid(row=5, column=0, columnspan=3, pady=(5, 0))
 
         # 查询结果显示
-        ttk.Label(main_frame, text="查询结果:").grid(row=5, column=0, sticky=tk.W, pady=(10, 5))
+        ttk.Label(main_frame, text="查询结果:").grid(row=6, column=0, sticky=tk.W, pady=(10, 5))
         self.result_text = scrolledtext.ScrolledText(main_frame, height=20)
-        self.result_text.grid(row=6, column=0, columnspan=3, sticky=(tk.W, tk.E, tk.N, tk.S), pady=(0, 10))
+        self.result_text.grid(row=7, column=0, columnspan=3, sticky=(tk.W, tk.E, tk.N, tk.S), pady=(0, 10))
+
+        # 命令输出（每行纯命令，可直接复制执行）
+        ttk.Label(main_frame, text="命令输出(每行可直接执行):").grid(row=8, column=0, sticky=tk.W, pady=(0, 5))
+        self.command_text = scrolledtext.ScrolledText(main_frame, height=10)
+        self.command_text.grid(row=9, column=0, columnspan=3, sticky=(tk.W, tk.E, tk.N, tk.S), pady=(0, 10))
 
         # 导出按钮
-        ttk.Button(main_frame, text="导出结果到文件", command=self.export_result).grid(row=7, column=0, columnspan=3, pady=(0, 5))
+        ttk.Button(main_frame, text="导出结果到文件", command=self.export_result).grid(row=10, column=0, columnspan=3, pady=(0, 5))
 
         # 状态栏
         self.status_var = tk.StringVar(value="准备就绪")
-        ttk.Label(main_frame, textvariable=self.status_var, style="Status.TLabel").grid(row=8, column=0, columnspan=3, sticky=(tk.W, tk.E))
+        ttk.Label(main_frame, textvariable=self.status_var, style="Status.TLabel").grid(row=11, column=0, columnspan=3, sticky=(tk.W, tk.E))
 
         # 创建样式
         style = ttk.Style()
@@ -341,6 +481,7 @@ class RegQueryGUI:
 
         self.status_var.set("查询中...")
         self.result_text.delete(1.0, tk.END)
+        self.command_text.delete(1.0, tk.END)
 
         # 创建后台线程执行查询
         thread = threading.Thread(target=self.query_thread, args=(query_text,))
@@ -364,6 +505,8 @@ class RegQueryGUI:
 
             results = []
             errors = []
+            success_infos = []
+            write_value_text = self.write_value_entry.get().strip()
 
             for query in queries:
                 if self.query_type.get() == "name":
@@ -374,16 +517,32 @@ class RegQueryGUI:
                 if error:
                     errors.append(f"查询 '{query}' 时出错: {error}")
                 else:
-                    results.append(format_register_info(info))
+                    success_infos.append(info)
+                    results.append(format_register_info(info, write_value_text=write_value_text))
+
+            command_lines = []
+            for info in success_infos:
+                rw = generate_rw_commands(info, write_value_text=write_value_text)
+                if rw.get('write_parse_error'):
+                    errors.append(f"写值配置错误: {rw['write_parse_error']}")
+                    break
+                # 每行前不加额外内容，保证可直接复制执行
+                command_lines.append(rw['read_cmd'])
+                command_lines.append(rw['write_cmd_for_execute'])
 
             # 显示结果
             self.root.after(0, lambda: self.result_text.delete(1.0, tk.END))
+            self.root.after(0, lambda: self.command_text.delete(1.0, tk.END))
 
             if results:
                 self.root.after(0, lambda: self.result_text.insert(tk.END, '\n\n'.join(results) + '\n'))
 
             if errors:
                 self.root.after(0, lambda: self.result_text.insert(tk.END, '\n' + '-'*60 + '\n查询错误:\n' + '\n'.join(errors) + '\n'))
+
+            if command_lines:
+                cmd_output = '\n'.join(command_lines) + '\n'
+                self.root.after(0, lambda: self.command_text.insert(tk.END, cmd_output))
 
             self.root.after(0, lambda: self.status_var.set(f"查询完成: 成功 {len(results)} 个, 失败 {len(errors)} 个"))
         except Exception as e:

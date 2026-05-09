@@ -8,23 +8,23 @@ from scipy.signal import welch
 import matplotlib.gridspec as gridspec
 from matplotlib.backends.backend_pdf import PdfPages
     # 创建PDF文件
-output_pdf = r"D:\chip_test\dev\xian_test\Xian-Esp-Test-Scripts\rftest_data\dump_node_124\FPGA752_0x_20260428\2462_vht_mcs8_bcc_nss1_psd.pdf"
+output_pdf = r"D:\test_data\wifi7\260508\9P\eht_5180_mcs8_len512_pwr0_9p_dacdata.pdf"
 # 采样率（80MHz）
-fs = 80e6  # 80MHz
+fs = 160e6  # 80MHz
 # 同时调整采样率
-# fs_downsampled = fs / 2
-fs_downsampled = fs 
+fs_downsampled = fs / 2
+# fs_downsampled = fs 
 def read_data():
     """读取CSV数据"""
-    csv_file = r"D:\chip_test\dev\xian_test\Xian-Esp-Test-Scripts\rftest_data\dump_node_124\FPGA752_0x_20260428\adcdump_dacdata.csv"
+    csv_file = r"D:\test_data\wifi7\260508\9P\eht_5180_mcs8_len512_pwr0_9p_dacdata.csv"
     try:
         df = pd.read_csv(csv_file)
 
         # 提取所需列的数据
-        dac_i_ch0 = df['sample_i'].values
-        dac_q_ch0 = df['sample_q'].values
-        dac_i_ch1 = df['sample_i'].values
-        dac_q_ch1 = df['sample_q'].values
+        dac_i_ch0 = df['dac_i_ch0'].values
+        dac_q_ch0 = df['dac_q_ch0'].values
+        dac_i_ch1 = df['dac_i_ch0'].values
+        dac_q_ch1 = df['dac_q_ch0'].values
 
         return dac_i_ch0, dac_q_ch0, dac_i_ch1, dac_q_ch1
 
