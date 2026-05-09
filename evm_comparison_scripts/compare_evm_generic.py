@@ -9,15 +9,15 @@ from datetime import datetime
 def main():
     # 可配置变量 - 直接在这里修改即可使用
     # 文件路径
-    file1 = r"D:\chip_test\dev\xian_test\Xian-Esp-Test-Scripts\py_script_fpga_tx_wifi7\Log\wifi_tx_9p\0507\merged_tx_result.xlsx"
-    file2 = r"D:\chip_test\dev\xian_test\Xian-Esp-Test-Scripts\py_script_fpga_tx_wifi7\Log\wifi_tx_19p\0507\merged_tx_result.xlsx"
+    file1 = r"D:\chip_test\dev\xian_test\Xian-Esp-Test-Scripts\py_script_fpga_tx_wifi7\Log\wifi_tx\260428_regression\merged_tx_result.xlsx"
+    file2 = r"D:\chip_test\dev\xian_test\Xian-Esp-Test-Scripts\py_script_fpga_tx_wifi7\Log\wifi_tx_9p\0507\merged_tx_result.xlsx"
 
     # 版本名称
-    version1 = "wifi7_9p"
-    version2 = "wifi7_19p"
+    version1 = "wifi7_9p_0428"
+    version2 = "wifi7_9p_0507"
 
     # 输出目录
-    output_dir = r"D:\chip_test\dev\xian_test\Xian-Esp-Test-Scripts\py_script_fpga_tx_wifi7\Log\wifi7_version_evm_comparison"
+    output_dir = r"D:\chip_test\dev\xian_test\Xian-Esp-Test-Scripts\py_script_fpga_tx_wifi7\Log\wifi7_9p_evm_comparison"
 
     # 创建输出目录
     os.makedirs(output_dir, exist_ok=True)
@@ -189,8 +189,14 @@ def compare_dataframes(df1, df2, sheet1, sheet2, comparison_result, output_dir, 
         f"({v1_match_rate_pct:.2f}%)"
     )
 
+    # Excel / log 中 EVM 可能为字符串（如 '--'）；统一为浮点后再做差，避免 str - float
+    col_v1 = f'{evm_col1}_{version1}'
+    col_v2 = f'evm_{version2}'
+    merged_df[col_v1] = pd.to_numeric(merged_df[col_v1], errors='coerce')
+    merged_df[col_v2] = pd.to_numeric(merged_df[col_v2], errors='coerce')
+
     # 计算EVM差异
-    merged_df['evm_diff'] = merged_df[f'evm_{version2}'] - merged_df[f'{evm_col1}_{version1}']
+    merged_df['evm_diff'] = merged_df[col_v2] - merged_df[col_v1]
     merged_df['abs_diff'] = abs(merged_df['evm_diff'])
 
     # 保存详细的对比结果，并为EVM值添加填充色
