@@ -369,6 +369,19 @@ def _business_config_string(df, log_path):
             pass
         return norm_val(ser.iloc[0])
 
+    # cbw column: enum 0–3 means channel bandwidth (WiFi log convention)
+    _CBW_ENUM_TO_MHZ = {0: "20MHz", 1: "40MHz", 2: "80MHz", 3: "160MHz"}
+
+    def cbw_enum_to_display(raw):
+        """Map cbw code 0–3 to MHz label; return None if not an enum code."""
+        if raw is None or (isinstance(raw, float) and pd.isna(raw)):
+            return None
+        try:
+            k = int(float(raw))
+        except (TypeError, ValueError):
+            return None
+        return _CBW_ENUM_TO_MHZ.get(k)
+
     def format_bw_token(raw):
         """Normalize bandwidth token for display (prefer …MHz)."""
         if raw is None:
@@ -398,7 +411,15 @@ def _business_config_string(df, log_path):
         return s
 
     def bandwidth_from_df():
-        for col in ("cbw", "bandwidth", "bw_mhz", "chan_bw", "BW"):
+        if "cbw" in df.columns:
+            v = first_stable("cbw")
+            mapped = cbw_enum_to_display(v)
+            if mapped:
+                return mapped
+            t = format_bw_token(v)
+            if t:
+                return t
+        for col in ("bandwidth", "bw_mhz", "chan_bw", "BW"):
             if col not in df.columns:
                 continue
             t = format_bw_token(first_stable(col))
