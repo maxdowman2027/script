@@ -4,6 +4,53 @@
 
 `merge_csv_to_xlsx.py` 用于将目录下 `risc_wifitx_*.csv` 合并为单个 Excel：按文件名中的 **信道 channel**、**编码 BCC/LDPC**、**NSS1/NSS2/STBC** 划分 Sheet；可选导出 **CRC 失败**、**Flatness 失败**、**SpecMargin 失败** 到独立文件；并为明细表中的 `evm` / `evm_nss0` / `evm_nss1` 列着色以便查看。
 
+合并完成后（默认）还会：**调用 `txAnalyse_wifi7.tx_plot_and_analyse`** 生成 WiFi7 TX 多页 PDF 与附带检查结果 txt；并对合并数据做 **EVM 异常扫描**，输出 txt 报告。
+
+---
+
+## 近期更新（WiFi7 绘图、EVM 异常扫描与绘图标题）
+
+### WiFi7 TX 绘图（`txAnalyse_wifi7.py`）
+
+1. **触发时机**  
+   主 `.xlsx` 保存成功后，对 `input_dir` 下全部 **`risc_wifitx_*.csv`** 调用 **`tx_plot_and_analyse`**。
+
+2. **输出位置**  
+   默认目录：`{合并文件所在目录}/{合并文件名不含扩展名}_wifi7_tx_plot/`  
+   文件前缀：`{合并文件名不含扩展名}_` + 时间戳 PDF（如 `*_tx_pdf_YYYY_MM_DD_HHMM.pdf`）及同前缀 txt。
+
+3. **关闭方式**  
+   命令行：`--no_wifi7_plots`；Python：`run_wifi7_plots=False`。  
+   自定义目录：`--wifi7_plot_dir` / `wifi7_plot_dir=`。
+
+4. **依赖数据格式**  
+   与独立运行 `txAnalyse_wifi7.py` 相同：需 CSV 中含功率、EVM、IQ、谱模板等列；缺列时绘图可能在导入脚本中报错，合并脚本会捕获并打印失败原因。
+
+5. **图标题（业务配置）**  
+   **`txAnalyse_wifi7.py`** 中各子图标题不再依赖文件名分段，而是由 **`_business_config_string`** 按 CSV 列拼装，例如：`cbw`、`wifi_format`、`rf_chan`、`fec_coding`（BCC/LDPC）、`Nsts`、`Gi_type` 等；列缺失时退回为去掉 `risc_wifitx_` 后的文件名主干。  
+   同一段字符串用于 TXT 检查结果的分组标题。
+
+### EVM 异常扫描（`merge_csv_to_xlsx.py` 内）
+
+1. **目的**  
+   在相同 **`band` / coding（BCC·LDPC）/ `cbw` / NSS·STBC（来自 Sheet）/ `wifi_format`** 分组内：
+   - 比较各 **rate** 在**全部 tx_pwr** 上的 **EVM 均值**：若某 rate 明显劣于组内中位数（默认高出 **2 dB**，即 EVM 数值更大），写入 **`[ANOMALY ALERT]`**。
+   - 对每个 rate 的 **EVM–tx_pwr** 曲线，检测相邻功率点 **|ΔEVM|** 过大（默认 **3 dB**）。
+
+2. **HT rate 口径**  
+   与 EVM 透视统计一致：STBC / NSS2 下 **`_normalize_ht_rate_for_summary`** 归一后再分组。
+
+3. **输出**  
+   默认：`{basename}_evm_anomaly_report.txt`（与主合并文件同目录）。  
+   控制台会重复打印含 **`[ANOMALY ALERT]`** 的行。
+
+4. **关闭 / 调参**  
+   - `--no_evm_anomaly` / `run_evm_anomaly_check=False`  
+   - `--anomaly_report`、`--anomaly_rate_gap`（默认 2.0）、`--anomaly_curve_jump`（默认 3.0）
+
+5. **数据采集**  
+   只要开启 EVM 统计 **或** 异常扫描，脚本会从各 Sheet 合并数据中附带 **`_source_sheet`**；若仅关闭 EVM 透视但仍开启异常扫描，会按需二次读取 CSV 构建分析表。
+
 ---
 
 ## 近期更新（EVM 统计与独立输出）
@@ -28,10 +75,15 @@
    - **浅红色**（`#FFC7CE`）：该 **bw_cbw** 组内该列 **最差 EVM**（数值 **最大**）。
    - 若该 **bw_cbw** 组仅一行或数值全相同，则只标 **绿色**。
 
-5. **命令行**  
+5. **命令行（合并 / EVM 统计）**  
    - `--summary_tx_pwr`：统计用功率点（dBm），默认 `15`。  
    - `--evm_summary_out`：指定统计表输出路径（可选）。  
-   - `--no_evm_summary`：不生成统计文件。
+   - `--no_evm_summary`：不生成统计文件。  
+   - `--no_wifi7_plots`：不调用 `txAnalyse_wifi7` 绘图。  
+   - `--wifi7_plot_dir`：指定 WiFi7 PDF/txt 输出目录。  
+   - `--no_evm_anomaly`：不写 EVM 异常报告。  
+   - `--anomaly_report`：异常报告 txt 路径。  
+   - `--anomaly_rate_gap`、`--anomaly_curve_jump`：异常阈值（dB）。
 
 6. **依赖与数据列**  
    统计依赖 CSV 中常见字段：`tx_power_set(dBm)`、`wifi_format`、`rate`、`fec_coding`（或从 CSV 分组 Sheet 名推断 BCC/LDPC）、`rf_chan`、`cbw`，以及 EVM 列（`evm` / `evm_aver(dB)` / `aver_evmAll` / `evm_nss0` 等）。
@@ -81,6 +133,21 @@ python merge_csv_to_xlsx.py ^
   --evm_summary_out "D:\path\to\custom_evm_stat.xlsx"
 ```
 
+### WiFi7 绘图与 EVM 异常（可选开关示例）
+
+```bash
+python merge_csv_to_xlsx.py ^
+  --input_dir "D:\path\to\csv_dir" ^
+  --output_file "D:\path\to\merged_tx_result.xlsx" ^
+  --wifi7_plot_dir "D:\path\to\wifi7_plots_out" ^
+  --anomaly_report "D:\path\to\my_anomaly_report.txt" ^
+  --anomaly_rate_gap 2.0 ^
+  --anomaly_curve_jump 3.0
+
+# 仅合并 + EVM 统计，跳过 WiFi7 PDF 与异常扫描
+python merge_csv_to_xlsx.py --input_dir .\data --output_file .\merged.xlsx --no_wifi7_plots --no_evm_anomaly
+```
+
 ### 从 Python 调用
 
 ```python
@@ -93,6 +160,12 @@ merge_csv_to_xlsx(
     summary_tx_pwr_dbm=15.0,
     add_evm_summary=True,
     evm_summary_output_file=None,  # None 则自动生成同目录 _evm_15dBm_stat.xlsx
+    run_wifi7_plots=True,
+    wifi7_plot_dir=None,
+    run_evm_anomaly_check=True,
+    anomaly_report_file=None,
+    anomaly_rate_mean_gap_db=2.0,
+    anomaly_curve_jump_db=3.0,
 )
 ```
 
@@ -108,6 +181,12 @@ merge_csv_to_xlsx(
 | `summary_tx_pwr_dbm` | 统计表筛选功率（默认 15） |
 | `add_evm_summary` | 是否生成 EVM 统计独立文件 |
 | `evm_summary_output_file` | 统计文件路径；`None` 则自动命名 |
+| `run_wifi7_plots` | 是否在合并完成后调用 `txAnalyse_wifi7.tx_plot_and_analyse` |
+| `wifi7_plot_dir` | WiFi7 PDF/txt 输出目录；`None` 则为 `{basename}_wifi7_tx_plot` |
+| `run_evm_anomaly_check` | 是否生成 `{basename}_evm_anomaly_report.txt` |
+| `anomaly_report_file` | 异常报告路径；`None` 则默认与合并文件同目录 |
+| `anomaly_rate_mean_gap_db` | 同配置下 rate 均值劣于组内中位数的阈值（dB） |
+| `anomaly_curve_jump_db` | 同一 rate 相邻功率点 \|ΔEVM\| 阈值（dB） |
 
 ---
 
@@ -115,6 +194,8 @@ merge_csv_to_xlsx(
 
 - `pandas`
 - `openpyxl`
+- `numpy`（EVM 异常扫描）
+- **WiFi7 绘图**：`matplotlib`（由 `txAnalyse_wifi7` 导入）；该路径还需完整 TX CSV 列集
 
 ---
 
@@ -123,6 +204,6 @@ merge_csv_to_xlsx(
 以下为旧版 `.skill` 文件的等价元数据摘要，供自动化工具索引：
 
 - **名称**: merge_csv_to_xlsx  
-- **描述**: 合并 `risc_wifitx` CSV 到 XLSX；CRC/Flatness/SpecMargin 失败拆分；EVM 统计单独多 Sheet 输出（band/coding/NSS×STBC），Sheet 内按 bw 分组跨 rate 标注最优/最差 EVM。  
-- **标签**: CSV合并, XLSX, WiFi测试, EVM, CRC, Flatness, SpecMargin  
-- **需求**: pandas, openpyxl  
+- **描述**: 合并 `risc_wifitx` CSV 到 XLSX；CRC/Flatness/SpecMargin 失败拆分；EVM 统计单独多 Sheet 输出（band/coding/NSS×STBC），Sheet 内按 bw 分组跨 rate 标注最优/最差 EVM；合并后可选调用 `txAnalyse_wifi7` 生成 TX 多页 PDF（图标题由 CSV 业务列拼装）并输出 EVM 跨 rate / 功率曲线异常 txt。  
+- **标签**: CSV合并, XLSX, WiFi测试, EVM, CRC, Flatness, SpecMargin, WiFi7, matplotlib  
+- **需求**: pandas, openpyxl, numpy；WiFi7 绘图另需 matplotlib 及 TX CSV 完整列  

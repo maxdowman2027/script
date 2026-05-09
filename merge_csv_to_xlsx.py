@@ -6,11 +6,14 @@
 另：将指定功率点（默认 15 dBm）的 EVM 透视统计写入单独 XLSX；
 按 band、coding（LDPC/BCC）、NSS_STBC 组合分 Sheet；Sheet 内列为 bw_cbw、rate 及各 wifi_format 的平均 EVM，
 并在同一 bw_cbw 分组内跨 rate 标出各 wifi_format 列最优（最负）与最差（最不负）EVM 底色。
+合并完成后默认调用 txAnalyse_wifi7 生成 TX 多页 PDF，并对跨 rate EVM 均值与功率扫描曲线跳变做异常扫描（可 CLI 关闭）。
 """
 
 import os
+import sys
 import glob
 import pandas as pd
+import numpy as np
 import re
 import argparse
 import openpyxl
@@ -207,6 +210,146 @@ def build_evm_wifi_format_summary(df_all, tx_pwr_dbm=15.0, tx_pwr_tol=0.51):
     return out
 
 
+def _concat_csvs_for_analysis(grouped_files):
+    """Rebuild merged-frame columns when EVM summary collection was skipped."""
+    parts = []
+    for sheet_name, files in grouped_files.items():
+        for fp in files:
+            try:
+                d = pd.read_csv(fp)
+                d["_source_sheet"] = sheet_name
+                parts.append(d)
+            except Exception as e:
+                print(f"异常检测: 读取 {fp} 失败: {e}")
+    if not parts:
+        return pd.DataFrame()
+    return pd.concat(parts, ignore_index=True)
+
+
+def _prepare_anomaly_dataframe(df_all):
+    if df_all is None or df_all.empty:
+        return pd.DataFrame()
+    df = df_all.copy()
+    df.columns = [str(c).strip() for c in df.columns]
+    pwr_col = "tx_power_set(dBm)"
+    evm_col = _resolve_evm_column(df)
+    if not evm_col or pwr_col not in df.columns:
+        return pd.DataFrame()
+    if "wifi_format" not in df.columns or "rate" not in df.columns:
+        return pd.DataFrame()
+    if "rf_chan" in df.columns:
+        df["_band"] = df["rf_chan"].map(_infer_band_from_rf_chan)
+    else:
+        df["_band"] = "unknown"
+    df["_coding"] = df.apply(_fec_label_row, axis=1)
+    df["_stream_cfg"] = (
+        df["_source_sheet"].map(_stream_cfg_from_sheet)
+        if "_source_sheet" in df.columns
+        else "unknown"
+    )
+    bw_col = "cbw" if "cbw" in df.columns else None
+    df["_bw"] = df[bw_col] if bw_col else ""
+    df["_evm_num"] = pd.to_numeric(df[evm_col], errors="coerce")
+    df["_pwr_num"] = pd.to_numeric(df[pwr_col], errors="coerce")
+    df = df.dropna(subset=["_evm_num", "_pwr_num"])
+    df["_rate_norm"] = [
+        _normalize_ht_rate_for_summary(r, wf, sc)
+        for r, wf, sc in zip(df["rate"], df["wifi_format"], df["_stream_cfg"])
+    ]
+    return df
+
+
+def analyze_evm_tx_anomalies(
+    df_all,
+    rate_mean_gap_db=2.0,
+    curve_jump_db=3.0,
+    min_rates_in_group=2,
+    min_pwr_points_per_rate_mean=2,
+    min_pwr_points_for_curve=3,
+):
+    """
+    在相同 band/coding/cbw/NSS_STBC/wifi_format 分组内：
+    - 比较各 rate 在全部 tx_pwr 上的 EVM 均值，若某 rate 明显劣于同组中位水平则报警；
+    - 对各 rate 按功率排序的 EVM 曲线，检测相邻功率点跳变过大。
+    """
+    df = _prepare_anomaly_dataframe(df_all)
+    if df.empty:
+        return ["(无有效 EVM / rate / tx_power_set(dBm) 数据，跳过 EVM 异常检测)"]
+
+    group_cols = ["_band", "_coding", "_bw", "_stream_cfg", "wifi_format"]
+    lines = []
+    for key, g in df.groupby(group_cols, dropna=False):
+        mbr = g.groupby("_rate_norm", observed=True)["_evm_num"].agg(["mean", "count"])
+        mbr = mbr[mbr["count"] >= min_pwr_points_per_rate_mean]
+        if len(mbr) >= min_rates_in_group:
+            med = float(mbr["mean"].median())
+            for r, row in mbr.iterrows():
+                mean_r = float(row["mean"])
+                if mean_r > med + rate_mean_gap_db:
+                    ks = ", ".join(
+                        f"{gc}={kv}"
+                        for gc, kv in zip(
+                            group_cols,
+                            key if isinstance(key, tuple) else (key,),
+                        )
+                    )
+                    lines.append(
+                        "[ANOMALY ALERT] EVM rate mean vs peers: "
+                        f"rate={r} mean EVM={mean_r:.2f} dB vs group median {med:.2f} dB "
+                        f"(gap {mean_r - med:.2f} dB, threshold {rate_mean_gap_db} dB). "
+                        f"Context: {ks}"
+                    )
+        for r in g["_rate_norm"].unique():
+            sub = g[g["_rate_norm"] == r]
+            pt = sub.groupby("_pwr_num", observed=True)["_evm_num"].mean().sort_index()
+            if len(pt) < min_pwr_points_for_curve:
+                continue
+            arr = pt.values.astype(float)
+            d = np.diff(arr)
+            if d.size == 0:
+                continue
+            mx = float(np.nanmax(np.abs(d)))
+            if mx > curve_jump_db:
+                ks = ", ".join(
+                    f"{gc}={kv}"
+                    for gc, kv in zip(
+                        group_cols,
+                        key if isinstance(key, tuple) else (key,),
+                    )
+                )
+                lines.append(
+                    "[ANOMALY ALERT] EVM vs tx_pwr curve jump: "
+                    f"rate={r} max adjacent |ΔEVM|={mx:.2f} dB "
+                    f"(threshold {curve_jump_db} dB). Context: {ks}"
+                )
+
+    if not lines:
+        lines.append(
+            "EVM anomaly scan: no cross-rate mean deviation or power-sweep curve jump "
+            f"exceeded thresholds (rate gap {rate_mean_gap_db} dB, curve jump {curve_jump_db} dB)."
+        )
+    return lines
+
+
+def run_wifi7_tx_plots(csv_paths, plot_path_prefix):
+    """
+    Call txAnalyse_wifi7.tx_plot_and_analyse (multi-page PDF + txt checks).
+    plot_path_prefix: directory + stem, e.g. .../merged_tx_result_; PDF becomes .../merged_tx_result_tx_pdf_*.pdf
+    """
+    root = os.path.dirname(os.path.abspath(__file__))
+    if root not in sys.path:
+        sys.path.insert(0, root)
+    from txAnalyse_wifi7 import tx_plot_and_analyse
+
+    paths = sorted(csv_paths)
+    if not paths:
+        print("WiFi7 绘图: 无 CSV 路径，跳过")
+        return
+    os.makedirs(os.path.dirname(plot_path_prefix), exist_ok=True)
+    print(f"WiFi7 绘图: 处理 {len(paths)} 个 CSV，输出前缀 {plot_path_prefix}")
+    tx_plot_and_analyse(paths, plot_path_prefix)
+
+
 # 独立 EVM 统计文件：按 band / LDPC(BCC) / NSS_STBC 拆 Sheet；Sheet 内着色分组键为 bw_cbw
 SHEET_SPLIT_KEYS = ("band", "coding_LDPC_BCC", "NSS_STBC")
 HIGHLIGHT_GROUP_KEYS = ("bw_cbw",)
@@ -362,7 +505,13 @@ def write_evm_summary_file(summary_tbl, output_path, summary_tx_pwr_dbm):
 
 def merge_csv_to_xlsx(input_dir, output_file, crc_fail_file=None,
                       summary_tx_pwr_dbm=15.0, add_evm_summary=True,
-                      evm_summary_output_file=None):
+                      evm_summary_output_file=None,
+                      run_wifi7_plots=True,
+                      wifi7_plot_dir=None,
+                      run_evm_anomaly_check=True,
+                      anomaly_report_file=None,
+                      anomaly_rate_mean_gap_db=2.0,
+                      anomaly_curve_jump_db=3.0):
     """
     合并指定文件夹中的CSV文件到XLSX文件
 
@@ -375,6 +524,12 @@ def merge_csv_to_xlsx(input_dir, output_file, crc_fail_file=None,
         evm_summary_output_file: EVM 统计输出路径；默认与合并文件同目录，
             文件名 {merged_basename}_evm_{功率}dBm_stat.xlsx；
             文件内按 band、coding_LDPC_BCC、NSS_STBC 分 Sheet，着色按 bw_cbw 分组跨 rate
+        run_wifi7_plots: 是否调用 txAnalyse_wifi7.tx_plot_and_analyse 生成多页 PDF/附带 txt
+        wifi7_plot_dir: WiFi7 分析输出目录；默认 {merged_basename}_wifi7_tx_plot（与合并文件同目录）
+        run_evm_anomaly_check: 是否扫描跨 rate EVM 均值与功率曲线跳变并写报告
+        anomaly_report_file: 异常报告 txt 路径；默认同目录 {basename}_evm_anomaly_report.txt
+        anomaly_rate_mean_gap_db: 同配置下某 rate 均值劣于组内中位数的报警阈值（dB）
+        anomaly_curve_jump_db: 同一 rate 相邻功率点 |ΔEVM| 报警阈值（dB）
     """
     # 查找所有risc_wifitx_*.csv文件
     csv_files = glob.glob(os.path.join(input_dir, 'risc_wifitx_*.csv'))
@@ -471,7 +626,7 @@ def merge_csv_to_xlsx(input_dir, output_file, crc_fail_file=None,
                 # 这里我们保持原样，因为用户只要求将evm_nss列放在evm列之后
                 pass
 
-            if add_evm_summary:
+            if add_evm_summary or run_evm_anomaly_check:
                 part = merged_df.copy()
                 part["_source_sheet"] = sheet_name
                 all_for_summary.append(part)
@@ -1022,21 +1177,84 @@ def merge_csv_to_xlsx(input_dir, output_file, crc_fail_file=None,
         if crc_writer:
             crc_writer.close()
             print(f"CRC失败记录已保存到: {crc_fail_file}")
+
+        base_dir = os.path.dirname(os.path.abspath(output_file))
+        base_name = os.path.splitext(os.path.basename(output_file))[0]
+
+        if run_wifi7_plots:
+            try:
+                plot_dir = (
+                    wifi7_plot_dir
+                    if wifi7_plot_dir
+                    else os.path.join(base_dir, f"{base_name}_wifi7_tx_plot")
+                )
+                plot_prefix = os.path.join(plot_dir, base_name + "_")
+                run_wifi7_tx_plots(csv_files, plot_prefix)
+                print(f"WiFi7 TX 分析 PDF/TXT 输出目录: {plot_dir}")
+            except Exception as ex:
+                print(f"WiFi7 绘图/分析失败: {ex}")
+
+        if run_evm_anomaly_check:
+            try:
+                if all_for_summary:
+                    adf = pd.concat(all_for_summary, ignore_index=True)
+                else:
+                    adf = _concat_csvs_for_analysis(grouped_files)
+                lines = analyze_evm_tx_anomalies(
+                    adf,
+                    rate_mean_gap_db=anomaly_rate_mean_gap_db,
+                    curve_jump_db=anomaly_curve_jump_db,
+                )
+                rep = anomaly_report_file or os.path.join(
+                    base_dir, f"{base_name}_evm_anomaly_report.txt"
+                )
+                with open(rep, "w", encoding="utf-8") as rf:
+                    rf.write("\n".join(lines))
+                for ln in lines:
+                    if ln.startswith("[ANOMALY ALERT]"):
+                        print(ln)
+                print(f"EVM 异常检测报告: {rep}")
+            except Exception as ex:
+                print(f"EVM 异常检测失败: {ex}")
     except Exception as e:
         print(f"保存文件失败: {e}")
 
 
 def main():
     parser = argparse.ArgumentParser(description="合并 risc_wifitx CSV 到 XLSX，并生成 15dBm EVM 透视统计表")
-    parser.add_argument("--input_dir", default=r"D:\chip_test\dev\xian_test\Xian-Esp-Test-Scripts\py_script_fpga_tx_wifi7\Log\wifi_tx_rls4\regression_v3_260424")
-    parser.add_argument("--output_file", default=r"D:\chip_test\dev\xian_test\Xian-Esp-Test-Scripts\py_script_fpga_tx_wifi7\Log\wifi_tx_rls4\regression_v3_260424/merged_tx_result.xlsx")
-    parser.add_argument("--crc_fail_file", default=r"D:\chip_test\dev\xian_test\Xian-Esp-Test-Scripts\py_script_fpga_tx_wifi7\Log\wifi_tx_rls4\regression_v3_260424/tx_crc_fail_result.xlsx")
+    parser.add_argument("--input_dir", default=r"D:\chip_test\dev\xian_test\Xian-Esp-Test-Scripts\py_script_fpga_tx_wifi7\Log\wifi_tx_9p\0507")
+    parser.add_argument("--output_file", default=r"D:\chip_test\dev\xian_test\Xian-Esp-Test-Scripts\py_script_fpga_tx_wifi7\Log\wifi_tx_9p\0507/merged_tx_result.xlsx")
+    parser.add_argument("--crc_fail_file", default=r"D:\chip_test\dev\xian_test\Xian-Esp-Test-Scripts\py_script_fpga_tx_wifi7\Log\wifi_tx_9p\0507/tx_crc_fail_result.xlsx")
     parser.add_argument("--summary_tx_pwr", type=float, default=15.0, help="统计表使用的 tx 功率点 (dBm)")
     parser.add_argument("--no_evm_summary", action="store_true", help="不生成独立 EVM 统计 xlsx")
     parser.add_argument(
         "--evm_summary_out",
         default=None,
         help="EVM 统计输出 xlsx 路径（默认与合并结果同目录：{basename}_evm_{功率}dBm_stat.xlsx）",
+    )
+    parser.add_argument("--no_wifi7_plots", action="store_true", help="不调用 txAnalyse_wifi7 绘图")
+    parser.add_argument(
+        "--wifi7_plot_dir",
+        default=None,
+        help="WiFi7 PDF/TXT 输出目录（默认：与合并文件同目录下 {basename}_wifi7_tx_plot）",
+    )
+    parser.add_argument("--no_evm_anomaly", action="store_true", help="不写 EVM 跨速率/曲线异常报告")
+    parser.add_argument(
+        "--anomaly_report",
+        default=None,
+        help="EVM 异常报告 txt 路径（默认同目录 {basename}_evm_anomaly_report.txt）",
+    )
+    parser.add_argument(
+        "--anomaly_rate_gap",
+        type=float,
+        default=2.0,
+        help="同配置下 rate 均值劣于组内中位数的报警阈值 (dB)，默认 2",
+    )
+    parser.add_argument(
+        "--anomaly_curve_jump",
+        type=float,
+        default=3.0,
+        help="同一 rate 相邻功率点 |ΔEVM| 报警阈值 (dB)，默认 3",
     )
     args = parser.parse_args()
 
@@ -1051,6 +1269,12 @@ def main():
         summary_tx_pwr_dbm=args.summary_tx_pwr,
         add_evm_summary=not args.no_evm_summary,
         evm_summary_output_file=args.evm_summary_out,
+        run_wifi7_plots=not args.no_wifi7_plots,
+        wifi7_plot_dir=args.wifi7_plot_dir,
+        run_evm_anomaly_check=not args.no_evm_anomaly,
+        anomaly_report_file=args.anomaly_report,
+        anomaly_rate_mean_gap_db=args.anomaly_rate_gap,
+        anomaly_curve_jump_db=args.anomaly_curve_jump,
     )
 
 

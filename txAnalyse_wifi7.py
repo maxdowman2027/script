@@ -336,6 +336,102 @@ def crc_check(filelist,logpath):
     f.close()
     return crc_check_ok
 
+
+def _business_config_string(df, log_path):
+    """
+    Build a human-readable label from TX CSV business columns (bw, format, channel, coding, …).
+    Falls back to filename stem when columns are missing.
+    """
+    def norm_val(v):
+        if v is None or (isinstance(v, float) and pd.isna(v)):
+            return None
+        s = str(v).strip()
+        if not s or s == "--":
+            return None
+        return s.replace("['", "").replace("']", "").replace("'", "")
+
+    def first_stable(col):
+        if col not in df.columns:
+            return None
+        ser = df[col].dropna()
+        if ser.empty:
+            return None
+        try:
+            mode = ser.astype(str).str.strip()
+            mode = mode[(mode != "") & (mode != "--")]
+            if mode.empty:
+                return None
+            top = mode.mode(dropna=True)
+            if len(top):
+                return norm_val(top.iloc[0])
+        except Exception:
+            pass
+        return norm_val(ser.iloc[0])
+
+    parts = []
+
+    cbw = first_stable("cbw")
+    if cbw:
+        if re.fullmatch(r"\d+", str(cbw)):
+            parts.append(f"{cbw}MHz")
+        else:
+            parts.append(str(cbw))
+
+    wf = first_stable("wifi_format")
+    if wf:
+        parts.append(wf)
+
+    ch = first_stable("rf_chan")
+    if ch:
+        try:
+            fv = float(ch)
+            if fv > 500:
+                parts.append(f"{fv:g}MHz")
+            else:
+                parts.append(f"ch{ch}")
+        except (TypeError, ValueError):
+            parts.append(f"ch{ch}")
+
+    if "fec_coding" in df.columns:
+        fc = df["fec_coding"].dropna()
+        if len(fc):
+            try:
+                v0 = int(float(fc.iloc[0]))
+                parts.append("LDPC" if v0 != 0 else "BCC")
+            except (TypeError, ValueError):
+                pass
+
+    if "Nsts" in df.columns:
+        ns = df["Nsts"].dropna()
+        if len(ns):
+            try:
+                parts.append(f"Nsts={int(float(ns.iloc[0]))}")
+            except (TypeError, ValueError):
+                pass
+
+    for col in ("Gi_type", "gi_type", "GI_type"):
+        if col in df.columns:
+            g = first_stable(col)
+            if g:
+                parts.append(f"GI={g}")
+            break
+
+    if parts:
+        return " | ".join(parts)
+
+    name = os.path.basename(log_path)
+    stem = os.path.splitext(name)[0]
+    if stem.lower().startswith("risc_wifitx_"):
+        stem = stem[12:]
+    return stem.replace("__", "_").strip("_") or name
+
+
+def _plot_title(df, log_path, nss2_flag, metric_name):
+    """Chart title: business configuration + metric name (+ NSS/STBC suffix)."""
+    base = _business_config_string(df, log_path)
+    return (base + " | " + metric_name + nss2_flag).strip()
+
+
 def tx_plot_and_analyse(logfile,save_filr):
     now = datetime.now()
     pdf_date_time = now.strftime("tx_pdf_%Y_%m_%d_%H%M")
@@ -486,13 +582,11 @@ def tx_plot_and_analyse(logfile,save_filr):
                         reorder_column_iqimbalance.append(source_column)
 
 
-        #case str
-        case_str = logfile[i].split('_')[1] + '_' + logfile[i].split('_')[2] + '_' + logfile[i].split('_')[3] + '_' + logfile[i].split('_')[4] + " " + nss2_flag
-        case_str = case_str.replace('[\'', '').replace('\']', '')
-
+        # case label for txt log (business fields from CSV)
+        case_tag = _business_config_string(df, logfile[i]) + nss2_flag
 
         folder_name = f"{txt_date_time}.txt"
-        with open(save_file+folder_name, 'a') as f:
+        with open(save_filr+folder_name, 'a') as f:
 
             original_stdout = sys.stdout
             sys.stdout = f
@@ -504,21 +598,21 @@ def tx_plot_and_analyse(logfile,save_filr):
                 if col in df.columns:
                     columns_to_print.append(col)
 
-            print('****************************%s %s*******************************\n' % (case_str, nss2_flag))
+            print('****************************%s*******************************\n' % (case_tag,))
             # ###check flatness
             if 'spectralFlatness_margin' in df.columns :
                 if '--' != df['spectralFlatness_margin'][0]:
                     if '--' != df['spectralFlatness_margin'][0]:
                         if float(df['worstFlatnessMargin'].str.replace('--', '0').min()) < 0:
-                            print(case_str + '      Flatness         Check    FAIL\n')
+                            print(case_tag + '      Flatness         Check    FAIL\n')
                             #print(df[['rate', 'wifi_format', 'tx_power_set(dBm)']][pd.to_numeric(df['worstFlatnessMargin'], errors='coerce') < 0])
                             print(df[columns_to_print][pd.to_numeric(df['worstFlatnessMargin'], errors='coerce') < 0])
                         else:
-                            print(case_str + "      Flatness         Check    PASS")
+                            print(case_tag + "      Flatness         Check    PASS")
                 else:
-                    print(case_str + "      Flatness         Check    NAN")
+                    print(case_tag + "      Flatness         Check    NAN")
             else:
-                print(case_str + "      Flatness         Check    NAN")
+                print(case_tag + "      Flatness         Check    NAN")
 
 
 
@@ -526,29 +620,29 @@ def tx_plot_and_analyse(logfile,save_filr):
             #check worstSpecMargin
             if '--' != df['spectrumMarginDb_nss1'][0]:
                 if float(df['worstSpecMargin_nss1'].min()) < 0:
-                    print(case_str + '      SpecMargin nss1  Check    FAIL\n')
+                    print(case_tag + '      SpecMargin nss1  Check    FAIL\n')
                     print(df[['rate', 'wifi_format', 'tx_power_set(dBm)']][pd.to_numeric(df['worstSpecMargin_nss1'], errors='coerce') < 0].to_string())
                     print("\n")
                 else:
-                    print(case_str + "      SpecMargin nss1  Check    PASS")
+                    print(case_tag + "      SpecMargin nss1  Check    PASS")
 
             if '--' != df['spectrumMarginDb_nss2'][0]:
                 if float(df['worstSpecMargin_nss2'].min()) < 0:
-                    print(case_str + '      SpecMargin nss2  Check    FAIL\n')
+                    print(case_tag + '      SpecMargin nss2  Check    FAIL\n')
                     print(df[['rate', 'wifi_format', 'tx_power_set(dBm)']][pd.to_numeric(df['worstSpecMargin_nss2'], errors='coerce') < 0].to_string())
                     print("\n")
                 else:
-                    print(case_str + "      SpecMargin nss2  Check    PASS")
+                    print(case_tag + "      SpecMargin nss2  Check    PASS")
 
             #check crc
 
             
             if 'Fail' in df['psdu_crc'].astype(str).value_counts():
-                print(case_str +'      CRC                Check    FAIL\n')
+                print(case_tag +'      CRC                Check    FAIL\n')
                 #print(df[['rate', 'wifi_format', 'tx_power_set(dBm)'] ,fec_coding][df['psdu_crc'] == 'Fail'].to_string())
                 print(df[columns_to_print][df['psdu_crc'] == 'Fail'].to_string())
             else:
-                print(case_str +'      CRC                Check    PASS')
+                print(case_tag +'      CRC                Check    PASS')
             print("\n")
             sys.stdout = original_stdout
 
@@ -563,9 +657,7 @@ def tx_plot_and_analyse(logfile,save_filr):
         plt.xlim([-12, 20])
         plt.xlabel('ref_power (dBm)')
         plt.ylabel('real_power (dBm)')
-        title_str = logfile[i].split('_')[1] + '_' + logfile[i].split('_')[2] + '_' + logfile[i].split('_')[3]  + '_' + logfile[i].split('_')[4]  + '_' + logfile[i].split('_')[5]  + '_' + logfile[i].split('_')[6] + '_'  + 'TxPower' + nss2_flag
-        title_str = title_str.replace('[\'','').replace('\']','')
-        plt.title(title_str)
+        plt.title(_plot_title(df, logfile[i], nss2_flag, "TxPower"))
         plt.grid()
 
 
@@ -581,10 +673,7 @@ def tx_plot_and_analyse(logfile,save_filr):
             plt.xlabel('ref_power (dBm)')
             plt.ylabel('IQ Imbalance (dB)')
             plt.legend(iqimbalance_column_lengend, bbox_to_anchor=(1, 1), loc=2, borderaxespad=0, numpoints=1, fontsize=8)
-            title_str = logfile[i].split('_')[1] + '_' + logfile[i].split('_')[2] + '_' + logfile[i].split('_')[
-                3]  + '_' + logfile[i].split('_')[4]  + '_' + logfile[i].split('_')[5]  + '_' + logfile[i].split('_')[6] + '_' + 'IQ Imbalance'+ nss2_flag 
-            title_str = title_str.replace('[\'','').replace('\']','')
-            plt.title(title_str)
+            plt.title(_plot_title(df, logfile[i], nss2_flag, "IQ Imbalance"))
             plt.grid()
 
 
@@ -600,10 +689,7 @@ def tx_plot_and_analyse(logfile,save_filr):
             plt.xlabel('ref_power (dBm)')
             plt.ylabel('Worst Spectrum Margin nss1 (dB)')
             plt.legend(spec_marg_column_lengend_nss1, bbox_to_anchor=(1, 1), loc=2, borderaxespad=0, numpoints=1, fontsize=8)
-            title_str = logfile[i].split('_')[1] + '_' + logfile[i].split('_')[2] + '_' + logfile[i].split('_')[
-                3] + '_' + 'Worst Spectrum Margin nss1'+ nss2_flag
-            title_str = title_str.replace('[\'','').replace('\']','')
-            plt.title(title_str)
+            plt.title(_plot_title(df, logfile[i], nss2_flag, "Worst Spectrum Margin nss1"))
             plt.grid()
 
         #worstSpecMargin nss2
@@ -618,10 +704,7 @@ def tx_plot_and_analyse(logfile,save_filr):
             plt.xlabel('ref_power (dBm)')
             plt.ylabel('Worst Spectrum Margin nss2 (dB)')
             plt.legend(spec_marg_column_lengend_nss2, bbox_to_anchor=(1, 1), loc=2, borderaxespad=0, numpoints=1, fontsize=8)
-            title_str = logfile[i].split('_')[1] + '_' + logfile[i].split('_')[2] + '_' + logfile[i].split('_')[
-                3] + '_' + 'Worst Spectrum Margin nss2'+ nss2_flag
-            title_str = title_str.replace('[\'','').replace('\']','')
-            plt.title(title_str)
+            plt.title(_plot_title(df, logfile[i], nss2_flag, "Worst Spectrum Margin nss2"))
             plt.grid()
 
         #flatness
@@ -633,10 +716,7 @@ def tx_plot_and_analyse(logfile,save_filr):
                 # plt.xlim([-12, 20])
                 plt.xlabel('Case Index')
                 plt.ylabel('Worst Flatness Margin (dB)')
-                title_str = logfile[i].split('_')[1] + '_' + logfile[i].split('_')[2] + '_' + logfile[i].split('_')[
-                    3]  + '_' + logfile[i].split('_')[4]  + '_' + logfile[i].split('_')[5]  + '_' + logfile[i].split('_')[6] + '_' + 'Worst Flatness Margin'+ nss2_flag
-                title_str = title_str.replace('[\'', '').replace('\']', '')
-                plt.title(title_str)
+                plt.title(_plot_title(df, logfile[i], nss2_flag, "Worst Flatness Margin"))
                 plt.grid()
 
 
@@ -655,10 +735,7 @@ def tx_plot_and_analyse(logfile,save_filr):
         plt.xlabel('ref_power (dBm)')
         plt.ylabel('EVM (dB)')
         plt.legend(column_lengend, bbox_to_anchor=(1, 1), loc=2, borderaxespad=0, numpoints=1, fontsize=8)
-        title_str = logfile[i].split('_')[1] + '_' + logfile[i].split('_')[2] + '_' + logfile[i].split('_')[
-            3] + '_' + logfile[i].split('_')[4]  + '_' + logfile[i].split('_')[5]  + '_' + logfile[i].split('_')[6] + '_' + 'EVM'+ nss2_flag
-        title_str = title_str.replace('[\'', '').replace('\']', '')
-        plt.title(title_str)
+        plt.title(_plot_title(df, logfile[i], nss2_flag, "EVM"))
         plt.grid()
         pp.savefig(x1)
         plt.close(x1)
@@ -671,25 +748,25 @@ def tx_plot_and_analyse(logfile,save_filr):
 
 
     pp.close()
-# os.chdir(r'D:/workspace/fpgaTxTest/20230704/mimo_len_check')
-logfile = r'D:\chip_test\dev\xian_test\Xian-Esp-Test-Scripts\py_script_fpga_tx_wifi7\Log\wifi_tx\260428_regression'
-os.chdir(logfile)
-save_file = r'D:\chip_test\dev\xian_test\Xian-Esp-Test-Scripts\py_script_fpga_tx_wifi7\Log\wifi_tx\260428_regression\result'
-# os.chdir(r'D:/workspace/fpgaTxTest/20240605/')
-#os.chdir(r'D:/workspace/fpgaTxTest/20230704/mimo')
-#flatness_log_file = 'D:/workspace/fpgaTxTest/tx_regress_log/tx_flatness_log.txt'
-#spectrum_log_file = 'D:/workspace/fpgaTxTest/tx_regress_log/tx_spectrum_log.txt'
-#tx_power_log_file = 'D:/workspace/fpgaTxTest/tx_regress_log/tx_power_log.txt'
-#evm_log_file = 'D:/workspace/fpgaTxTest/tx_regress_log/tx_evm_log.txt'
-#crc_log_file = 'D:/workspace/fpgaTxTest/tx_regress_log/tx_crc_log.txt'
-my_files = sorted(glob.glob('risc*.csv'), key=os.path.getmtime)
-#每个元素打印在不同的行
-for file in my_files:
-    print(file)
 
 
-tx_plot_and_analyse(my_files,save_file)
+if __name__ == "__main__":
+    # os.chdir(r'D:/workspace/fpgaTxTest/20230704/mimo_len_check')
+    logfile = r"D:\chip_test\dev\xian_test\Xian-Esp-Test-Scripts\py_script_fpga_tx_wifi7\Log\wifi_tx\260428_regression"
+    os.chdir(logfile)
+    save_file = r"D:\chip_test\dev\xian_test\Xian-Esp-Test-Scripts\py_script_fpga_tx_wifi7\Log\wifi_tx\260428_regression\result"
+    # os.chdir(r'D:/workspace/fpgaTxTest/20240605/')
+    # os.chdir(r'D:/workspace/fpgaTxTest/20230704/mimo')
+    # flatness_log_file = 'D:/workspace/fpgaTxTest/tx_regress_log/tx_flatness_log.txt'
+    # spectrum_log_file = 'D:/workspace/fpgaTxTest/tx_regress_log/tx_spectrum_log.txt'
+    # tx_power_log_file = 'D:/workspace/fpgaTxTest/tx_regress_log/tx_power_log.txt'
+    # evm_log_file = 'D:/workspace/fpgaTxTest/tx_regress_log/tx_evm_log.txt'
+    # crc_log_file = 'D:/workspace/fpgaTxTest/tx_regress_log/tx_crc_log.txt'
+    my_files = sorted(glob.glob("risc*.csv"), key=os.path.getmtime)
+    for file in my_files:
+        print(file)
 
+    tx_plot_and_analyse(my_files, save_file)
 
 # if fltness_check(my_files,flatness_log_file):
 #     print("Flatness Check PASS.")

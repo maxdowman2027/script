@@ -126,7 +126,7 @@
 | 杂散 / 频谱 / PSD | `spur_scan_process.py`、`spur_scan_regression.py`、`spur_analysis.py`、`spur_visualization.py`、`spur_diff_and_mark_red.py`、`simple_spur_comparison.py`、`psd_plot.py`、`psd_plot_1kHz.py`、`plot_spectrum.py`、`plot_spectrum_2462.py`、`plot_psd_2462.py`、`plot_csv_data.py`、`pwelch.py` |
 | 接收 / 灵敏度 | `wifiRxProcess.py`、`wifiRxPlot.py`、`calculate_sensitivity_and_plot.py` |
 | RU / 符号 / 参数 | `find_ru26.py`、`find_ru26_nsym.py`、`find_precise_ru26.py`、`find_nsym_16.py`、`find_nsym_340.py`、`calculate_ru26_params.py`、`cal_symbol_num.py`、`generate_ru26_cases.py`、`notch_cal.py` 等 |
-| Excel / CSV / 校验 | `merge_csv_to_xlsx.py`、`file_merge.py`、`compare_data.py`、`cac_diff_xlsx.py`；大量 `check_*.py`；`analyze_*.py`、`explore_excel.py`、`detect_outliers.py`、`validate_conversion.py` 等 |
+| Excel / CSV / 校验 | `merge_csv_to_xlsx.py`（合并 risc_wifitx、可选 EVM 透视、默认 WiFi7 TX PDF + EVM 异常报告）、`file_merge.py`、`compare_data.py`、`cac_diff_xlsx.py`；大量 `check_*.py`；`analyze_*.py`、`explore_excel.py`、`detect_outliers.py`、`validate_conversion.py` 等 |
 | 寄存器（根目录） | `compare_reg_csv.py`（详细查询与 CSV 源文件在 `reg_query/`） |
 | 报告 / 汇总 | `generate_report.py`、`analyze_merged_tx_result.py`、`analyze_all_sheets.py`、`analyze_multi_sheet.py`、`summarize_fail_configs.py`、`view_comparison_results.py`、`verify_merged_files.py`、`my_ag.py` 等 |
 | 文件与路径工具 | `file_rename.py`、`cp_files.py`、`mv_files.py`、`unlock_files.py`、`unlock_files_simple.py`、`process_ila_files.py`、`force_remove_dir.py`、`force_remove_file.py` 等 |
@@ -154,7 +154,7 @@
 #### 1. 数据合并与格式化工具
 | 脚本名称 | 功能说明 | 详细文档 |
 |---------|---------|---------|
-| `merge_csv_to_xlsx.py` | 合并多个 CSV 文件到单个 Excel 文件，按信道、编码方式分组 | merge_csv_to_xlsx_skill.md |
+| `merge_csv_to_xlsx.py` | 合并 `risc_wifitx_*.csv` 为按信道/编码/NSS 分 Sheet 的 XLSX；可选 EVM 透视统计；合并后默认可调用 `txAnalyse_wifi7` 出 TX 多页 PDF，并写 EVM 跨 rate/功率曲线异常报告 | merge_csv_to_xlsx_skill.md |
 | `file_merge.py` | 文件合并工具 | file_merge_Skill.md |
 | `file_rename.py` | 文件重命名工具 | - |
 | `process_ila_files.py` | 处理FPGA导出的ILA信号文件，解压缩并提取waveform.csv，按原始文件名重命名 | process_ila_files.skill |
@@ -163,7 +163,7 @@
 | 脚本名称 | 功能说明 | 详细文档 |
 |---------|---------|---------|
 | `txAnalyse.py` | 主要的 EVM 分析脚本（支持 WiFi 6） | txAnalyse.skill |
-| `txAnalyse_wifi7.py` | WiFi 7 专用 EVM 分析脚本 | txAnalyse.skill |
+| `txAnalyse_wifi7.py` | WiFi 7 专用 TX 分析 / 多子图 PDF；子图标题由 CSV 业务列（cbw、wifi_format、rf_chan、fec_coding、Nsts、GI 等）拼装，非文件名切片 | txAnalyse.skill |
 | `txAnalyse_compatible.py` | 兼容性版本的 EVM 分析脚本 | txAnalyse.skill |
 | `evm_comparison.py` | EVM 比较分析脚本 | evm_comparison.skill |
 
@@ -296,8 +296,9 @@ python reg_query/reg_query_gui.py
 
 #### 其他工具命令
 ```bash
-# 合并 CSV 文件到 Excel
+# 合并 CSV 文件到 Excel（默认会生成 EVM 透视、WiFi7 TX PDF、EVM 异常报告；可用 --no_wifi7_plots / --no_evm_anomaly 关闭）
 python merge_csv_to_xlsx.py --input_dir ./data --output_file merged_data.xlsx
+python merge_csv_to_xlsx.py --input_dir ./data --output_file merged_data.xlsx --no_wifi7_plots --no_evm_anomaly
 
 # 分析 EVM 数据
 python txAnalyse.py --input_file test_data.csv --output_dir ./results
