@@ -153,6 +153,44 @@ def parse_default_to_int(default_str):
         return None
 
 
+def split_query_tokens(query_text):
+    """解析查询框内容：逗号或换行分隔，忽略空项。"""
+    queries = []
+    for seg in query_text.split(','):
+        for q2 in seg.split('\n'):
+            q2 = q2.strip()
+            if q2:
+                queries.append(q2)
+    return queries
+
+
+def split_write_value_tokens(text):
+    """
+    解析写寄存器值输入：逗号或换行分隔，保留空项以便与查询项按位置对齐。
+    例如 '0x1,,0x3' 表示第 2 个寄存器不写配置值（沿用 CSV 默认或模板）。
+    """
+    if text is None:
+        return []
+    raw = text.strip() if isinstance(text, str) else str(text).strip()
+    if not raw:
+        return []
+    tokens = []
+    for seg in raw.split(','):
+        for line in seg.split('\n'):
+            tokens.append(line.strip())
+    return tokens
+
+
+def align_write_tokens_to_queries(write_tokens, num_queries):
+    """截断或尾部补空串，使长度与查询项数一致。"""
+    if num_queries <= 0:
+        return []
+    out = write_tokens[:num_queries]
+    while len(out) < num_queries:
+        out.append('')
+    return out
+
+
 def parse_write_value_to_hex(write_value_text):
     """
     将用户输入的写值解析为十六进制字符串（0x...）。
@@ -429,11 +467,16 @@ class RegQueryGUI:
         self.csv_dir_entry.insert(0, self.csv_dir)
         ttk.Button(main_frame, text="浏览", command=self.browse_csv_dir).grid(row=2, column=2, padx=(5, 0), pady=(0, 5))
 
-        # 写寄存器值配置（可选）
-        ttk.Label(main_frame, text="写寄存器值(可选):").grid(row=3, column=0, sticky=tk.W, pady=(0, 5))
-        self.write_value_entry = ttk.Entry(main_frame)
-        self.write_value_entry.grid(row=3, column=1, sticky=(tk.W, tk.E), pady=(0, 5))
-        ttk.Label(main_frame, text="示例: 0x40201000 或 123").grid(row=3, column=2, sticky=tk.W, padx=(5, 0), pady=(0, 5))
+        # 写寄存器值配置（可选，多项与查询按顺序一一对应）
+        ttk.Label(main_frame, text="写寄存器值(可选):").grid(row=3, column=0, sticky=(tk.N, tk.W), pady=(0, 5))
+        self.write_value_text = scrolledtext.ScrolledText(main_frame, height=4, wrap=tk.WORD)
+        self.write_value_text.grid(row=3, column=1, sticky=(tk.W, tk.E), pady=(0, 5))
+        ttk.Label(
+            main_frame,
+            text="与查询顺序对应（逗号/换行）；仅填 1 个值且多条查询时作用于全部。\n"
+                 "多项时用 ,, 占位跳过某一档。",
+            justify=tk.LEFT,
+        ).grid(row=3, column=2, sticky=tk.W, padx=(5, 0), pady=(0, 5))
 
         # 查询按钮
         ttk.Button(main_frame, text="查询", command=self.perform_query, style="Accent.TButton").grid(row=4, column=0, columnspan=3, pady=(10, 0))
@@ -483,32 +526,47 @@ class RegQueryGUI:
         self.result_text.delete(1.0, tk.END)
         self.command_text.delete(1.0, tk.END)
 
-        # 创建后台线程执行查询
-        thread = threading.Thread(target=self.query_thread, args=(query_text,))
+        write_raw = self.write_value_text.get(1.0, tk.END)
+        # 创建后台线程执行查询（写值在主线程读取，避免 Tk 跨线程访问）
+        thread = threading.Thread(target=self.query_thread, args=(query_text, write_raw))
         thread.daemon = True
         thread.start()
 
-    def query_thread(self, query_text):
+    def query_thread(self, query_text, write_raw):
         """查询线程"""
         try:
-            # 解析多个查询内容（支持逗号、换行分隔）
-            queries = []
-            # 按逗号分割
-            split_by_comma = query_text.split(',')
-            for q in split_by_comma:
-                # 按换行分割
-                split_by_newline = q.split('\n')
-                for q2 in split_by_newline:
-                    q2 = q2.strip()
-                    if q2:
-                        queries.append(q2)
+            queries = split_query_tokens(query_text)
+            write_tokens_full = split_write_value_tokens(write_raw)
 
             results = []
             errors = []
-            success_infos = []
-            write_value_text = self.write_value_entry.get().strip()
+            command_lines = []
 
-            for query in queries:
+            # 一条写值 + 多条查询：沿用旧行为，该写值作用于全部查询
+            if (
+                len(queries) > 1
+                and len(write_tokens_full) == 1
+                and write_tokens_full[0].strip()
+            ):
+                one = write_tokens_full[0].strip()
+                write_aligned = [one] * len(queries)
+            else:
+                extra_n = 0
+                if len(write_tokens_full) > len(queries):
+                    extra_n = len(write_tokens_full) - len(queries)
+                    write_tokens_full = write_tokens_full[: len(queries)]
+                write_aligned = align_write_tokens_to_queries(
+                    write_tokens_full, len(queries)
+                )
+                if extra_n > 0:
+                    errors.append(
+                        f"写寄存器值项数多于查询项，已忽略末尾 {extra_n} 个写值"
+                    )
+
+            for idx, query in enumerate(queries):
+                wtok = write_aligned[idx] if idx < len(write_aligned) else ''
+                wv_for_cmd = wtok.strip() if wtok else None
+
                 if self.query_type.get() == "name":
                     info, error = find_register_info(query, self.csv_dir)
                 else:
@@ -516,17 +574,15 @@ class RegQueryGUI:
 
                 if error:
                     errors.append(f"查询 '{query}' 时出错: {error}")
-                else:
-                    success_infos.append(info)
-                    results.append(format_register_info(info, write_value_text=write_value_text))
+                    continue
 
-            command_lines = []
-            for info in success_infos:
-                rw = generate_rw_commands(info, write_value_text=write_value_text)
+                rw = generate_rw_commands(info, write_value_text=wv_for_cmd)
                 if rw.get('write_parse_error'):
-                    errors.append(f"写值配置错误: {rw['write_parse_error']}")
-                    break
-                # 每行前不加额外内容，保证可直接复制执行
+                    errors.append(
+                        f"查询 '{query}' 写值解析: {rw['write_parse_error']}"
+                    )
+
+                results.append(format_register_info(info, write_value_text=wv_for_cmd))
                 command_lines.append(rw['read_cmd'])
                 command_lines.append(rw['write_cmd_for_execute'])
 
