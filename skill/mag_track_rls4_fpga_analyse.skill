@@ -1,0 +1,20 @@
+# mag_track_rls4_fpga_analyse.py
+
+## 适用环境
+**RLS4.0 FPGA** `mag_track_test_res_*.csv`（如 `Log/mag_track_test_res/rls4/`）。  
+**E22 芯片**同类分析请用 `txmagtrk_analyse.py` + `skill/txmagtrk_analyse_Skill.md`。
+
+## 作图规则（摘要）
+- **横轴**：`tx_pwr`（dBm）。
+- **分面**：同一 **`chan`**、同一 **`dly`**、且 **`start_point, win_len, chn_len, chn_ofst, start_mode`** 相同 → 一页。
+- **含 FPGA magtrack on（`tx_mag_track_on=1`）的图**：**必须先画**两条对比基线——**magtrack off** `(0,0)` 与 **magtrack on (Instruments)** `(0,1)`，再画 **FPGA on** `(1,0)`、`(1,1)`；基线 `zorder` 较低，FPGA-on 在上层。若当前分面缺少 `(0,0)`/`(0,1)` 点，脚本会用 **同 chan、同 dly** 下对其它 mag 元组在相同 `tx_pwr` 上的 **EVM 均值** 作为虚线参考（图例带 `[ref: mean over mag params...]`），并写入 `*_plot_warnings.txt`（若有）。
+- **仅含 FPGA off 的分面**：仍按四象限画现有数据，不强制 fallback。
+- 读入：`analyze_mag_track_test_res.load_mag_track_csv`。
+
+## 运行
+```bash
+python mag_track_rls4_fpga_analyse.py [csv_or_dir] -o <out_dir> [--x-column tx_pwr] [--group-cols chan,dly,...] [--no-evm-infer]
+```
+
+## 文档
+详见 `skill/mag_track_rls4_fpga_analyse_Skill.md`
