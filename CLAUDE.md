@@ -122,7 +122,7 @@
 | 主题 | 代表性脚本 / 说明 |
 |------|-------------------|
 | 发射 / EVM | `txAnalyse.py`、`txAnalyse_wifi7.py`、`txAnalyse_compatible.py`、`evm_comparison.py`、`tx_adcdump_data_parse.py`、`fake_tb_para.py`、`tx_test.py` |
-| 功率 / Mag Track | `tx_mag_tracking_test.py`、`txmagtrk_analyse.py`、`clac_pwr_for_ofdm_signal.py`、`compare_avg_pwr.py`、`compare_avg_pwr_ABCD.py` |
+| 功率 / Mag Track | `tx_mag_tracking_test.py`、`txmagtrk_analyse.py`（E22）、`mag_track_rls4_fpga_analyse.py`（RLS4 FPGA，`mag_track_test_res` → EVM vs `tx_pwr` PDF，同 chan 基线）、`analyze_mag_track_test_res.py`（汇总/HTML）、`clac_pwr_for_ofdm_signal.py`、`compare_avg_pwr.py`、`compare_avg_pwr_ABCD.py` |
 | 杂散 / 频谱 / PSD | `spur_scan_process.py`、`spur_scan_regression.py`、`spur_analysis.py`、`spur_visualization.py`、`spur_diff_and_mark_red.py`、`simple_spur_comparison.py`、`psd_plot.py`、`psd_plot_1kHz.py`、`plot_spectrum.py`、`plot_spectrum_2462.py`、`plot_psd_2462.py`、`plot_csv_data.py`、`pwelch.py` |
 | 接收 / 灵敏度 | `wifiRxProcess.py`、`wifiRxPlot.py`、`calculate_sensitivity_and_plot.py` |
 | RU / 符号 / 参数 | `find_ru26.py`、`find_ru26_nsym.py`、`find_precise_ru26.py`、`find_nsym_16.py`、`find_nsym_340.py`、`calculate_ru26_params.py`、`cal_symbol_num.py`、`generate_ru26_cases.py`、`notch_cal.py` 等 |
@@ -170,8 +170,6 @@
 #### 3. 功率测量与分析
 | 脚本名称 | 功能说明 | 详细文档 |
 |---------|---------|---------|
-| `tx_mag_tracking_test.py` | 发射功率跟踪测试 | - |
-| `txmagtrk_analyse.py` | 发射功率跟踪数据分析 | txmagtrk_analyse_Skill.md |
 | `clac_pwr_for_ofdm_signal.py` | OFDM 信号功率计算 | - |
 | `compare_avg_pwr.py` | 平均功率比较分析 | compare_avg_pwr_Skill.md |
 
@@ -224,6 +222,14 @@
 | `commit_changes.py` | 提交变更 | - |
 | *(另有多份根目录 `commit_*.py`、`simple_commit.py`)* | 历史或场景化提交流程，按需选用 | - |
 
+
+#### 11. tx magtrk测试
+| 脚本名称 | 功能说明 | 详细文档 |
+|---------|---------|---------|
+| `txmagtrk_analyse.py` | 发射功率跟踪数据分析（旧 CSV：`trk_en`、test_power 等） | txmagtrk_analyse_Skill.md |
+| `mag_track_rls4_fpga_analyse.py` | RLS4.0 FPGA：`mag_track_test_res_*.csv` → 按分面（默认含 `chan,dly` 等）出 PDF；**仅当**分面存在 `tx_mag_track_on=1` 时出页；同图叠 **`tx_mag_track_on=0`** 基线（**同 `chan`**，跨全部 `dly`/mag 在 `tx_pwr` 上均值）与 FPGA-on 严格曲线；缺基线见 `*_rls4_magtrk_plot_warnings.txt` | mag_track_rls4_fpga_analyse_Skill.md |
+| `analyze_mag_track_test_res.py` | Mag track 回归 CSV（`tx_mag_track_on`/`amplitude`/参数列/`evm`）统计与 HTML/PNG 报告 | analyze_mag_track_test_res_Skill.md |
+
 ### 子目录补充说明（与「仓库目录结构总览」对应）
 
 #### evm_comparison_scripts/
@@ -259,7 +265,7 @@
 #### skill/
 - **位置**: `./skill/`
 - **内容**: Claude Code 技能（`*.skill`）与各脚本配套的 `*_Skill.md`
-- **常见技能文件**: `txAnalyse.skill`、`evm_comparison.skill`、`txmagtrk_analyse.skill`、`merge_csv_to_xlsx_skill.md`、`process_ila_files.skill`、`my_ag.skill` 等（完整列表以目录为准）
+- **常见技能文件**: `txAnalyse.skill`、`evm_comparison.skill`、`txmagtrk_analyse.skill`、`mag_track_rls4_fpga_analyse.skill`、`analyze_mag_track_test_res.skill`、`merge_csv_to_xlsx_skill.md`、`process_ila_files.skill`、`my_ag.skill` 等（完整列表以目录为准）
 - **子目录 `merged_tx_result_analysis/`**: 合并 TX 结果分析相关说明脚本与 `generate_report.py` 等，与根目录 `generate_report.py`、`analyze_merged_tx_result.py` 等配合使用
 
 ### 常用命令示例
@@ -306,10 +312,18 @@ python txAnalyse.py --input_file test_data.csv --output_dir ./results
 # 计算灵敏度
 python calculate_sensitivity_and_plot.py --input_file sensitivity_data.csv
 
+# Mag track 回归 CSV（mag_track_test_res）：按开关与参数聚合 EVM，生成 _analysis 目录
+python analyze_mag_track_test_res.py "D:\path\to\mag_track_test_res_*.csv" -o "D:\path\to\out_analysis"
+
+# RLS4.0 FPGA mag track 回归 CSV → EVM vs tx_pwr PDF（同 chan 的 tx_mag_track_on=0 基线 + FPGA-on 曲线）
+python mag_track_rls4_fpga_analyse.py "D:\path\to\mag_track_test_res_*.csv" -o "D:\path\to\rls4_magtrk_pdf_out"
+
 # 使用 Claude Code 技能
 /skill txAnalyse  # 分析 EVM 数据
 /skill evm_comparison  # 比较 EVM 数据
 /skill txmagtrk_analyse  # 分析功率跟踪数据
+/skill analyze_mag_track_test_res  # Mag track 回归 CSV 分析
+/skill mag_track_rls4_fpga_analyse  # RLS4 FPGA mag_track PDF 与基线对比
 ```
 
 ---
