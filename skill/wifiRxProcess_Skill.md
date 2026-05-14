@@ -1,7 +1,7 @@
 # WiFi RX 数据处理与合并脚本技能说明
 
 ## 脚本名称
-`wifiRxProcess.py`
+`spur_notch/wifiRxProcess.py`（仓库根目录下 `spur_notch/` 子目录）
 
 ## 功能概述
 该脚本整合了 `wifiRxPlot.py` 和 `file_merge.py` 的功能，专门用于处理 WiFi 接收灵敏度测试数据，特别是针对 `notch_enable0` 和 `notch_enable1` 两种配置的测试结果。
@@ -45,7 +45,7 @@ def main():
 
 ### 2. 运行脚本
 ```bash
-python wifiRxProcess.py
+python spur_notch/wifiRxProcess.py
 ```
 
 ### 3. 输出结果

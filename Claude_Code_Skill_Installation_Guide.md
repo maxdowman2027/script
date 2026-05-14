@@ -133,7 +133,7 @@ RECURSIVE_SEARCH = False
 
 **使用方法**：
 ```bash
-python wifiRxProcess.py
+python spur_notch/wifiRxProcess.py
 ```
 
 **主要功能**：
@@ -148,7 +148,7 @@ python wifiRxProcess.py
 
 **使用方法**：
 ```bash
-python spur_diff_and_mark_red.py
+python spur_notch/spur_diff_and_mark_red.py
 ```
 
 **主要功能**：

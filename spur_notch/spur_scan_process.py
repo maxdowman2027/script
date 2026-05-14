@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 """
-整合psd_plot.py、notch_cal.py和clac_pwr_for_ofdm_signal.py的功能
+整合仓库根目录下 `psd_plot.py`、`notch_cal.py`（算法同源，本文件内嵌）与 `clac_pwr_for_ofdm_signal.py` 的思路与能力。
 1. 处理CSV文件，计算PSD，检测杂散并输出spur_scan_result.csv
 2. 读取spur_scan_result.csv并计算系数，输出spur_scan_result_coef.csv
 3. 计算指定位置的功率并写回spur_scan_result_coef.csv

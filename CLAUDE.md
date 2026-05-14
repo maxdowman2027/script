@@ -102,6 +102,7 @@
 ├── reg_query/                    # E22 寄存器查询（CLI / GUI）与寄存器定义 CSV
 ├── register_comparison_scripts/  # 寄存器配置差异比较
 ├── rx_iq_test/                   # RX/TX IQ 数据整理与结果分析
+├── spur_notch/                   # 陷波系数、杂散扫描与结果整理（详见「Notch & Spur」）
 └── *.py                          # 根目录主流程与工具脚本（见下「根目录按主题速查」）
 ```
 
@@ -113,6 +114,7 @@
 | **`reg_query/`** | `reg_query.py`、`reg_query_gui.py`、`reg_query.skill`、`base_addr.txt`、`csv_files/`（各模块寄存器定义 CSV） |
 | **`register_comparison_scripts/`** | `compare_registers.py`；说明见 `Register_Comparison_Scripts_Skill.md` |
 | **`rx_iq_test/`** | `organize_dump_files.py`、`organize_rx_iq_data.py`、`rx_iq_result_analyze.py`、`tx_iq_result_analyse.py`；配套说明在 `skill/` 下对应 `_Skill.md` |
+| **`spur_notch/`** | 陷波系数、杂散扫描主流程与回归、coef 对比/作图、Excel 差分标红、杂散目录 CSV 移动、**`wifiRxProcess.py`**（notch_enable0/1 合并生成 `*_spur.xlsx`）；说明见下文 **「Notch & Spur」** 与 `skill/wifiRxProcess_Skill.md`、`skill/spur_diff_and_mark_red.skill` |
 | **`skill/`** | 与根目录或其他目录脚本绑定的技能文件；含子目录 **`merged_tx_result_analysis/`**（合并多表/多 sheet 结果分析、`generate_report.py` 等辅助脚本与文档） |
 
 #### 根目录脚本按主题速查
@@ -124,12 +126,12 @@
 | 发射 / EVM | `txAnalyse.py`、`txAnalyse_wifi7.py`、`txAnalyse_compatible.py`、`evm_comparison.py`、`tx_adcdump_data_parse.py`、`fake_tb_para.py`、`tx_test.py` |
 | 功率 / Mag Track | `tx_mag_tracking_test.py`、`txmagtrk_analyse.py`（E22）、`mag_track_rls4_fpga_analyse.py`（RLS4 FPGA，`mag_track_test_res` → EVM vs `tx_pwr` PDF，同 chan 基线）、`analyze_mag_track_test_res.py`（汇总/HTML）、`clac_pwr_for_ofdm_signal.py`、`compare_avg_pwr.py`、`compare_avg_pwr_ABCD.py` |
 | 杂散 / 频谱 / PSD | **陷波与杂散流水线、脚本关系见下文「Notch & Spur」**；通用绘图仍含 `psd_plot.py`、`psd_plot_1kHz.py`、`plot_spectrum.py`、`plot_spectrum_2462.py`、`plot_psd_2462.py`、`plot_csv_data.py`、`pwelch.py` |
-| 接收 / 灵敏度 | `wifiRxProcess.py`、`wifiRxPlot.py`、`calculate_sensitivity_and_plot.py` |
-| RU / 符号 / 参数 | `find_ru26.py`、`find_ru26_nsym.py`、`find_precise_ru26.py`、`find_nsym_16.py`、`find_nsym_340.py`、`calculate_ru26_params.py`、`cal_symbol_num.py`、`generate_ru26_cases.py` 等（`notch_cal.py` 见「Notch & Spur」） |
+| 接收 / 灵敏度 | `wifiRxPlot.py`、`calculate_sensitivity_and_plot.py`；杂散目录下 RX 合并见 **`spur_notch/wifiRxProcess.py`**（「Notch & Spur」） |
+| RU / 符号 / 参数 | `find_ru26.py`、`find_ru26_nsym.py`、`find_precise_ru26.py`、`find_nsym_16.py`、`find_nsym_340.py`、`calculate_ru26_params.py`、`cal_symbol_num.py`、`generate_ru26_cases.py` 等（`spur_notch/notch_cal.py` 见「Notch & Spur」） |
 | Excel / CSV / 校验 | `merge_csv_to_xlsx.py`（合并 risc_wifitx、可选 EVM 透视、默认 WiFi7 TX PDF + EVM 异常报告）、`file_merge.py`、`compare_data.py`、`cac_diff_xlsx.py`；大量 `check_*.py`；`analyze_*.py`、`explore_excel.py`、`detect_outliers.py`、`validate_conversion.py` 等 |
 | 寄存器（根目录） | `compare_reg_csv.py`（详细查询与 CSV 源文件在 `reg_query/`） |
 | 报告 / 汇总 | `generate_report.py`、`analyze_merged_tx_result.py`、`analyze_all_sheets.py`、`analyze_multi_sheet.py`、`summarize_fail_configs.py`、`view_comparison_results.py`、`verify_merged_files.py`、`my_ag.py` 等 |
-| 文件与路径工具 | `file_rename.py`、`cp_files.py`、`unlock_files.py`、`unlock_files_simple.py`、`process_ila_files.py`、`force_remove_dir.py`、`force_remove_file.py` 等（杂散结果 CSV 整理见 `move_spur_scan_result_csvs.py`，「Notch & Spur」） |
+| 文件与路径工具 | `file_rename.py`、`cp_files.py`、`unlock_files.py`、`unlock_files_simple.py`、`process_ila_files.py`、`force_remove_dir.py`、`force_remove_file.py` 等（杂散结果 CSV 整理见 **`spur_notch/move_spur_scan_result_csvs.py`**，「Notch & Spur」） |
 | 通用与杂项 | `hex_to_decimal.py`、`parse_64bit_data.py`、`2to1.py`、`debug_05d.py` 等 |
 | Git / 提交辅助 | `check_and_commit.py`、`commit_all_changes.py`、`commit_changes.py` 及多份 **`commit_*.py`**、`simple_commit.py` — 历史/一次性提交流程较多，按需使用 |
 
@@ -151,37 +153,40 @@
 
 ### Notch & Spur（陷波与杂散）
 
+**目录**：`spur_notch/`（仓库根下）。在仓库根执行时推荐使用 `python spur_notch/<脚本>.py`。`spur_scan_process.py` 的 docstring 中提到的 `psd_plot.py`、`clac_pwr_for_ofdm_signal.py` 等仍在**根目录**，与本目录并列。
+
 **数据流（自上而下）**
 
 | 阶段 | 脚本 / 产物 | 说明 |
 |------|----------------|------|
-| 系数与定点 | `notch_cal.py` | 独立 **IIR 陷波** 系数计算与定点化（与 `spur_scan_process` 内嵌逻辑同源，便于单测与对照）。 |
-| 扫描主流程 | `spur_scan_process.py` | **整合** PSD / 杂散检测 / `notch_cal` 思路 / 频点功率：产出 `spur_scan_result*.csv` → `*_coef.csv` 等（见脚本 docstring）。 |
-| 回归与用例草稿 | `spur_scan_regression.py` | 批量读 coef 类 CSV，解析系数列表；含 `rls3p0_newfeature_notch_test`（打印 RX 范围 / 寄存器相关注释草稿）。 |
-| 两条件对比 | `spur_analysis.py`、`simple_spur_comparison.py` | 两份 `spur_scan_result*_coef.csv`（或同类）merge、功率差、异常阈值；**内部路径常写死**，运行前改路径。 |
-| 可视化 | `spur_visualization.py` | 读 `spur_comparison_analysis.xlsx` 等汇总表出图。 |
-| Excel 差分标红 | `spur_diff_and_mark_red.py` | 目录树中 `*spur.xlsx` 与基准行算差，超阈值标红；说明见 `skill/spur_diff_and_mark_red.skill`。 |
-| 结果文件整理 | `move_spur_scan_result_csvs.py` | 按文件夹通配 + CSV 通配 **递归移动** 杂散/相关 RX 测试结果到目标目录（原 `mv_files.py`）。 |
+| 系数与定点 | `spur_notch/notch_cal.py` | 独立 **IIR 陷波** 系数计算与定点化（与 `spur_scan_process` 内嵌逻辑同源，便于单测与对照）。 |
+| 扫描主流程 | `spur_notch/spur_scan_process.py` | **整合** PSD / 杂散检测 / `notch_cal` 思路 / 频点功率：产出 `spur_scan_result*.csv` → `*_coef.csv` 等（见脚本 docstring）。 |
+| 回归与用例草稿 | `spur_notch/spur_scan_regression.py` | 批量读 coef 类 CSV，解析系数列表；含 `rls3p0_newfeature_notch_test`（打印 RX 范围 / 寄存器相关注释草稿）。 |
+| 两条件对比 | `spur_notch/spur_analysis.py`、`spur_notch/simple_spur_comparison.py` | 两份 `spur_scan_result*_coef.csv`（或同类）merge、功率差、异常阈值；**内部路径常写死**，运行前改路径。 |
+| 可视化 | `spur_notch/spur_visualization.py` | 读 `spur_comparison_analysis.xlsx` 等汇总表出图。 |
+| Excel 差分标红 | `spur_notch/spur_diff_and_mark_red.py` | 目录树中 `*spur.xlsx` 与基准行算差，超阈值标红；说明见 `skill/spur_diff_and_mark_red.skill`。 |
+| 结果文件整理 | `spur_notch/move_spur_scan_result_csvs.py` | 按文件夹通配 + CSV 通配 **递归移动** 杂散/相关 RX 测试结果到目标目录（原 `mv_files.py`）。 |
+| RX + spur 表合并 | `spur_notch/wifiRxProcess.py` | 遍历杂散/灵敏度结果目录，合并 `notch_enable0` / `notch_enable1` 等配置，生成带颜色区分的 **`*_spur.xlsx`**；与根目录 `wifiRxPlot.py` 数据处理逻辑衔接。 |
 
 **参考（非 Python 可执行）**
 
 | 文件 | 说明 |
 |------|------|
-| `notch_test` | C 风格 `iirNotchCoef` 片段，与 Python 系数公式对照用。 |
+| `spur_notch/notch_test` | C 风格 `iirNotchCoef` 片段，与 Python 系数公式对照用。 |
 
 **关系简图**
 
 ```text
-notch_cal.py  ←──算法参照──→  spur_scan_process.py（内嵌同系 IIR/定点）
-                                      │
-                    ┌─────────────────┼─────────────────┐
-                    ▼                 ▼                 ▼
-         spur_scan_regression.py   spur_analysis /   spur_visualization.py
-                                  simple_spur_comparison.py
-                    │                 │
-                    ▼                 ▼
-         move_spur_scan_result_csvs.py     spur_diff_and_mark_red.py
-         （目录树 CSV 归集）                （已有 xlsx 差分标红）
+spur_notch/notch_cal.py  ←──算法参照──→  spur_notch/spur_scan_process.py（内嵌同系 IIR/定点）
+                                                │
+                    ┌───────────────────────────┼───────────────────────────┐
+                    ▼                           ▼                           ▼
+         spur_notch/spur_scan_regression.py   spur_notch/spur_analysis.py、   spur_notch/spur_visualization.py
+                                               simple_spur_comparison.py
+                    │                           │
+                    ▼                           ▼
+         spur_notch/move_spur_scan_result_csvs.py     spur_notch/spur_diff_and_mark_red.py
+         spur_notch/wifiRxProcess.py（目录整理与 *_spur.xlsx）
 ```
 
 ### 脚本分类与功能索引
@@ -214,7 +219,7 @@ notch_cal.py  ←──算法参照──→  spur_scan_process.py（内嵌同�
 | `psd_plot.py` | PSD（功率谱密度）绘图 | psd_plot_Skill.md |
 | `plot_spectrum.py` | 频谱绘图 | - |
 
-陷波与杂散专项脚本（`spur_scan_*`、`notch_cal.py`、`move_spur_scan_result_csvs.py` 等）见上文 **「Notch & Spur」**。
+陷波与杂散专项脚本均在 **`spur_notch/`**（见上文 **「Notch & Spur」**）。
 
 #### 5. 灵敏度测试
 | 脚本名称 | 功能说明 | 详细文档 |
@@ -224,8 +229,8 @@ notch_cal.py  ←──算法参照──→  spur_scan_process.py（内嵌同�
 #### 6. 接收测试工具
 | 脚本名称 | 功能说明 | 详细文档 |
 |---------|---------|---------|
-| `wifiRxProcess.py` | WiFi 接收数据处理 | wifiRxProcess_Skill.md |
-| `wifiRxPlot.py` | WiFi 接收数据绘图 | - |
+| `spur_notch/wifiRxProcess.py` | 杂散/灵敏度结果目录整理：合并 `notch_enable0`/`notch_enable1` 等并生成 **`*_spur.xlsx`**；PER/EVM 与 `wifiRxPlot` 思路一致 | wifiRxProcess_Skill.md |
+| `wifiRxPlot.py` | WiFi 接收数据绘图（根目录，常与 `wifiRxProcess` 流程配合） | - |
 
 #### 7. 数据验证与检查工具
 | 脚本名称 | 功能说明 | 详细文档 |
@@ -350,6 +355,11 @@ python analyze_mag_track_test_res.py "D:\path\to\mag_track_test_res_*.csv" -o "D
 
 # RLS4.0 FPGA mag track 回归 CSV → EVM vs tx_pwr PDF（同 chan 的 tx_mag_track_on=0 基线 + FPGA-on 曲线）
 python mag_track_rls4_fpga_analyse.py "D:\path\to\mag_track_test_res_*.csv" -o "D:\path\to\rls4_magtrk_pdf_out"
+
+# Notch / spur（在仓库根目录执行；脚本位于 spur_notch/）
+python spur_notch/spur_scan_process.py
+python spur_notch/wifiRxProcess.py
+python spur_notch/move_spur_scan_result_csvs.py
 
 # 使用 Claude Code 技能
 /skill txAnalyse  # 分析 EVM 数据

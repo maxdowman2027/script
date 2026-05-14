@@ -1,4 +1,4 @@
-# spur_diff_and_mark_red.py 脚本说明文档
+# spur_diff_and_mark_red.py 脚本说明文档（路径：`spur_notch/spur_diff_and_mark_red.py`）
 
 ## 脚本概述
 
@@ -53,7 +53,7 @@
 
 ### 直接运行
 ```bash
-python spur_diff_and_mark_red.py
+python spur_notch/spur_diff_and_mark_red.py
 ```
 
 ### 安装依赖
