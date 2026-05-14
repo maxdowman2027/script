@@ -1,3 +1,10 @@
+"""
+Move / organize spur (or related RX) test CSV outputs after directory scans.
+
+Recursively finds folders matching a pattern (e.g. *_notch_enable1), moves
+matching CSVs into a flat target tree. Edit the __main__ block paths before use.
+"""
+
 import os
 import shutil
 import fnmatch
