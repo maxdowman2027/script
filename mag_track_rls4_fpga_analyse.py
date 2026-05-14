@@ -5,10 +5,8 @@ RLS4.0 FPGA mag-track regression CSV -> EVM vs tx_pwr (PDF), analogous to txmagt
 
 Input: mag_track_test_res_*.csv with chan, dly, tx_pwr, tx_mag_track_on, amplitude, evm, ...
 
-Panel rule: same chan, same dly, and same (start_point, win_len, chn_len, chn_ofst, start_mode) -> one figure;
-X-axis = tx_pwr. Whenever FPGA magtrack-on curves (tx_mag_track_on=1) are present, magtrack off (0,0) and
-magtrack on Instruments (0,1) are drawn first for performance comparison; if absent in-panel, a fallback mean
-over other mag tuples at same chan & dly is used (see skill doc).
+Panel rule: one PDF page per (chan, dly, ...) mag tuple where tx_mag_track_on=1 exists.
+tx_mag_track_on=0 baselines: same chan only (pool all dly and mag params per tx_pwr); FPGA-on lines use strict tuple.
 
 Uses analyze_mag_track_test_res.load_mag_track_csv for delimiter/encoding/column normalization.
 """
@@ -153,45 +151,52 @@ def read_and_preprocess_rls4_csv(
 
     print(
         f"[OK] Preprocessed: agg rows={len(out)} | x_col={x_col!r} | panel keys={group_cols} "
-        f"(same chan + same dly + same mag tuple => one chart; four flag curves each)"
+        f"(FPGA-on curves strict per tuple; tx_mag_track_on=0 baselines: same chan, pool all dly/mag)"
     )
     return out, diag
 
 
-def _subset_flags(panel: pd.DataFrame, trk: int, amp: int) -> pd.DataFrame:
-    return panel[(panel[TRACK_COL] == float(trk)) & (panel[AMP_COL] == float(amp))].copy()
+def _filter_by_group_key(agg_df: pd.DataFrame, key: Tuple, gcols: Sequence[str]) -> pd.DataFrame:
+    flt = np.ones(len(agg_df), dtype=bool)
+    for i, gcol in enumerate(gcols):
+        flt &= agg_df[gcol] == key[i]
+    return agg_df.loc[flt].copy()
 
 
-def _panel_has_fpga_magtrack_on(panel: pd.DataFrame) -> bool:
-    return bool(((panel[TRACK_COL] == 1.0) & panel[AMP_COL].isin([0.0, 1.0])).any())
+def _as_f(s: pd.Series) -> pd.Series:
+    return pd.to_numeric(s, errors="coerce")
 
 
-def _fallback_ref_by_chan_dly(
+def _trk0_baseline_same_chan(
     agg_df: pd.DataFrame,
-    gcols: Sequence[str],
-    key: Tuple,
-    x_col: str,
-    trk: int,
+    chan: float,
     amp: int,
+    x_col: str,
     evm_col: str,
 ) -> pd.DataFrame:
     """
-    When FPGA-on curves need baselines but (0,0)/(0,1) are missing in this mag tuple panel,
-    average EVM at each tx_pwr over all rows with same chan & dly and same (trk, amp).
+    tx_mag_track_on=0: ignore mag tuple and dly — only match chan (and amplitude).
+    Mean EVM at each tx_pwr over all rows with same chan, trk=0, fixed amp.
     """
-    if "chan" not in gcols or "dly" not in gcols:
-        return pd.DataFrame(columns=[x_col, evm_col])
-    chan = key[gcols.index("chan")]
-    dly = key[gcols.index("dly")]
-    sub = agg_df[
-        (agg_df["chan"] == chan)
-        & (agg_df["dly"] == dly)
-        & (agg_df[TRACK_COL] == float(trk))
-        & (agg_df[AMP_COL] == float(amp))
+    trk_f = _as_f(agg_df[TRACK_COL])
+    ch_f = _as_f(agg_df["chan"])
+    amp_f = _as_f(agg_df[AMP_COL])
+    ch = float(chan)
+    sub = agg_df.loc[
+        (trk_f <= 0.5)
+        & (amp_f == float(amp))
+        & np.isfinite(ch_f)
+        & np.isclose(ch_f.astype(float), ch, rtol=0.0, atol=1e-6)
     ]
     if sub.empty:
         return pd.DataFrame(columns=[x_col, evm_col])
     return sub.groupby(x_col, dropna=False)[evm_col].mean().reset_index()
+
+
+def _subset_trk1(panel_full: pd.DataFrame, amp: int) -> pd.DataFrame:
+    trk_f = _as_f(panel_full[TRACK_COL])
+    amp_f = _as_f(panel_full[AMP_COL])
+    return panel_full[(trk_f >= 0.5) & (amp_f == float(amp))].copy()
 
 
 def _plot_one_series(
@@ -228,9 +233,8 @@ def _plot_one_series(
     return 1
 
 
-def plot_panel_evm_curves(
+def plot_fpga_panel_with_trk0_relaxed_baselines(
     ax: plt.Axes,
-    panel: pd.DataFrame,
     agg_df: pd.DataFrame,
     key: Tuple,
     gcols: Sequence[str],
@@ -239,42 +243,46 @@ def plot_panel_evm_curves(
     style_map: Dict,
 ) -> Tuple[int, List[str]]:
     """
-    If any FPGA magtrack-on (tx_mag_track_on=1) data exists in this panel, always draw
-    magtrack off (0,0) and magtrack on Instruments (0,1) first, then (1,0)/(1,1).
-    Missing in-panel (0,*) uses chan+dly fallback mean over other mag tuples.
-    Returns (curve_count, warnings).
+    One chart: FPGA magtrack-on (1,0)/(1,1) for strict mag tuple `key`, plus
+    tx_mag_track_on=0 baselines (0,0)/(0,1): mean EVM vs tx_pwr for same chan only
+    (all dly / mag params pooled), so they always overlay FPGA-on curves for comparison.
     """
     warnings: List[str] = []
+    if "chan" not in gcols:
+        warnings.append("group_cols missing chan; cannot build tx_mag_track_on=0 baselines")
+        return 0, warnings
+
+    chan = float(key[gcols.index("chan")])
+    panel_full = _filter_by_group_key(agg_df, key, gcols)
+    if panel_full.empty:
+        return 0, warnings
+
+    trk_f = _as_f(panel_full[TRACK_COL])
+    if not ((trk_f >= 0.5).any()):
+        return 0, warnings
+
     drawn = 0
-    need_refs = _panel_has_fpga_magtrack_on(panel)
+    for amp in (0, 1):
+        sub0 = _trk0_baseline_same_chan(agg_df, chan, amp, x_col, evm_col)
+        extra = " [tx_mag_track_on=0: mean over dly & mag params, same chan]"
+        if sub0.empty:
+            warnings.append(f"No tx_mag_track_on=0, amplitude={amp} data for chan={chan}")
+        drawn += _plot_one_series(
+            ax,
+            sub0,
+            evm_col,
+            x_col,
+            0,
+            amp,
+            style_map,
+            zorder=2,
+            linewidth=2.3,
+            label_extra=extra,
+        )
 
-    def draw_ref(trk: int, amp: int) -> None:
-        nonlocal drawn
-        sub = _subset_flags(panel, trk, amp)
-        extra = ""
-        if sub.empty and need_refs:
-            fb = _fallback_ref_by_chan_dly(agg_df, gcols, key, x_col, trk, amp, evm_col)
-            if not fb.empty:
-                sub = fb
-                extra = " [ref: mean over mag params, same chan & dly]"
-                warnings.append(f"Used chan+dly fallback for ({trk},{amp}) in panel {key!r}")
-        drawn += _plot_one_series(ax, sub, evm_col, x_col, trk, amp, style_map, zorder=2, linewidth=2.3, label_extra=extra)
-
-    def draw_fpga_on(trk: int, amp: int) -> None:
-        nonlocal drawn
-        sub = _subset_flags(panel, trk, amp)
-        drawn += _plot_one_series(ax, sub, evm_col, x_col, trk, amp, style_map, zorder=4)
-
-    if need_refs:
-        draw_ref(0, 0)
-        draw_ref(0, 1)
-        draw_fpga_on(1, 0)
-        draw_fpga_on(1, 1)
-    else:
-        for trk in (0, 1):
-            for amp in (0, 1):
-                sub = _subset_flags(panel, trk, amp)
-                drawn += _plot_one_series(ax, sub, evm_col, x_col, trk, amp, style_map, zorder=3)
+    for amp in (0, 1):
+        sub1 = _subset_trk1(panel_full, amp)
+        drawn += _plot_one_series(ax, sub1, evm_col, x_col, 1, amp, style_map, zorder=4)
 
     return drawn, warnings
 
@@ -303,36 +311,34 @@ def generate_and_save_figs(
         print("[WARN] No group columns in data")
         return False
 
-    keys = sorted(agg_df.groupby(gcols, dropna=False).groups.keys(), key=lambda t: tuple(t))
-    print(f"\n[INFO] PDF panels (chan/dly/mag tuple): {len(keys)}")
+    sub1 = agg_df[agg_df[TRACK_COL] == 1.0]
+    if sub1.empty:
+        print("[WARN] No rows with tx_mag_track_on=1; PDF will have no pages")
+        keys: List[Tuple] = []
+    else:
+        keys = sorted(sub1.groupby(gcols, dropna=False).groups.keys(), key=lambda t: tuple(t))
+    print(f"\n[INFO] PDF panels (FPGA-on mag tuples + tx_mag_track_on=0 baselines by chan): {len(keys)}")
 
     pdf = PdfPages(pdf_save_path)
     total = 0
     plot_warnings: List[str] = []
     try:
         for key in keys:
-            flt = np.ones(len(agg_df), dtype=bool)
-            for i, gcol in enumerate(gcols):
-                flt &= agg_df[gcol] == key[i]
-            panel = agg_df.loc[flt].copy()
-            if panel.empty:
-                continue
-
             key_str = " | ".join(f"{g}={v}" for g, v in zip(gcols, key))
             for evm_col in evm_cols:
                 fig, ax = plt.subplots(figsize=(10, 6))
                 title = (
-                    f"{evm_col.upper()} (RLS4.0 FPGA) — same chan, same dly, compare vs {x_col}\n{key_str}\n"
-                    "When FPGA magtrack-on data exists: magtrack off (0,0) and magtrack on (Instruments) (0,1) "
-                    "drawn first as baselines, then FPGA-on (1,0)/(1,1)."
+                    f"{evm_col.upper()} (RLS4.0 FPGA) — compare vs {x_col}\n{key_str}\n"
+                    "Green/orange: FPGA magtrack on (strict mag tuple). "
+                    "Blue/red: tx_mag_track_on=0 (mean EVM over all dly & mag params, same chan)."
                 )
                 ax.set_title(title, fontsize=10, fontweight="bold", pad=10)
                 ax.set_xlabel(f"{x_col} (dBm)", fontsize=10, fontweight="bold")
                 ax.set_ylabel(f"{evm_col.upper()} (dB)", fontsize=10, fontweight="bold")
                 ax.grid(True, alpha=0.3)
 
-                n_curves, wlist = plot_panel_evm_curves(
-                    ax, panel, agg_df, tuple(key), gcols, evm_col, x_col, STYLE_MAP
+                n_curves, wlist = plot_fpga_panel_with_trk0_relaxed_baselines(
+                    ax, agg_df, tuple(key), gcols, evm_col, x_col, STYLE_MAP
                 )
                 plot_warnings.extend(wlist)
                 if n_curves == 0:
@@ -420,8 +426,9 @@ def batch_process_csv(
 def main() -> None:
     parser = argparse.ArgumentParser(
         description=(
-            "RLS4.0 FPGA mag_track_test_res CSV -> EVM vs tx_pwr PDF; "
-            "panels by chan+dly+mag params; four curves per (tx_mag_track_on, amplitude)."
+            "RLS4.0 FPGA mag_track_test_res CSV -> EVM vs tx_pwr PDF. "
+            "One page per mag tuple where tx_mag_track_on=1 exists; overlays tx_mag_track_on=0 "
+            "baselines (tx_mag_track_on=0, same chan, all dly/mag pooled) with FPGA-on curves."
         )
     )
     parser.add_argument(

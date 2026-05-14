@@ -4,7 +4,7 @@
 
 | 场景 | 脚本 | 说明 |
 |------|------|------|
-| **RLS4.0 FPGA** | `mag_track_rls4_fpga_analyse.py` | `mag_track_test_res_*.csv`；横轴 **`tx_pwr`**；**`chan` / `dly`** 分面；含 FPGA-on 时强制先画 **magtrack off** 与 **magtrack on (Instruments)** 再画 FPGA-on |
+| **RLS4.0 FPGA** | `mag_track_rls4_fpga_analyse.py` | 有 FPGA-on 的 mag 元组出页；同图叠 **`tx_mag_track_on=0`** 基线（**同 chan** 聚合全部 dly/mag）与 **FPGA-on** 严格曲线 |
 | **E22 芯片** | `txmagtrk_analyse.py` | 见 `skill/txmagtrk_analyse_Skill.md`；`test_power`、`trk_en` 等 |
 
 若需 **汇总表 / HTML / 柱状图**，用 `analyze_mag_track_test_res.py`。
@@ -33,19 +33,12 @@
 | 1 | 0 | FPGA magtrack on，仪表幅度 off |
 | 1 | 1 | FPGA magtrack on + 仪表幅度 on |
 
-### 4b. 含 FPGA magtrack on 的图：强制对比基线
+### 4b. 同一张图：FPGA magtrack on 与 tx_mag_track_on=0 对比
 
-当该分面内存在 **`tx_mag_track_on=1`** 的数据时（图中会出现 FPGA magtrack on 曲线）：
-
-1. **先绘制**两条对比基线：**magtrack off** `(0,0)`、**magtrack on (Instruments)** `(0,1)`。  
-2. **再绘制** FPGA magtrack on：`(1,0)`、`(1,1)`。  
-   基线略加粗、`zorder` 较低；FPGA-on 曲线在上层。
-
-若当前 **mag 元组分面** 下缺少 `(0,0)` 或 `(0,1)` 点，脚本会用 **同一 `chan`、同一 `dly`** 下、其它 mag 元组在相同 **`tx_pwr`** 上的 **EVM 均值** 生成 **fallback 参考线**（图例后缀 `[ref: mean over mag params, same chan & dly]`）。启用 fallback 时写入 **`*_rls4_magtrk_plot_warnings.txt`**（截断记录）。
-
-**仅含 FPGA off**（无任何 `tx_mag_track_on=1`）的分面：按数据中实际存在的组合绘制，不套用上述 fallback。
-
-若某组合在当前分面（且无可用 fallback）下仍无数据，则该条曲线跳过。
+- **出页条件**：仅在某个 **完整分面元组**（默认含 `chan,dly,start_point,...`）下存在 **`tx_mag_track_on=1`** 的数据时，生成一页 PDF（不再为「仅有 FPGA off 且同元组」单独出页）。
+- **`tx_mag_track_on=1` 的 `(1,0)`、`(1,1)`**：使用 **当前分面 mag 元组**（与 `start_point`、`win_len` 等一致）在 **`tx_pwr`** 上的 EVM 曲线。
+- **`tx_mag_track_on=0` 的 `(0,0)`、`(0,1)`**：**仅按 `chan`（及 `amplitude`）** 从全表聚合：在相同 **`tx_pwr`** 上对 **所有 `dly` 与 mag 参数** 的 EVM 取 **均值** 后画两条基线（避免 FPGA 分面里 `dly=52` 而 `tx_mag_track_on=0` 只在 `dly=0` 时无数据、图线消失）。图例带说明。
+- 若某 `chan` 下缺少用于基线的 `tx_mag_track_on=0` 且对应 `amplitude` 的数据，会记入 **`*_rls4_magtrk_plot_warnings.txt`**（若有）。
 
 ### 5. 默认分面键（`GROUP_COLS`）
 一页对应唯一元组：
@@ -59,7 +52,9 @@
 ## 聚合规则
 对原始行先按  
 `(分面列..., tx_pwr, tx_mag_track_on, amplitude)`  
-分组，对 **`evm`** 取 **均值**（同一分面、同一功率点、同一开关组合若多行则合并）。
+分组，对 **`evm`** 取 **均值**（同一分面键、同一功率点、同一开关组合若多行则合并）。
+
+**作图时**：`tx_mag_track_on=0` 的两条基线在 **`chan` + `tx_pwr` + `amplitude`** 上聚合（对 **全部 `dly` 与其它 mag 列** 取均值）；`tx_mag_track_on=1` 仍使用完整分面键。
 
 ---
 
@@ -79,7 +74,7 @@ python mag_track_rls4_fpga_analyse.py [INPUT] -o OUT_DIR [选项]
 | `--no-evm-infer` | 禁止 EVM 列启发式推断 |
 | `-r`, `--recursive` | 目录输入时递归子目录 |
 
-输出：`<basename>_rls4_magtrk.pdf`、`<basename>_load_diag.txt`；若发生参考线 fallback，另见 `<basename>_rls4_magtrk_plot_warnings.txt`。
+输出：`<basename>_rls4_magtrk.pdf`、`<basename>_load_diag.txt`；若某 `chan` 缺少某种 `amplitude` 的 `tx_mag_track_on=0` 基线数据，另见 **`*_rls4_magtrk_plot_warnings.txt`**（与 PDF 同前缀）。
 
 ---
 
@@ -105,4 +100,4 @@ python mag_track_rls4_fpga_analyse.py [INPUT] -o OUT_DIR [选项]
 ---
 
 ## 版本说明
-- 含 FPGA magtrack on 的分面：强制先画 **magtrack off** 与 **magtrack on (Instruments)**，再画 FPGA-on；缺数据时支持 **chan+dly** 聚合 fallback 与 `*_plot_warnings.txt`。
+- `tx_mag_track_on=0` 基线改为 **仅同 `chan`** 聚合（含全部 `dly`/mag），保证每张 FPGA-on 图均有对比线；避免 `dly` 与 FPGA 分面不一致导致空曲线。
