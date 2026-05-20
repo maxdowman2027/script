@@ -27,8 +27,11 @@
    与独立运行 `txAnalyse_wifi7.py` 相同：需 CSV 中含功率、EVM、IQ、谱模板等列；缺列时绘图可能在导入脚本中报错，合并脚本会捕获并打印失败原因。
 
 5. **图标题（业务配置）**  
-   **`txAnalyse_wifi7.py`** 中各子图标题由 **`_business_config_string`** 拼装：**带宽** 优先来自 **`cbw`**：值为 **0/1/2/3** 时分别显示 **20/40/80/160 MHz**（枚举）；其它取值或非枚举仍按数值或字符串格式化为 `…MHz`。也可读 `bandwidth` / `BW` 等列；缺失时从文件名中的 `risc_wifitx_20m_`、`_20m_` 等模式推断。**编码** **BCC/LDPC** 来自 **`fec_coding`**（列内多数表决），缺失时从文件名中的 `BCC`/`LDPC` 匹配。另含 **`wifi_format`**、**`rf_chan`**、**`Nsts`**、**GI** 等；仍无时退回为去掉 `risc_wifitx_` 后的文件名主干。  
-   同一段字符串用于 TXT 检查结果的分组标题。
+   **`txAnalyse_wifi7.py`** 中各子图标题由 **`_business_config_string`** 拼装：**带宽** 优先来自 **`cbw`**：值为 **0/1/2/3** 时分别显示 **20/40/80/160 MHz**（枚举）；其它取值或非枚举仍按数值或字符串格式化为 `…MHz`。也可读 `bandwidth` / `BW` 等列；缺失时从文件名中的 `risc_wifitx_20m_`、`_20m_` 等模式推断。**编码** **BCC/LDPC** 来自 **`fec_coding`**（列内多数表决），缺失时从文件名中的 `BCC`/`LDPC` 匹配。另含 **`wifi_format`**、**`rf_chan`**、**`Nsts`**、**GI** 等。  
+   - **`suer_dcm`（或 `user_dcm`）**：若 CSV 含该列且能读到有效值，标题中追加 **`dcm=<值>`**（如 `dcm=0` / `dcm=1`），便于区分 HE SU DCM 开关配置；无该列则不显示。  
+   - 仍无时退回为去掉 `risc_wifitx_` 后的文件名主干。  
+   示例：`40MHz | hesu | ch36 | LDPC | dcm=1 | EVM`。同一段字符串用于 TXT 检查结果的分组标题。  
+   `merge_csv_to_xlsx.run_wifi7_tx_plots` 直接调用上述逻辑，无需额外参数。
 
 ### EVM 异常扫描（`merge_csv_to_xlsx.py` 内）
 
@@ -86,7 +89,8 @@
    - `--anomaly_rate_gap`、`--anomaly_curve_jump`：异常阈值（dB）。
 
 6. **依赖与数据列**  
-   统计依赖 CSV 中常见字段：`tx_power_set(dBm)`、`wifi_format`、`rate`、`fec_coding`（或从 CSV 分组 Sheet 名推断 BCC/LDPC）、`rf_chan`、`cbw`，以及 EVM 列（`evm` / `evm_aver(dB)` / `aver_evmAll` / `evm_nss0` 等）。
+   统计依赖 CSV 中常见字段：`tx_power_set(dBm)`、`wifi_format`、`rate`、`fec_coding`（或从 CSV 分组 Sheet 名推断 BCC/LDPC）、`rf_chan`、`cbw`，以及 EVM 列（`evm` / `evm_aver(dB)` / `aver_evmAll` / `evm_nss0` 等）。  
+   WiFi7 PDF 标题若需区分 DCM，CSV 中应保留 **`suer_dcm`** 列。
 
 7. **HT（wifi_format 为 ht）rate 口径归一**（透视前生效，仅用于统计聚合）  
    - **STBC**：`mcs{n}_stbc` 记为 `mcs{n}`（与单流 MCS 档位对齐）。  
@@ -204,6 +208,6 @@ merge_csv_to_xlsx(
 以下为旧版 `.skill` 文件的等价元数据摘要，供自动化工具索引：
 
 - **名称**: merge_csv_to_xlsx  
-- **描述**: 合并 `risc_wifitx` CSV 到 XLSX；CRC/Flatness/SpecMargin 失败拆分；EVM 统计单独多 Sheet 输出（band/coding/NSS×STBC），Sheet 内按 bw 分组跨 rate 标注最优/最差 EVM；合并后可选调用 `txAnalyse_wifi7` 生成 TX 多页 PDF（图标题由 CSV 业务列拼装）并输出 EVM 跨 rate / 功率曲线异常 txt。  
+- **描述**: 合并 `risc_wifitx` CSV 到 XLSX；CRC/Flatness/SpecMargin 失败拆分；EVM 统计单独多 Sheet 输出（band/coding/NSS×STBC），Sheet 内按 bw 分组跨 rate 标注最优/最差 EVM；合并后可选调用 `txAnalyse_wifi7` 生成 TX 多页 PDF（图标题由 CSV 业务列拼装，含 `suer_dcm` 时追加 `dcm=`）并输出 EVM 跨 rate / 功率曲线异常 txt。  
 - **标签**: CSV合并, XLSX, WiFi测试, EVM, CRC, Flatness, SpecMargin, WiFi7, matplotlib  
 - **需求**: pandas, openpyxl, numpy；WiFi7 绘图另需 matplotlib 及 TX CSV 完整列  

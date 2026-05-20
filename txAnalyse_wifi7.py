@@ -491,6 +491,33 @@ def _business_config_string(df, log_path):
     if code:
         parts.append(code)
 
+    def _resolve_dcm_col():
+        for name in ("suer_dcm", "user_dcm"):
+            if name in df.columns:
+                return name
+        for c in df.columns:
+            if str(c).strip().lower() in ("suer_dcm", "user_dcm"):
+                return c
+        return None
+
+    def dcm_from_df():
+        col = _resolve_dcm_col()
+        if not col:
+            return None
+        raw = first_stable(col)
+        if raw is None:
+            return None
+        try:
+            return int(float(raw))
+        except (TypeError, ValueError):
+            return raw
+
+    dcm_col = _resolve_dcm_col()
+    if dcm_col is not None:
+        dcm_val = dcm_from_df()
+        if dcm_val is not None:
+            parts.append(f"dcm={dcm_val}")
+
     if "Nsts" in df.columns:
         ns = df["Nsts"].dropna()
         if len(ns):

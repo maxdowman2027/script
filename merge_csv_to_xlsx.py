@@ -6,7 +6,7 @@
 另：将指定功率点（默认 15 dBm）的 EVM 透视统计写入单独 XLSX；
 按 band、coding（LDPC/BCC）、NSS_STBC 组合分 Sheet；Sheet 内列为 bw_cbw、rate 及各 wifi_format 的平均 EVM，
 并在同一 bw_cbw 分组内跨 rate 标出各 wifi_format 列最优（最负）与最差（最不负）EVM 底色。
-合并完成后默认调用 txAnalyse_wifi7 生成 TX 多页 PDF，并对跨 rate EVM 均值与功率扫描曲线跳变做异常扫描（可 CLI 关闭）。
+合并完成后默认调用 txAnalyse_wifi7 生成 TX 多页 PDF（CSV 含 suer_dcm 时图标题含 dcm=），并对跨 rate EVM 均值与功率扫描曲线跳变做异常扫描（可 CLI 关闭）。
 """
 
 import os
@@ -335,6 +335,8 @@ def run_wifi7_tx_plots(csv_paths, plot_path_prefix):
     """
     Call txAnalyse_wifi7.tx_plot_and_analyse (multi-page PDF + txt checks).
     plot_path_prefix: directory + stem, e.g. .../merged_tx_result_; PDF becomes .../merged_tx_result_tx_pdf_*.pdf
+    Chart titles: txAnalyse_wifi7._business_config_string; if CSV has suer_dcm (or user_dcm),
+    titles include dcm=<value> (e.g. 20MHz | hesu | ch36 | LDPC | dcm=1 | EVM).
     """
     root = os.path.dirname(os.path.abspath(__file__))
     if root not in sys.path:

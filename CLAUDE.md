@@ -128,7 +128,7 @@
 | 杂散 / 频谱 / PSD | **陷波与杂散流水线、脚本关系见下文「Notch & Spur」**；通用绘图仍含 `psd_plot.py`、`psd_plot_1kHz.py`、`plot_spectrum.py`、`plot_spectrum_2462.py`、`plot_psd_2462.py`、`plot_csv_data.py`、`pwelch.py` |
 | 接收 / 灵敏度 | `wifiRxPlot.py`、`calculate_sensitivity_and_plot.py`；杂散目录下 RX 合并见 **`spur_notch/wifiRxProcess.py`**（「Notch & Spur」） |
 | RU / 符号 / 参数 | `find_ru26.py`、`find_ru26_nsym.py`、`find_precise_ru26.py`、`find_nsym_16.py`、`find_nsym_340.py`、`calculate_ru26_params.py`、`cal_symbol_num.py`、`generate_ru26_cases.py` 等（`spur_notch/notch_cal.py` 见「Notch & Spur」） |
-| Excel / CSV / 校验 | `merge_csv_to_xlsx.py`（合并 risc_wifitx、可选 EVM 透视、默认 WiFi7 TX PDF + EVM 异常报告）、`file_merge.py`、`compare_data.py`、`cac_diff_xlsx.py`；大量 `check_*.py`；`analyze_*.py`、`explore_excel.py`、`detect_outliers.py`、`validate_conversion.py` 等 |
+| Excel / CSV / 校验 | `merge_csv_to_xlsx.py`（合并 risc_wifitx、可选 EVM 透视、默认 WiFi7 TX PDF + EVM 异常报告；PDF 标题含 `suer_dcm` 时带 `dcm=`）、`file_merge.py`、`compare_data.py`、`cac_diff_xlsx.py`；大量 `check_*.py`；`analyze_*.py`、`explore_excel.py`、`detect_outliers.py`、`validate_conversion.py` 等 |
 | 寄存器（根目录） | `compare_reg_csv.py`（详细查询与 CSV 源文件在 `reg_query/`） |
 | 报告 / 汇总 | `generate_report.py`、`analyze_merged_tx_result.py`、`analyze_all_sheets.py`、`analyze_multi_sheet.py`、`summarize_fail_configs.py`、`view_comparison_results.py`、`verify_merged_files.py`、`my_ag.py` 等 |
 | 文件与路径工具 | `file_rename.py`、`cp_files.py`、`unlock_files.py`、`unlock_files_simple.py`、`process_ila_files.py`、`force_remove_dir.py`、`force_remove_file.py` 等（杂散结果 CSV 整理见 **`spur_notch/move_spur_scan_result_csvs.py`**，「Notch & Spur」） |
@@ -194,7 +194,7 @@ spur_notch/notch_cal.py  ←──算法参照──→  spur_notch/spur_scan_pr
 #### 1. 数据合并与格式化工具
 | 脚本名称 | 功能说明 | 详细文档 |
 |---------|---------|---------|
-| `merge_csv_to_xlsx.py` | 合并 `risc_wifitx_*.csv` 为按信道/编码/NSS 分 Sheet 的 XLSX；可选 EVM 透视统计；合并后默认可调用 `txAnalyse_wifi7` 出 TX 多页 PDF，并写 EVM 跨 rate/功率曲线异常报告 | merge_csv_to_xlsx_skill.md |
+| `merge_csv_to_xlsx.py` | 合并 `risc_wifitx_*.csv` 为按信道/编码/NSS 分 Sheet 的 XLSX；可选 EVM 透视统计；合并后默认可调用 `txAnalyse_wifi7` 出 TX 多页 PDF（CSV 含 `suer_dcm` 时图标题含 `dcm=`），并写 EVM 跨 rate/功率曲线异常报告 | merge_csv_to_xlsx_skill.md |
 | `file_merge.py` | 文件合并工具 | file_merge_Skill.md |
 | `file_rename.py` | 文件重命名工具 | - |
 | `process_ila_files.py` | 处理FPGA导出的ILA信号文件，解压缩并提取waveform.csv，按原始文件名重命名 | process_ila_files.skill |
@@ -203,7 +203,7 @@ spur_notch/notch_cal.py  ←──算法参照──→  spur_notch/spur_scan_pr
 | 脚本名称 | 功能说明 | 详细文档 |
 |---------|---------|---------|
 | `txAnalyse.py` | 主要的 EVM 分析脚本（支持 WiFi 6） | txAnalyse.skill |
-| `txAnalyse_wifi7.py` | WiFi 7 专用 TX 分析 / 多子图 PDF；子图标题含带宽(MHz)、BCC/LDPC（列或文件名推断）及 wifi_format、信道、Nsts、GI 等 | txAnalyse.skill |
+| `txAnalyse_wifi7.py` | WiFi 7 专用 TX 分析 / 多子图 PDF；子图标题含带宽(MHz)、BCC/LDPC（列或文件名推断）、wifi_format、信道、Nsts、GI；CSV 含 `suer_dcm` 时追加 `dcm=` | txAnalyse.skill |
 | `txAnalyse_compatible.py` | 兼容性版本的 EVM 分析脚本 | txAnalyse.skill |
 | `evm_comparison.py` | EVM 比较分析脚本 | evm_comparison.skill |
 
