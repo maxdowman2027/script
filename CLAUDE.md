@@ -131,7 +131,7 @@
 | Excel / CSV / 校验 | `merge_csv_to_xlsx.py`（合并 risc_wifitx、可选 EVM 透视、默认 WiFi7 TX PDF + EVM 异常报告；PDF 标题含 `suer_dcm` 时带 `dcm=`）、`file_merge.py`、`compare_data.py`、`cac_diff_xlsx.py`；大量 `check_*.py`；`analyze_*.py`、`explore_excel.py`、`detect_outliers.py`、`validate_conversion.py` 等 |
 | 寄存器（根目录） | `compare_reg_csv.py`（详细查询与 CSV 源文件在 `reg_query/`） |
 | 报告 / 汇总 | `generate_report.py`、`analyze_merged_tx_result.py`、`analyze_all_sheets.py`、`analyze_multi_sheet.py`、`summarize_fail_configs.py`、`view_comparison_results.py`、`verify_merged_files.py`、`my_ag.py` 等 |
-| 文件与路径工具 | `find_csv_in_matched_folders.py`（按文件夹通配递归找 CSV，可选 `--copy-dir`/`--move-dir`）、`file_rename.py`、`cp_files.py`、`unlock_files.py`、`unlock_files_simple.py`、`process_ila_files.py` 等（杂散 CSV 整理见 **`spur_notch/move_spur_scan_result_csvs.py`**） |
+| 文件与路径工具 | `find_csv_in_matched_folders.py`（按文件夹通配递归找 CSV；**从路径解析** `2G`/`phymd20`/`20m`/`ldpc`/`he` 等，可选 `--copy-dir`/`--move-dir`）、`file_rename.py`、`cp_files.py` 等（杂散 CSV 见 **`spur_notch/move_spur_scan_result_csvs.py`**） |
 | 通用与杂项 | `hex_to_decimal.py`、`parse_64bit_data.py`、`2to1.py`、`debug_05d.py` 等 |
 | Git / 提交辅助 | `check_and_commit.py`、`commit_all_changes.py`、`commit_changes.py` 及多份 **`commit_*.py`**、`simple_commit.py` — 历史/一次性提交流程较多，按需使用 |
 
@@ -197,7 +197,7 @@ spur_notch/notch_cal.py  ←──算法参照──→  spur_notch/spur_scan_pr
 | `merge_csv_to_xlsx.py` | 合并 `risc_wifitx_*.csv` 为按信道/编码/NSS 分 Sheet 的 XLSX；可选 EVM 透视统计；合并后默认可调用 `txAnalyse_wifi7` 出 TX 多页 PDF（CSV 含 `suer_dcm` 时图标题含 `dcm=`），并写 EVM 跨 rate/功率曲线异常报告 | merge_csv_to_xlsx_skill.md |
 | `file_merge.py` | 文件合并工具 | file_merge_Skill.md |
 | `file_rename.py` | 文件重命名工具 | - |
-| `find_csv_in_matched_folders.py` | 递归匹配文件夹名（通配/正则）并收集 CSV；`--list-out`、`--copy-dir`、`--move-dir` | find_csv_in_matched_folders_Skill.md |
+| `find_csv_in_matched_folders.py` | 递归匹配文件夹名并收集 CSV；路径层级解析 band/phymd/bw/coding/format；TSV 导出、`--copy-dir`/`--move-dir`、配置区 | find_csv_in_matched_folders_Skill.md |
 | `process_ila_files.py` | 处理FPGA导出的ILA信号文件，解压缩并提取waveform.csv，按原始文件名重命名 | process_ila_files.skill |
 
 #### 2. EVM 分析工具

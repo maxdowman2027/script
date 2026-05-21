@@ -1,20 +1,16 @@
 # find_csv_in_matched_folders.py
 
-## 配置区（脚本顶部，优先改这里）
-| 变量 | 作用 |
-|------|------|
-| `ROOT_SEARCH_PATH` | 递归检索根目录 |
-| `FOLDER_PATTERN` | 文件夹名通配符，如 `wifi_txrx_test_RXSens_*_mld_en0_cur_degree0` |
-| `CSV_PATTERN` | CSV 文件名，默认 `*.csv` |
-| `MOVE_DIR` / `COPY_DIR` | 移动或复制目标（二选一，`None` 表示仅检索） |
+## 配置区（脚本顶部）
+`ROOT_SEARCH_PATH` / `FOLDER_PATTERN` / `MOVE_DIR` 或 `COPY_DIR`
 
-改完后：`python find_csv_in_matched_folders.py`  
-CLI（`-r`、`-f`、`--move-dir`）可覆盖配置。
+## 路径解析
+从 CSV 相对根路径提取：`2G`, `phymd20`, `20m`, `ldpc`, `he` … → `config_tag` 如 `2G_phymd20_20m_ldpc_he`  
+`USE_CONFIG_PREFIX=True` 时复制/移动文件名带此前缀；`-o` 默认输出 TSV 含配置列。
 
-## 运行示例
+## 运行
 ```bash
 python find_csv_in_matched_folders.py
-python find_csv_in_matched_folders.py --move-dir "D:\other\out"
+python find_csv_in_matched_folders.py -v -o out.tsv
 ```
 
 ## 文档

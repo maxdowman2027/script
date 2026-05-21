@@ -3,17 +3,19 @@
 """
 Recursively find CSV files under folders whose names match a glob or regex pattern.
 
-Optionally copy or move matched CSVs to a flat target directory (--copy-dir / --move-dir).
+Parses rftest_data-style path tiers (band / phymd / bw / coding / format, …).
+Optionally copy or move matched CSVs to a flat target directory.
 """
 
 from __future__ import annotations
 
 import argparse
+import csv
 import fnmatch
 import os
 import re
 import shutil
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from typing import Iterator, List, Optional, Sequence, Tuple
 
 
@@ -42,10 +44,64 @@ USE_REGEX_FOLDER = False
 USE_REGEX_CSV = False
 OVERWRITE = False
 USE_SUBPATH_PREFIX = False
+USE_CONFIG_PREFIX = True  # 落盘时在文件名前加 2G_phymd20_20m_ldpc_he_ 等
 LIST_OUT_FILE = None  # 例如 r"D:\path\to\matched_csv_list.txt"
+LIST_OUT_WITH_CONFIG = True  # --list-out 时写 TSV（含路径层级解析列）
 VERBOSE = True
 PATHS_ONLY = False
 # =============================================================================
+
+_BAND_RE = re.compile(r"^(2G|5G|6G)$", re.I)
+_PHYMD_RE = re.compile(r"^phymd(\d+)$", re.I)
+_BW_RE = re.compile(r"^(\d+)m$", re.I)
+_CODING_RE = re.compile(r"^(ldpc|bcc)$", re.I)
+_FORMAT_RE = re.compile(
+    r"^(he|vht|ax|be|hesu|eht|11b|11g|11n|11ac|11ax|11be)$", re.I
+)
+_TESTCASE_RE = re.compile(r"^wifi_txrx", re.I)
+_RUN_RE = re.compile(r"^FPGA", re.I)
+_RX_RE = re.compile(r"^rx_", re.I)
+
+PATH_CONFIG_FIELDS = (
+    "band",
+    "phymd",
+    "bandwidth",
+    "coding",
+    "wifi_format",
+    "testcase_folder",
+    "run_folder",
+    "rx_folder",
+)
+
+
+@dataclass(frozen=True)
+class PathConfig:
+    """RF test directory layout inferred from CSV path under search root."""
+
+    band: Optional[str] = None
+    phymd: Optional[str] = None
+    bandwidth: Optional[str] = None
+    coding: Optional[str] = None
+    wifi_format: Optional[str] = None
+    testcase_folder: Optional[str] = None
+    run_folder: Optional[str] = None
+    rx_folder: Optional[str] = None
+    relative_parts: Tuple[str, ...] = ()
+
+    def config_tag(self, sep: str = "_") -> str:
+        """Compact tag for filenames: 2G_phymd20_20m_ldpc_he."""
+        keys = (self.band, self.phymd, self.bandwidth, self.coding, self.wifi_format)
+        parts = [p for p in keys if p]
+        return sep.join(parts) if parts else "unknown_cfg"
+
+    def summary(self) -> str:
+        """Human-readable key=value list."""
+        items = []
+        for name in PATH_CONFIG_FIELDS:
+            val = getattr(self, name)
+            if val:
+                items.append(f"{name}={val}")
+        return ", ".join(items) if items else "(no tier labels parsed)"
 
 
 @dataclass(frozen=True)
@@ -56,6 +112,7 @@ class CsvHit:
     folder_name: str
     csv_path: str
     csv_name: str
+    path_config: PathConfig
 
 
 @dataclass
@@ -73,16 +130,93 @@ def _name_matches(name: str, pattern: str, use_regex: bool) -> bool:
     return fnmatch.fnmatch(name, pattern)
 
 
+def _classify_segment(seg: str, cfg: PathConfig) -> PathConfig:
+    if _BAND_RE.match(seg) and not cfg.band:
+        return replace(cfg, band=seg.upper())
+    if _PHYMD_RE.match(seg) and not cfg.phymd:
+        return replace(cfg, phymd=seg.lower())
+    m = _BW_RE.match(seg)
+    if m and not cfg.bandwidth:
+        return replace(cfg, bandwidth=f"{m.group(1)}m")
+    if _CODING_RE.match(seg) and not cfg.coding:
+        return replace(cfg, coding=seg.lower())
+    if _FORMAT_RE.match(seg) and not cfg.wifi_format:
+        return replace(cfg, wifi_format=seg.lower())
+    if _TESTCASE_RE.match(seg) and not cfg.testcase_folder:
+        return replace(cfg, testcase_folder=seg)
+    if _RUN_RE.match(seg) and not cfg.run_folder:
+        return replace(cfg, run_folder=seg)
+    if _RX_RE.match(seg) and not cfg.rx_folder:
+        return replace(cfg, rx_folder=seg)
+    return cfg
+
+
+def _apply_positional_tiers(dir_parts: Sequence[str], cfg: PathConfig) -> PathConfig:
+    """Fallback: after band, typical layout is phymd* / Nm / ldpc|bcc / he|vht|..."""
+    idx = 0
+    if cfg.band and idx < len(dir_parts) and dir_parts[idx].upper() == cfg.band:
+        idx += 1
+
+    updates = {}
+    if not cfg.phymd and idx < len(dir_parts) and _PHYMD_RE.match(dir_parts[idx]):
+        updates["phymd"] = dir_parts[idx]
+        idx += 1
+    if not cfg.bandwidth and idx < len(dir_parts) and _BW_RE.match(dir_parts[idx]):
+        m = _BW_RE.match(dir_parts[idx])
+        updates["bandwidth"] = f"{m.group(1)}m"
+        idx += 1
+    if not cfg.coding and idx < len(dir_parts) and _CODING_RE.match(dir_parts[idx]):
+        updates["coding"] = dir_parts[idx].lower()
+        idx += 1
+    if not cfg.wifi_format and idx < len(dir_parts) and _FORMAT_RE.match(dir_parts[idx]):
+        updates["wifi_format"] = dir_parts[idx].lower()
+        idx += 1
+
+    return replace(cfg, **updates) if updates else cfg
+
+
+def extract_path_config(csv_path: str, root_search_path: str) -> PathConfig:
+    """
+    Parse band / phymd / bandwidth / coding / wifi_format from path under root.
+
+    Example (root = .../rftest_data/2G):
+      phymd20/20m/ldpc/he/wifi_txrx_test_.../FPGA.../rx_.../RX_*.csv
+      -> 2G, phymd20, 20m, ldpc, he
+    """
+    csv_abs = os.path.abspath(csv_path)
+    root_abs = os.path.abspath(root_search_path)
+    rel = os.path.relpath(csv_abs, root_abs)
+    parts = tuple(p for p in rel.split(os.sep) if p)
+    if not parts:
+        return PathConfig()
+
+    dir_parts = parts[:-1]
+    cfg = PathConfig(relative_parts=parts)
+
+    root_base = os.path.basename(root_abs.rstrip("\\/"))
+    if _BAND_RE.match(root_base):
+        cfg = replace(cfg, band=root_base.upper())
+
+    for seg in dir_parts:
+        cfg = _classify_segment(seg, cfg)
+
+    cfg = _apply_positional_tiers(dir_parts, cfg)
+
+    if not cfg.band:
+        for seg in dir_parts:
+            if _BAND_RE.match(seg):
+                cfg = replace(cfg, band=seg.upper())
+                break
+
+    return cfg
+
+
 def iter_matched_folder_paths(
     root_search_path: str,
     folder_pattern: str,
     *,
     use_regex_folder: bool = False,
 ) -> Iterator[Tuple[str, str]]:
-    """
-    Yield (dir_path, folder_basename) for every directory under root whose
-    basename matches folder_pattern.
-    """
     root = os.path.abspath(root_search_path)
     if not os.path.isdir(root):
         raise FileNotFoundError(f"Search root does not exist or is not a directory: {root}")
@@ -102,13 +236,8 @@ def find_csv_in_matched_folders(
     use_regex_csv: bool = False,
     recursive_under_match: bool = True,
 ) -> List[CsvHit]:
-    """
-    1. Recursively scan root_search_path for folders matching folder_pattern.
-    2. Under each matched folder, find CSV files (optionally in all subfolders).
-
-    Returns a list of CsvHit sorted by csv_path.
-    """
     hits: List[CsvHit] = []
+    root = os.path.abspath(root_search_path)
 
     for folder_path, folder_name in iter_matched_folder_paths(
         root_search_path, folder_pattern, use_regex_folder=use_regex_folder
@@ -128,12 +257,14 @@ def find_csv_in_matched_folders(
                 if not _name_matches(file_name, csv_pattern, use_regex_csv):
                     continue
                 csv_path = os.path.join(sub_dir, file_name)
+                csv_abs = os.path.abspath(csv_path)
                 hits.append(
                     CsvHit(
                         matched_folder=folder_path,
                         folder_name=folder_name,
-                        csv_path=os.path.abspath(csv_path),
+                        csv_path=csv_abs,
                         csv_name=file_name,
+                        path_config=extract_path_config(csv_abs, root),
                     )
                 )
 
@@ -141,11 +272,23 @@ def find_csv_in_matched_folders(
     return hits
 
 
-def _dest_basename(hit: CsvHit, *, use_subpath_prefix: bool) -> str:
-    if not use_subpath_prefix:
-        return hit.csv_name
-    rel = os.path.relpath(hit.csv_path, hit.matched_folder)
-    return rel.replace("\\", "_").replace("/", "_")
+def _dest_basename(
+    hit: CsvHit,
+    *,
+    use_subpath_prefix: bool,
+    use_config_prefix: bool,
+) -> str:
+    name = hit.csv_name
+    if use_config_prefix:
+        tag = hit.path_config.config_tag()
+        name = f"{tag}_{name}"
+    if use_subpath_prefix:
+        rel = os.path.relpath(hit.csv_path, hit.matched_folder)
+        rel = rel.replace("\\", "_").replace("/", "_")
+        if use_config_prefix:
+            return f"{hit.path_config.config_tag()}_{rel}"
+        return rel
+    return name
 
 
 def _resolve_dest_path(
@@ -154,8 +297,7 @@ def _resolve_dest_path(
     *,
     overwrite: bool,
     reserved: set,
-) -> Optional[str]:
-    """Pick a non-conflicting path under dest_dir; update reserved set on success."""
+) -> str:
     dest_dir = os.path.abspath(dest_dir)
     target = os.path.join(dest_dir, base_name)
 
@@ -166,7 +308,6 @@ def _resolve_dest_path(
             candidate = f"{stem}_{n}{ext}"
             target = os.path.join(dest_dir, candidate)
             if target not in reserved and not os.path.exists(target):
-                base_name = candidate
                 break
             n += 1
     elif not overwrite and os.path.exists(target):
@@ -176,7 +317,6 @@ def _resolve_dest_path(
             candidate = f"{stem}_{n}{ext}"
             target = os.path.join(dest_dir, candidate)
             if target not in reserved and not os.path.exists(target):
-                base_name = candidate
                 break
             n += 1
 
@@ -191,11 +331,8 @@ def transfer_csv_hits(
     move: bool,
     overwrite: bool = False,
     use_subpath_prefix: bool = False,
+    use_config_prefix: bool = False,
 ) -> TransferStats:
-    """
-    Copy or move each hit into dest_dir (flat layout).
-    use_subpath_prefix: name files as <relative_path_under_matched_folder> with separators -> '_'.
-    """
     stats = TransferStats()
     dest_dir = os.path.abspath(dest_dir)
     os.makedirs(dest_dir, exist_ok=True)
@@ -204,14 +341,21 @@ def transfer_csv_hits(
     op_name = "move" if move else "copy"
 
     for hit in hits:
-        base_name = _dest_basename(hit, use_subpath_prefix=use_subpath_prefix)
+        base_name = _dest_basename(
+            hit,
+            use_subpath_prefix=use_subpath_prefix,
+            use_config_prefix=use_config_prefix,
+        )
         target = _resolve_dest_path(
             dest_dir, base_name, overwrite=overwrite, reserved=reserved
         )
         try:
             op(hit.csv_path, target)
             stats.ok += 1
-            print(f"  OK {op_name}: {hit.csv_path} -> {target}")
+            print(
+                f"  OK {op_name}: [{hit.path_config.config_tag()}] "
+                f"{hit.csv_path} -> {target}"
+            )
         except PermissionError:
             stats.errors += 1
             print(f"  ERROR permission: {hit.csv_path}")
@@ -225,13 +369,41 @@ def transfer_csv_hits(
     return stats
 
 
-def _write_list_file(hits: Sequence[CsvHit], list_file: str) -> None:
+def _write_list_file(
+    hits: Sequence[CsvHit],
+    list_file: str,
+    *,
+    with_config: bool,
+) -> None:
     parent = os.path.dirname(os.path.abspath(list_file))
     if parent:
         os.makedirs(parent, exist_ok=True)
-    with open(list_file, "w", encoding="utf-8") as f:
-        for h in hits:
-            f.write(h.csv_path + "\n")
+
+    if with_config:
+        header = ["csv_path", "config_tag", *PATH_CONFIG_FIELDS]
+        with open(list_file, "w", encoding="utf-8", newline="") as f:
+            w = csv.writer(f, delimiter="\t")
+            w.writerow(header)
+            for h in hits:
+                pc = h.path_config
+                w.writerow(
+                    [
+                        h.csv_path,
+                        pc.config_tag(),
+                        pc.band or "",
+                        pc.phymd or "",
+                        pc.bandwidth or "",
+                        pc.coding or "",
+                        pc.wifi_format or "",
+                        pc.testcase_folder or "",
+                        pc.run_folder or "",
+                        pc.rx_folder or "",
+                    ]
+                )
+    else:
+        with open(list_file, "w", encoding="utf-8") as f:
+            for h in hits:
+                f.write(h.csv_path + "\n")
 
 
 def _print_report(
@@ -254,11 +426,13 @@ def _print_report(
             print(f"\n--- folder: {fp} ---")
             for h in hits:
                 if h.matched_folder == fp:
-                    print(f"  {h.csv_path}")
+                    print(f"  [{h.path_config.config_tag()}] {h.path_config.summary()}")
+                    print(f"    {h.csv_path}")
     elif hits:
-        print("\nCSV paths (first 20; use -v for full tree or --list-out):")
+        print("\nCSV + path config (first 20; use -v for full tree or --list-out):")
         for h in hits[:20]:
-            print(f"  {h.csv_path}")
+            print(f"  [{h.path_config.config_tag()}] {h.csv_name}")
+            print(f"    {h.path_config.summary()}")
         if len(hits) > 20:
             print(f"  ... and {len(hits) - 20} more")
 
@@ -275,82 +449,38 @@ def _print_transfer_summary(stats: TransferStats, dest_dir: str, *, move: bool) 
 def main(argv: Optional[Sequence[str]] = None) -> int:
     parser = argparse.ArgumentParser(
         description="Recursively find CSV files under folders matching a name pattern. "
-        "Edit ROOT_SEARCH_PATH / FOLDER_PATTERN / MOVE_DIR (or COPY_DIR) at top of script."
+        "Parses rftest_data path tiers (2G/phymd20/20m/ldpc/he). "
+        "Edit ROOT_SEARCH_PATH / FOLDER_PATTERN / MOVE_DIR at top of script."
     )
+    parser.add_argument("--root", "-r", default=ROOT_SEARCH_PATH)
+    parser.add_argument("--folder-pattern", "-f", default=FOLDER_PATTERN)
+    parser.add_argument("--csv-pattern", "-c", default=CSV_PATTERN)
+    parser.add_argument("--regex-folder", action="store_true", default=USE_REGEX_FOLDER)
+    parser.add_argument("--regex-csv", action="store_true", default=USE_REGEX_CSV)
+    parser.add_argument("--list-out", "-o", metavar="FILE", default=LIST_OUT_FILE)
     parser.add_argument(
-        "--root",
-        "-r",
-        default=ROOT_SEARCH_PATH,
-        help=f"Root directory to search (default: config ROOT_SEARCH_PATH)",
-    )
-    parser.add_argument(
-        "--folder-pattern",
-        "-f",
-        default=FOLDER_PATTERN,
-        help="Folder basename glob or regex when --regex-folder",
-    )
-    parser.add_argument(
-        "--csv-pattern",
-        "-c",
-        default=CSV_PATTERN,
-        help="CSV filename glob or regex when --regex-csv",
-    )
-    parser.add_argument(
-        "--regex-folder",
+        "--list-plain",
         action="store_true",
-        default=USE_REGEX_FOLDER,
-        help="Treat --folder-pattern as a regex anchored at start of basename",
+        help="With --list-out, write paths only (no config TSV columns)",
     )
-    parser.add_argument(
-        "--regex-csv",
-        action="store_true",
-        default=USE_REGEX_CSV,
-        help="Treat --csv-pattern as a regex anchored at start of filename",
-    )
-    parser.add_argument(
-        "--list-out",
-        "-o",
-        metavar="FILE",
-        default=LIST_OUT_FILE,
-        help="Write one absolute CSV path per line to this file",
-    )
-    parser.add_argument(
-        "-v",
-        "--verbose",
-        action="store_true",
-        default=VERBOSE,
-        help="Print every matched folder and CSV path",
-    )
-    parser.add_argument(
-        "--paths-only",
-        action="store_true",
-        default=PATHS_ONLY,
-        help="Print only CSV paths (one per line), no summary",
-    )
+    parser.add_argument("-v", "--verbose", action="store_true", default=VERBOSE)
+    parser.add_argument("--paths-only", action="store_true", default=PATHS_ONLY)
     dest = parser.add_mutually_exclusive_group()
-    dest.add_argument(
-        "--copy-dir",
-        metavar="DIR",
-        default=COPY_DIR,
-        help="Copy matched CSV files into this directory (config: COPY_DIR)",
-    )
-    dest.add_argument(
-        "--move-dir",
-        metavar="DIR",
-        default=MOVE_DIR,
-        help="Move matched CSV files into this directory (config: MOVE_DIR)",
+    dest.add_argument("--copy-dir", metavar="DIR", default=COPY_DIR)
+    dest.add_argument("--move-dir", metavar="DIR", default=MOVE_DIR)
+    parser.add_argument("--overwrite", action="store_true", default=OVERWRITE)
+    parser.add_argument("--use-subpath-prefix", action="store_true", default=USE_SUBPATH_PREFIX)
+    parser.add_argument(
+        "--use-config-prefix",
+        action="store_true",
+        default=USE_CONFIG_PREFIX,
+        help="Prefix dest filename with band_phymd_bw_coding_format tag",
     )
     parser.add_argument(
-        "--overwrite",
-        action="store_true",
-        default=OVERWRITE,
-        help="Overwrite existing files in --copy-dir / --move-dir (default: auto-rename)",
-    )
-    parser.add_argument(
-        "--use-subpath-prefix",
-        action="store_true",
-        default=USE_SUBPATH_PREFIX,
-        help="Dest filename = relative path under matched folder with '_' separators",
+        "--no-config-prefix",
+        action="store_false",
+        dest="use_config_prefix",
+        help="Do not add path config tag to dest filenames",
     )
     args = parser.parse_args(argv)
 
@@ -370,10 +500,12 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
         print(f"Error: {e}")
         return 1
 
+    list_with_config = LIST_OUT_WITH_CONFIG and not args.list_plain
     if args.list_out:
-        _write_list_file(hits, args.list_out)
+        _write_list_file(hits, args.list_out, with_config=list_with_config)
         if not args.paths_only:
-            print(f"Wrote {len(hits)} path(s) to {os.path.abspath(args.list_out)}")
+            kind = "TSV with path config" if list_with_config else "paths"
+            print(f"Wrote {len(hits)} row(s) ({kind}) to {os.path.abspath(args.list_out)}")
 
     dest_dir = args.copy_dir or args.move_dir
     if dest_dir and hits:
@@ -384,6 +516,7 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
             move=bool(args.move_dir),
             overwrite=args.overwrite,
             use_subpath_prefix=args.use_subpath_prefix,
+            use_config_prefix=args.use_config_prefix,
         )
         if not args.paths_only:
             _print_transfer_summary(stats, dest_dir, move=bool(args.move_dir))
