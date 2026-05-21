@@ -17,6 +17,37 @@ from dataclasses import dataclass
 from typing import Iterator, List, Optional, Sequence, Tuple
 
 
+# =============================================================================
+# 配置区（直接改这里即可；命令行参数会覆盖同名字段）
+# =============================================================================
+# 1. 递归检索的根目录
+ROOT_SEARCH_PATH = (
+    r"D:\chip_test\dev\xian_test\Xian-Esp-Test-Scripts\rftest_data\2G"
+)
+
+# 2. 要匹配的文件夹名（basename 通配符；正则模式时设 USE_REGEX_FOLDER=True）
+FOLDER_PATTERN = "wifi_txrx_test_RXSens_*_mld_en0_cur_degree0"
+
+# 3. 匹配文件夹内的 CSV 文件名（通配符）
+CSV_PATTERN = "*.csv"
+
+# 4. 复制 / 移动目标（二选一；不需要落盘时两项都设为 None）
+COPY_DIR = None
+MOVE_DIR = (
+    r"D:\chip_test\dev\xian_test\Xian-Esp-Test-Scripts"
+)
+
+# 其它常用开关（一般保持默认即可）
+USE_REGEX_FOLDER = False
+USE_REGEX_CSV = False
+OVERWRITE = False
+USE_SUBPATH_PREFIX = False
+LIST_OUT_FILE = None  # 例如 r"D:\path\to\matched_csv_list.txt"
+VERBOSE = True
+PATHS_ONLY = False
+# =============================================================================
+
+
 @dataclass(frozen=True)
 class CsvHit:
     """One CSV file found under a matched folder."""
@@ -243,75 +274,89 @@ def _print_transfer_summary(stats: TransferStats, dest_dir: str, *, move: bool) 
 
 def main(argv: Optional[Sequence[str]] = None) -> int:
     parser = argparse.ArgumentParser(
-        description="Recursively find CSV files under folders matching a name pattern."
+        description="Recursively find CSV files under folders matching a name pattern. "
+        "Edit ROOT_SEARCH_PATH / FOLDER_PATTERN / MOVE_DIR (or COPY_DIR) at top of script."
     )
     parser.add_argument(
         "--root",
         "-r",
-        default=r"D:\chip_test\dev\xian_test\Xian-Esp-Test-Scripts\rftest_data\2G",
-        help="Root directory to search recursively",
+        default=ROOT_SEARCH_PATH,
+        help=f"Root directory to search (default: config ROOT_SEARCH_PATH)",
     )
     parser.add_argument(
         "--folder-pattern",
         "-f",
-        default="wifi_txrx_test_RXSens_*_mld_en0_cur_degree0",
-        help="Folder basename glob (default) or regex when --regex-folder",
+        default=FOLDER_PATTERN,
+        help="Folder basename glob or regex when --regex-folder",
     )
     parser.add_argument(
         "--csv-pattern",
         "-c",
-        default="*.csv",
-        help="CSV filename glob (default) or regex when --regex-csv",
+        default=CSV_PATTERN,
+        help="CSV filename glob or regex when --regex-csv",
     )
     parser.add_argument(
         "--regex-folder",
         action="store_true",
+        default=USE_REGEX_FOLDER,
         help="Treat --folder-pattern as a regex anchored at start of basename",
     )
     parser.add_argument(
         "--regex-csv",
         action="store_true",
+        default=USE_REGEX_CSV,
         help="Treat --csv-pattern as a regex anchored at start of filename",
     )
     parser.add_argument(
         "--list-out",
         "-o",
         metavar="FILE",
+        default=LIST_OUT_FILE,
         help="Write one absolute CSV path per line to this file",
     )
     parser.add_argument(
         "-v",
         "--verbose",
         action="store_true",
+        default=VERBOSE,
         help="Print every matched folder and CSV path",
     )
     parser.add_argument(
         "--paths-only",
         action="store_true",
+        default=PATHS_ONLY,
         help="Print only CSV paths (one per line), no summary",
     )
     dest = parser.add_mutually_exclusive_group()
     dest.add_argument(
         "--copy-dir",
         metavar="DIR",
-        help="Copy matched CSV files into this directory (flat layout)",
+        default=COPY_DIR,
+        help="Copy matched CSV files into this directory (config: COPY_DIR)",
     )
     dest.add_argument(
         "--move-dir",
         metavar="DIR",
-        help="Move matched CSV files into this directory (flat layout)",
+        default=MOVE_DIR,
+        help="Move matched CSV files into this directory (config: MOVE_DIR)",
     )
     parser.add_argument(
         "--overwrite",
         action="store_true",
+        default=OVERWRITE,
         help="Overwrite existing files in --copy-dir / --move-dir (default: auto-rename)",
     )
     parser.add_argument(
         "--use-subpath-prefix",
         action="store_true",
+        default=USE_SUBPATH_PREFIX,
         help="Dest filename = relative path under matched folder with '_' separators",
     )
     args = parser.parse_args(argv)
+
+    if COPY_DIR and MOVE_DIR:
+        print("Error: set only one of COPY_DIR and MOVE_DIR in the script config block.")
+        return 1
 
     try:
         hits = find_csv_in_matched_folders(
