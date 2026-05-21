@@ -131,7 +131,7 @@
 | Excel / CSV / 校验 | `merge_csv_to_xlsx.py`（合并 risc_wifitx、可选 EVM 透视、默认 WiFi7 TX PDF + EVM 异常报告；PDF 标题含 `suer_dcm` 时带 `dcm=`）、`file_merge.py`、`compare_data.py`、`cac_diff_xlsx.py`；大量 `check_*.py`；`analyze_*.py`、`explore_excel.py`、`detect_outliers.py`、`validate_conversion.py` 等 |
 | 寄存器（根目录） | `compare_reg_csv.py`（详细查询与 CSV 源文件在 `reg_query/`） |
 | 报告 / 汇总 | `generate_report.py`、`analyze_merged_tx_result.py`、`analyze_all_sheets.py`、`analyze_multi_sheet.py`、`summarize_fail_configs.py`、`view_comparison_results.py`、`verify_merged_files.py`、`my_ag.py` 等 |
-| 文件与路径工具 | `file_rename.py`、`cp_files.py`、`unlock_files.py`、`unlock_files_simple.py`、`process_ila_files.py`、`force_remove_dir.py`、`force_remove_file.py` 等（杂散结果 CSV 整理见 **`spur_notch/move_spur_scan_result_csvs.py`**，「Notch & Spur」） |
+| 文件与路径工具 | `find_csv_in_matched_folders.py`（按文件夹通配递归找 CSV，可选 `--copy-dir`/`--move-dir`）、`file_rename.py`、`cp_files.py`、`unlock_files.py`、`unlock_files_simple.py`、`process_ila_files.py` 等（杂散 CSV 整理见 **`spur_notch/move_spur_scan_result_csvs.py`**） |
 | 通用与杂项 | `hex_to_decimal.py`、`parse_64bit_data.py`、`2to1.py`、`debug_05d.py` 等 |
 | Git / 提交辅助 | `check_and_commit.py`、`commit_all_changes.py`、`commit_changes.py` 及多份 **`commit_*.py`**、`simple_commit.py` — 历史/一次性提交流程较多，按需使用 |
 
@@ -197,6 +197,7 @@ spur_notch/notch_cal.py  ←──算法参照──→  spur_notch/spur_scan_pr
 | `merge_csv_to_xlsx.py` | 合并 `risc_wifitx_*.csv` 为按信道/编码/NSS 分 Sheet 的 XLSX；可选 EVM 透视统计；合并后默认可调用 `txAnalyse_wifi7` 出 TX 多页 PDF（CSV 含 `suer_dcm` 时图标题含 `dcm=`），并写 EVM 跨 rate/功率曲线异常报告 | merge_csv_to_xlsx_skill.md |
 | `file_merge.py` | 文件合并工具 | file_merge_Skill.md |
 | `file_rename.py` | 文件重命名工具 | - |
+| `find_csv_in_matched_folders.py` | 递归匹配文件夹名（通配/正则）并收集 CSV；`--list-out`、`--copy-dir`、`--move-dir` | find_csv_in_matched_folders_Skill.md |
 | `process_ila_files.py` | 处理FPGA导出的ILA信号文件，解压缩并提取waveform.csv，按原始文件名重命名 | process_ila_files.skill |
 
 #### 2. EVM 分析工具
@@ -303,7 +304,7 @@ spur_notch/notch_cal.py  ←──算法参照──→  spur_notch/spur_scan_pr
 #### skill/
 - **位置**: `./skill/`
 - **内容**: Claude Code 技能（`*.skill`）与各脚本配套的 `*_Skill.md`
-- **常见技能文件**: `txAnalyse.skill`、`evm_comparison.skill`、`txmagtrk_analyse.skill`、`mag_track_rls4_fpga_analyse.skill`、`analyze_mag_track_test_res.skill`、`spur_diff_and_mark_red.skill`、`merge_csv_to_xlsx_skill.md`、`process_ila_files.skill`、`my_ag.skill` 等（完整列表以目录为准）
+- **常见技能文件**: `txAnalyse.skill`、`evm_comparison.skill`、`txmagtrk_analyse.skill`、`mag_track_rls4_fpga_analyse.skill`、`analyze_mag_track_test_res.skill`、`spur_diff_and_mark_red.skill`、`find_csv_in_matched_folders.skill`、`merge_csv_to_xlsx_skill.md`、`process_ila_files.skill`、`my_ag.skill` 等（完整列表以目录为准）
 - **子目录 `merged_tx_result_analysis/`**: 合并 TX 结果分析相关说明脚本与 `generate_report.py` 等，与根目录 `generate_report.py`、`analyze_merged_tx_result.py` 等配合使用
 
 ### 常用命令示例
@@ -355,6 +356,9 @@ python analyze_mag_track_test_res.py "D:\path\to\mag_track_test_res_*.csv" -o "D
 
 # RLS4.0 FPGA mag track 回归 CSV → EVM vs tx_pwr PDF（同 chan 的 tx_mag_track_on=0 基线 + FPGA-on 曲线）
 python mag_track_rls4_fpga_analyse.py "D:\path\to\mag_track_test_res_*.csv" -o "D:\path\to\rls4_magtrk_pdf_out"
+
+# 按文件夹通配递归找 CSV 并复制到汇总目录
+python find_csv_in_matched_folders.py -r "D:\path\to\rftest_data\2G" -f "wifi_txrx_test_RXSens_*_mld_en0_cur_degree0" --copy-dir "D:\path\to\out"
 
 # Notch / spur（在仓库根目录执行；脚本位于 spur_notch/）
 python spur_notch/spur_scan_process.py

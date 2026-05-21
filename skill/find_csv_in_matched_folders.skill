@@ -1,0 +1,18 @@
+# find_csv_in_matched_folders.py
+
+## 功能
+递归匹配文件夹 basename（通配符/正则），收集其下 CSV；可选 `--list-out`、`--copy-dir`、`--move-dir`。
+
+## 默认示例
+- root: `rftest_data\2G`
+- folder: `wifi_txrx_test_RXSens_*_mld_en0_cur_degree0`
+
+## 运行
+```bash
+python find_csv_in_matched_folders.py -r <root> -f "<folder_glob>" -c "*.csv"
+python find_csv_in_matched_folders.py -r <root> -f "<folder_glob>" --copy-dir <out>
+python find_csv_in_matched_folders.py -r <root> -f "<folder_glob>" --move-dir <out>
+```
+
+## 文档
+`skill/find_csv_in_matched_folders_Skill.md`
