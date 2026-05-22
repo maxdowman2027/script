@@ -1,16 +1,18 @@
 # find_csv_in_matched_folders.py
 
-## 配置区（脚本顶部）
-`ROOT_SEARCH_PATH` / `FOLDER_PATTERN` / `MOVE_DIR` 或 `COPY_DIR`
+## 配置区
+`ROOT_SEARCH_PATH` / `FOLDER_PATTERN` / `MOVE_DIR`|`COPY_DIR`  
+`RUN_SENSITIVITY` / `SENSITIVITY_OUT_CSV` / `PAK_NUM` / `SENS_ACCURACY`
 
-## 路径解析
-从 CSV 相对根路径提取：`2G`, `phymd20`, `20m`, `ldpc`, `he` … → `config_tag` 如 `2G_phymd20_20m_ldpc_he`  
-`USE_CONFIG_PREFIX=True` 时复制/移动文件名带此前缀；`-o` 默认输出 TSV 含配置列。
+## 功能
+- 路径解析 → band, phymode(phymd), 20m, ldpc, he …
+- 灵敏度（wifiRxPlot 算法）→ `sensitivity_summary_*.csv`
+- 可选 copy/move、list-out TSV
 
 ## 运行
 ```bash
 python find_csv_in_matched_folders.py
-python find_csv_in_matched_folders.py -v -o out.tsv
+python find_csv_in_matched_folders.py --sensitivity-out D:\out\sens.csv
 ```
 
 ## 文档

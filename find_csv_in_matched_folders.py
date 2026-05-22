@@ -15,8 +15,12 @@ import fnmatch
 import os
 import re
 import shutil
+import time
+from collections import OrderedDict
 from dataclasses import dataclass, replace
-from typing import Iterator, List, Optional, Sequence, Tuple
+from typing import Any, Dict, Iterator, List, Optional, Sequence, Tuple
+
+import wifi_rx_sensitivity as wrx_sens
 
 
 # =============================================================================
@@ -28,16 +32,17 @@ ROOT_SEARCH_PATH = (
 )
 
 # 2. 要匹配的文件夹名（basename 通配符；正则模式时设 USE_REGEX_FOLDER=True）
-FOLDER_PATTERN = "wifi_txrx_test_RXSens_*_mld_en0_cur_degree0"
+FOLDER_PATTERN = "wifi_txrx_test_RXSens_*_mld_en*_cur_degree*"
 
 # 3. 匹配文件夹内的 CSV 文件名（通配符）
 CSV_PATTERN = "*.csv"
 
 # 4. 复制 / 移动目标（二选一；不需要落盘时两项都设为 None）
 COPY_DIR = None
-MOVE_DIR = (
-    r"D:\chip_test\dev\xian_test\Xian-Esp-Test-Scripts"
-)
+MOVE_DIR = None
+# MOVE_DIR = (
+#     r"D:\chip_test\dev\xian_test\Xian-Esp-Test-Scripts"
+# )
 
 # 其它常用开关（一般保持默认即可）
 USE_REGEX_FOLDER = False
@@ -49,6 +54,12 @@ LIST_OUT_FILE = None  # 例如 r"D:\path\to\matched_csv_list.txt"
 LIST_OUT_WITH_CONFIG = True  # --list-out 时写 TSV（含路径层级解析列）
 VERBOSE = True
 PATHS_ONLY = False
+
+# 5. 灵敏度（算法同 wifiRxPlot.py，按 rx_* 会话目录合并 CSV 后计算）
+RUN_SENSITIVITY = True
+SENSITIVITY_OUT_CSV = None  # None → 在 ROOT_SEARCH_PATH 下 sensitivity_summary_YYYYMMDD_HHMMSS.csv
+PAK_NUM = 1000
+SENS_ACCURACY = 100
 # =============================================================================
 
 _BAND_RE = re.compile(r"^(2G|5G|6G)$", re.I)
@@ -437,6 +448,63 @@ def _print_report(
             print(f"  ... and {len(hits) - 20} more")
 
 
+def path_config_to_dict(pc: PathConfig) -> Dict[str, Any]:
+    """Path tiers for sensitivity CSV columns (phymode = phymd)."""
+    d = {name: getattr(pc, name) or "" for name in PATH_CONFIG_FIELDS}
+    d["config_tag"] = pc.config_tag()
+    return d
+
+
+def _default_sensitivity_out_path(root_search_path: str) -> str:
+    ts = time.strftime("%Y%m%d_%H%M%S")
+    return os.path.join(os.path.abspath(root_search_path), f"sensitivity_summary_{ts}.csv")
+
+
+def run_sensitivity_for_hits(
+    hits: Sequence[CsvHit],
+    out_csv: str,
+    *,
+    pak_num: int = 1000,
+    sens_accuracy: int = 100,
+) -> int:
+    """
+    Group hits by RX session directory (parent folder of CSV), merge logs, compute
+    sensitivity per rx_chan and rate (wifiRxPlot algorithm).
+    """
+    sessions: OrderedDict[str, CsvHit] = OrderedDict()
+    for h in hits:
+        session_dir = os.path.dirname(h.csv_path)
+        if session_dir not in sessions:
+            sessions[session_dir] = h
+
+    all_rows: List[Dict[str, Any]] = []
+    ok_sessions = 0
+    for session_dir, hit in sessions.items():
+        try:
+            rows = wrx_sens.sensitivity_rows_for_session(
+                session_dir,
+                path_config_to_dict(hit.path_config),
+                pak_num=pak_num,
+                sens_accuracy=sens_accuracy,
+            )
+            all_rows.extend(rows)
+            ok_sessions += 1
+            print(f"[OK] sensitivity: {session_dir} -> {len(rows)} rate point(s)")
+        except Exception as ex:
+            print(f"[WARN] sensitivity skipped {session_dir}: {ex}")
+
+    if not all_rows:
+        print("[WARN] No sensitivity rows computed")
+        return 0
+
+    wrx_sens.write_sensitivity_csv(all_rows, out_csv)
+    print(
+        f"[OK] Sensitivity CSV: {os.path.abspath(out_csv)} "
+        f"({len(all_rows)} rows, {ok_sessions} session(s))"
+    )
+    return len(all_rows)
+
+
 def _print_transfer_summary(stats: TransferStats, dest_dir: str, *, move: bool) -> None:
     action = "Moved" if move else "Copied"
     print(f"\n=================== {action} summary ===================")
@@ -482,6 +550,29 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
         dest="use_config_prefix",
         help="Do not add path config tag to dest filenames",
     )
+    parser.add_argument(
+        "--sensitivity-out",
+        metavar="CSV",
+        default=SENSITIVITY_OUT_CSV,
+        help="Sensitivity summary CSV path (default: under --root, timestamped name)",
+    )
+    parser.add_argument(
+        "--no-sensitivity",
+        action="store_true",
+        help="Skip RX sensitivity calculation",
+    )
+    parser.add_argument(
+        "--pak-num",
+        type=int,
+        default=PAK_NUM,
+        help="Packet count for PER (wifiRxPlot PAK_NUM)",
+    )
+    parser.add_argument(
+        "--sens-accuracy",
+        type=int,
+        default=SENS_ACCURACY,
+        help="Interpolation steps for sensitivity (wifiRxPlot sens_accuracy)",
+    )
     args = parser.parse_args(argv)
 
     if COPY_DIR and MOVE_DIR:
@@ -499,6 +590,17 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
     except FileNotFoundError as e:
         print(f"Error: {e}")
         return 1
+
+    run_sens = RUN_SENSITIVITY and not args.no_sensitivity
+    if run_sens and hits:
+        sens_out = args.sensitivity_out or _default_sensitivity_out_path(args.root)
+        print(f"\nComputing RX sensitivity (wifiRxPlot algorithm) -> {sens_out}")
+        run_sensitivity_for_hits(
+            hits,
+            sens_out,
+            pak_num=args.pak_num,
+            sens_accuracy=args.sens_accuracy,
+        )
 
     list_with_config = LIST_OUT_WITH_CONFIG and not args.list_plain
     if args.list_out:
