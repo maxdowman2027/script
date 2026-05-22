@@ -70,8 +70,6 @@ _FORMAT_RE = re.compile(
     r"^(he|vht|ax|be|hesu|eht|11b|11g|11n|11ac|11ax|11be)$", re.I
 )
 _TESTCASE_RE = re.compile(r"^wifi_txrx", re.I)
-_RUN_RE = re.compile(r"^FPGA", re.I)
-_RX_RE = re.compile(r"^rx_", re.I)
 
 PATH_CONFIG_FIELDS = (
     "band",
@@ -80,8 +78,6 @@ PATH_CONFIG_FIELDS = (
     "coding",
     "wifi_format",
     "testcase_folder",
-    "run_folder",
-    "rx_folder",
 )
 
 
@@ -95,8 +91,6 @@ class PathConfig:
     coding: Optional[str] = None
     wifi_format: Optional[str] = None
     testcase_folder: Optional[str] = None
-    run_folder: Optional[str] = None
-    rx_folder: Optional[str] = None
     relative_parts: Tuple[str, ...] = ()
 
     def config_tag(self, sep: str = "_") -> str:
@@ -155,10 +149,6 @@ def _classify_segment(seg: str, cfg: PathConfig) -> PathConfig:
         return replace(cfg, wifi_format=seg.lower())
     if _TESTCASE_RE.match(seg) and not cfg.testcase_folder:
         return replace(cfg, testcase_folder=seg)
-    if _RUN_RE.match(seg) and not cfg.run_folder:
-        return replace(cfg, run_folder=seg)
-    if _RX_RE.match(seg) and not cfg.rx_folder:
-        return replace(cfg, rx_folder=seg)
     return cfg
 
 
@@ -407,8 +397,6 @@ def _write_list_file(
                         pc.coding or "",
                         pc.wifi_format or "",
                         pc.testcase_folder or "",
-                        pc.run_folder or "",
-                        pc.rx_folder or "",
                     ]
                 )
     else:

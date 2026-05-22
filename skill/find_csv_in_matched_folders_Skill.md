@@ -29,7 +29,7 @@
 | 列 | 说明 |
 |----|------|
 | `band`, `phymode`, `bandwidth`, `coding`, `wifi_format` | 路径解析 |
-| `testcase_folder`, `run_folder`, `rx_folder`, `config_tag` | 路径解析 |
+| `testcase_folder`, `config_tag` | 路径解析 |
 | `rx_session_dir` | 合并计算的 RX 日志目录 |
 | `rx_chan` | 信道 |
 | `testcase_label` | 用于 11b/其它 PER 门限推断 |
