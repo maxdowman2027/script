@@ -2,17 +2,21 @@
 
 ## 配置区
 `ROOT_SEARCH_PATH` / `FOLDER_PATTERN` / `MOVE_DIR`|`COPY_DIR`  
-`RUN_SENSITIVITY` / `SENSITIVITY_OUT_CSV` / `PAK_NUM` / `SENS_ACCURACY`
+`RUN_SENSITIVITY` / `SENSITIVITY_OUT_CSV` / `PAK_NUM` / `SENS_ACCURACY`  
+`RUN_SENSITIVITY_RADAR` / `SENSITIVITY_RADAR_DIR`
 
 ## 功能
-- 路径解析 → band, phymode(phymd), 20m, ldpc, he …
+- 路径解析 → band, phymode, 20m, ldpc, he …
+- testcase_folder → `mld_en`, `cur_degree`（当前角度 °）
 - 灵敏度（wifiRxPlot 算法）→ `sensitivity_summary_*.csv`
+- 极坐标雷达图：角度=cur_degree，半径=−sensitivity_dbm
 - 可选 copy/move、list-out TSV
 
 ## 运行
 ```bash
 python find_csv_in_matched_folders.py
-python find_csv_in_matched_folders.py --sensitivity-out D:\out\sens.csv
+python find_csv_in_matched_folders.py --sensitivity-out D:\out\sens.csv --radar-dir D:\out\radar
+python find_csv_in_matched_folders.py --no-radar
 ```
 
 ## 文档

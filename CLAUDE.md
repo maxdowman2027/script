@@ -131,7 +131,7 @@
 | Excel / CSV / 校验 | `merge_csv_to_xlsx.py`（合并 risc_wifitx、可选 EVM 透视、默认 WiFi7 TX PDF + EVM 异常报告；PDF 标题含 `suer_dcm` 时带 `dcm=`）、`file_merge.py`、`compare_data.py`、`cac_diff_xlsx.py`；大量 `check_*.py`；`analyze_*.py`、`explore_excel.py`、`detect_outliers.py`、`validate_conversion.py` 等 |
 | 寄存器（根目录） | `compare_reg_csv.py`（详细查询与 CSV 源文件在 `reg_query/`） |
 | 报告 / 汇总 | `generate_report.py`、`analyze_merged_tx_result.py`、`analyze_all_sheets.py`、`analyze_multi_sheet.py`、`summarize_fail_configs.py`、`view_comparison_results.py`、`verify_merged_files.py`、`my_ag.py` 等 |
-| 文件与路径工具 | `find_csv_in_matched_folders.py`（递归找 RX CSV、路径解析、`wifi_rx_sensitivity` 灵敏度 CSV、可选 copy/move）、`wifi_rx_sensitivity.py`（wifiRxPlot 灵敏度算法）、`file_rename.py` 等 |
+| 文件与路径工具 | `find_csv_in_matched_folders.py`（递归找 RX CSV、路径解析、`mld_en`/`cur_degree`、灵敏度 CSV 与极坐标雷达图、可选 copy/move）、`wifi_rx_sensitivity.py`（wifiRxPlot 灵敏度 + 雷达图）、`file_rename.py` 等 |
 | 通用与杂项 | `hex_to_decimal.py`、`parse_64bit_data.py`、`2to1.py`、`debug_05d.py` 等 |
 | Git / 提交辅助 | `check_and_commit.py`、`commit_all_changes.py`、`commit_changes.py` 及多份 **`commit_*.py`**、`simple_commit.py` — 历史/一次性提交流程较多，按需使用 |
 
@@ -197,8 +197,8 @@ spur_notch/notch_cal.py  ←──算法参照──→  spur_notch/spur_scan_pr
 | `merge_csv_to_xlsx.py` | 合并 `risc_wifitx_*.csv` 为按信道/编码/NSS 分 Sheet 的 XLSX；可选 EVM 透视统计；合并后默认可调用 `txAnalyse_wifi7` 出 TX 多页 PDF（CSV 含 `suer_dcm` 时图标题含 `dcm=`），并写 EVM 跨 rate/功率曲线异常报告 | merge_csv_to_xlsx_skill.md |
 | `file_merge.py` | 文件合并工具 | file_merge_Skill.md |
 | `file_rename.py` | 文件重命名工具 | - |
-| `find_csv_in_matched_folders.py` | 递归匹配文件夹收集 RX CSV；路径解析；**wifiRxPlot 灵敏度**汇总 CSV（`phymode`/band 等 + `sensitivity_dbm`）；copy/move、配置区 | find_csv_in_matched_folders_Skill.md |
-| `wifi_rx_sensitivity.py` | RX 灵敏度计算（PER 插值，供 find_csv / wifiRxPlot 同源逻辑） | find_csv_in_matched_folders_Skill.md |
+| `find_csv_in_matched_folders.py` | 递归匹配文件夹收集 RX CSV；路径解析；从 testcase 解析 `mld_en`/`cur_degree`；**wifiRxPlot 灵敏度** CSV + **按角度的雷达图**；copy/move、配置区 | find_csv_in_matched_folders_Skill.md |
+| `wifi_rx_sensitivity.py` | RX 灵敏度（PER 插值）与 `cur_degree` 极坐标雷达图（供 find_csv / wifiRxPlot 同源逻辑） | find_csv_in_matched_folders_Skill.md |
 | `process_ila_files.py` | 处理FPGA导出的ILA信号文件，解压缩并提取waveform.csv，按原始文件名重命名 | process_ila_files.skill |
 
 #### 2. EVM 分析工具
@@ -359,8 +359,9 @@ python analyze_mag_track_test_res.py "D:\path\to\mag_track_test_res_*.csv" -o "D
 python mag_track_rls4_fpga_analyse.py "D:\path\to\mag_track_test_res_*.csv" -o "D:\path\to\rls4_magtrk_pdf_out"
 
 # 按文件夹通配找 RX CSV，算灵敏度并写 CSV（路径配置 + sensitivity_dbm）
-python find_csv_in_matched_folders.py -r "D:\path\to\rftest_data\2G" -f "wifi_txrx_test_RXSens_*_mld_en0_cur_degree0"
-python find_csv_in_matched_folders.py --sensitivity-out "D:\path\to\sens_summary.csv" --copy-dir "D:\path\to\out"
+python find_csv_in_matched_folders.py -r "D:\path\to\rftest_data\2G" -f "wifi_txrx_test_RXSens_*_mld_en0_cur_degree*"
+python find_csv_in_matched_folders.py --sensitivity-out "D:\path\to\sens_summary.csv" --radar-dir "D:\path\to\radar"
+python find_csv_in_matched_folders.py --no-radar --copy-dir "D:\path\to\out"
 
 # Notch / spur（在仓库根目录执行；脚本位于 spur_notch/）
 python spur_notch/spur_scan_process.py

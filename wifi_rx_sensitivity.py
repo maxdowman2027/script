@@ -11,9 +11,38 @@ from __future__ import annotations
 import glob
 import math
 import os
-from typing import Any, Dict, List, Mapping, Optional, Sequence
+import re
+from collections import defaultdict
+from typing import Any, Dict, List, Mapping, Optional, Sequence, Tuple
 
 import pandas as pd
+
+_MLD_EN_RE = re.compile(r"mld_en(\d+)", re.I)
+_CUR_DEGREE_RE = re.compile(r"cur_degree(\d+)", re.I)
+
+
+def parse_testcase_folder_params(
+    testcase_folder: Optional[str],
+) -> Tuple[str, str]:
+    """
+    Extract mld_en and cur_degree from testcase folder basename.
+
+    Example: wifi_txrx_test_RXSens_..._mld_en0_cur_degree45 -> ("0", "45")
+    """
+    if not testcase_folder:
+        return "", ""
+    mld = _MLD_EN_RE.search(testcase_folder)
+    deg = _CUR_DEGREE_RE.search(testcase_folder)
+    return (mld.group(1) if mld else "", deg.group(1) if deg else "")
+
+
+def testcase_params_from_path_config(path_config: Mapping[str, Any]) -> Tuple[str, str]:
+    """mld_en / cur_degree from path_config, with fallback parse on testcase_folder."""
+    mld = str(path_config.get("mld_en") or "").strip()
+    deg = str(path_config.get("cur_degree") or "").strip()
+    if mld and deg:
+        return mld, deg
+    return parse_testcase_folder_params(path_config.get("testcase_folder"))
 
 
 def _strip_columns(df: pd.DataFrame) -> pd.DataFrame:
@@ -189,6 +218,7 @@ def sensitivity_rows_for_session(
     if index_col not in df.columns and is_acr:
         raise ValueError(f"ACR testcase but column 'acr' missing in {session_dir}")
 
+    mld_en, cur_degree = testcase_params_from_path_config(path_config)
     rows: List[Dict[str, Any]] = []
     base = {
         "band": path_config.get("band") or "",
@@ -197,6 +227,8 @@ def sensitivity_rows_for_session(
         "coding": path_config.get("coding") or "",
         "wifi_format": path_config.get("wifi_format") or "",
         "testcase_folder": path_config.get("testcase_folder") or "",
+        "mld_en": mld_en,
+        "cur_degree": cur_degree,
         "config_tag": path_config.get("config_tag") or "",
         "rx_session_dir": os.path.abspath(session_dir),
         "testcase_label": testcase,
@@ -235,6 +267,8 @@ def write_sensitivity_csv(rows: Sequence[Dict[str, Any]], out_path: str) -> None
         "coding",
         "wifi_format",
         "testcase_folder",
+        "mld_en",
+        "cur_degree",
         "config_tag",
         "rx_session_dir",
         "rx_chan",
@@ -251,3 +285,113 @@ def write_sensitivity_csv(rows: Sequence[Dict[str, Any]], out_path: str) -> None
             frame[col] = ""
     frame = frame[columns]
     frame.to_csv(out_path, index=False, encoding="utf-8-sig")
+
+
+def _safe_filename_part(value: Any, default: str = "na") -> str:
+    text = str(value).strip() if value is not None else ""
+    if not text:
+        return default
+    return re.sub(r"[^\w\-.]+", "_", text)[:80]
+
+
+def plot_sensitivity_radar(
+    rows: Sequence[Dict[str, Any]],
+    out_dir: str,
+) -> List[str]:
+    """
+    Polar (radar) charts: angle = cur_degree (°), radius = -sensitivity_dbm (larger = more sensitive).
+
+    One PNG per (band, phymode, bandwidth, coding, wifi_format, mld_en, rx_chan, rate).
+    """
+    import matplotlib.pyplot as plt
+    import numpy as np
+
+    groups: Dict[Tuple[Any, ...], List[Dict[str, Any]]] = defaultdict(list)
+    for row in rows:
+        deg = str(row.get("cur_degree") or "").strip()
+        sens = row.get("sensitivity_dbm")
+        if not deg or sens in (None, "", 0, 0.0):
+            continue
+        try:
+            float(deg)
+            float(sens)
+        except (TypeError, ValueError):
+            continue
+        key = (
+            row.get("band"),
+            row.get("phymode"),
+            row.get("bandwidth"),
+            row.get("coding"),
+            row.get("wifi_format"),
+            row.get("mld_en"),
+            row.get("rx_chan"),
+            row.get("rate"),
+        )
+        groups[key].append(row)
+
+    if not groups:
+        return []
+
+    out_dir = os.path.abspath(out_dir)
+    os.makedirs(out_dir, exist_ok=True)
+    written: List[str] = []
+
+    for key, grp in sorted(groups.items(), key=lambda kv: str(kv[0])):
+        pts = sorted(
+            [(float(r["cur_degree"]), float(r["sensitivity_dbm"])) for r in grp],
+            key=lambda x: x[0],
+        )
+        degrees = [p[0] for p in pts]
+        sens_dbm = [p[1] for p in pts]
+        theta = np.deg2rad(degrees)
+        radius = [-s for s in sens_dbm]
+
+        theta_closed = np.append(theta, theta[0])
+        radius_closed = np.append(radius, radius[0])
+
+        (
+            band,
+            phymode,
+            bandwidth,
+            coding,
+            wifi_format,
+            mld_en,
+            rx_chan,
+            rate,
+        ) = key
+
+        fig, ax = plt.subplots(figsize=(8, 8), subplot_kw={"projection": "polar"})
+        ax.plot(theta_closed, radius_closed, "o-", linewidth=2, markersize=6)
+        ax.fill(theta_closed, radius_closed, alpha=0.2)
+        ax.set_theta_zero_location("N")
+        ax.set_theta_direction(-1)
+        ax.set_thetagrids(degrees, labels=[f"{int(d)}°" for d in degrees])
+        ax.set_title(
+            "RX sensitivity vs angle\n"
+            f"{band} {phymode} {bandwidth} {coding} {wifi_format} | "
+            f"mld_en={mld_en} ch={rx_chan} rate={rate}\n"
+            f"(radius = −sensitivity_dbm, larger = more sensitive)",
+            pad=20,
+            fontsize=10,
+        )
+        for deg, s_dbm, r_val in zip(degrees, sens_dbm, radius):
+            ax.annotate(
+                f"{s_dbm:.1f}",
+                xy=(np.deg2rad(deg), r_val),
+                xytext=(4, 4),
+                textcoords="offset points",
+                fontsize=8,
+            )
+
+        fname = (
+            f"radar_{_safe_filename_part(band)}_{_safe_filename_part(phymode)}"
+            f"_{_safe_filename_part(bandwidth)}_{_safe_filename_part(coding)}"
+            f"_{_safe_filename_part(wifi_format)}_mld{_safe_filename_part(mld_en)}"
+            f"_ch{_safe_filename_part(rx_chan)}_rate{_safe_filename_part(rate)}.png"
+        )
+        out_path = os.path.join(out_dir, fname)
+        fig.savefig(out_path, dpi=150, bbox_inches="tight")
+        plt.close(fig)
+        written.append(out_path)
+
+    return written

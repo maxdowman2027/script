@@ -60,6 +60,9 @@ RUN_SENSITIVITY = True
 SENSITIVITY_OUT_CSV = None  # None → 在 ROOT_SEARCH_PATH 下 sensitivity_summary_YYYYMMDD_HHMMSS.csv
 PAK_NUM = 1000
 SENS_ACCURACY = 100
+# 6. 灵敏度雷达图（角度 = cur_degree，半径 = -sensitivity_dbm，越大越灵敏）
+RUN_SENSITIVITY_RADAR = True
+SENSITIVITY_RADAR_DIR = None  # None → 与灵敏度 CSV 同目录下的 <csv_stem>_radar/
 # =============================================================================
 
 _BAND_RE = re.compile(r"^(2G|5G|6G)$", re.I)
@@ -70,7 +73,6 @@ _FORMAT_RE = re.compile(
     r"^(he|vht|ax|be|hesu|eht|11b|11g|11n|11ac|11ax|11be)$", re.I
 )
 _TESTCASE_RE = re.compile(r"^wifi_txrx", re.I)
-
 PATH_CONFIG_FIELDS = (
     "band",
     "phymd",
@@ -78,6 +80,8 @@ PATH_CONFIG_FIELDS = (
     "coding",
     "wifi_format",
     "testcase_folder",
+    "mld_en",
+    "cur_degree",
 )
 
 
@@ -91,6 +95,8 @@ class PathConfig:
     coding: Optional[str] = None
     wifi_format: Optional[str] = None
     testcase_folder: Optional[str] = None
+    mld_en: Optional[str] = None
+    cur_degree: Optional[str] = None
     relative_parts: Tuple[str, ...] = ()
 
     def config_tag(self, sep: str = "_") -> str:
@@ -209,7 +215,19 @@ def extract_path_config(csv_path: str, root_search_path: str) -> PathConfig:
                 cfg = replace(cfg, band=seg.upper())
                 break
 
-    return cfg
+    return _apply_testcase_folder_params(cfg)
+
+
+def _apply_testcase_folder_params(cfg: PathConfig) -> PathConfig:
+    if not cfg.testcase_folder:
+        return cfg
+    mld_en, cur_degree = wrx_sens.parse_testcase_folder_params(cfg.testcase_folder)
+    updates = {}
+    if mld_en and not cfg.mld_en:
+        updates["mld_en"] = mld_en
+    if cur_degree and not cfg.cur_degree:
+        updates["cur_degree"] = cur_degree
+    return replace(cfg, **updates) if updates else cfg
 
 
 def iter_matched_folder_paths(
@@ -397,6 +415,8 @@ def _write_list_file(
                         pc.coding or "",
                         pc.wifi_format or "",
                         pc.testcase_folder or "",
+                        pc.mld_en or "",
+                        pc.cur_degree or "",
                     ]
                 )
     else:
@@ -448,12 +468,19 @@ def _default_sensitivity_out_path(root_search_path: str) -> str:
     return os.path.join(os.path.abspath(root_search_path), f"sensitivity_summary_{ts}.csv")
 
 
+def _default_radar_out_dir(sensitivity_csv: str) -> str:
+    base, _ = os.path.splitext(os.path.abspath(sensitivity_csv))
+    return f"{base}_radar"
+
+
 def run_sensitivity_for_hits(
     hits: Sequence[CsvHit],
     out_csv: str,
     *,
     pak_num: int = 1000,
     sens_accuracy: int = 100,
+    run_radar: bool = True,
+    radar_out_dir: Optional[str] = None,
 ) -> int:
     """
     Group hits by RX session directory (parent folder of CSV), merge logs, compute
@@ -490,6 +517,18 @@ def run_sensitivity_for_hits(
         f"[OK] Sensitivity CSV: {os.path.abspath(out_csv)} "
         f"({len(all_rows)} rows, {ok_sessions} session(s))"
     )
+
+    if run_radar:
+        radar_dir = radar_out_dir or _default_radar_out_dir(out_csv)
+        try:
+            pngs = wrx_sens.plot_sensitivity_radar(all_rows, radar_dir)
+            if pngs:
+                print(f"[OK] Sensitivity radar: {len(pngs)} chart(s) in {os.path.abspath(radar_dir)}")
+            else:
+                print("[WARN] No radar charts (need cur_degree and valid sensitivity_dbm)")
+        except Exception as ex:
+            print(f"[WARN] Radar plot skipped: {ex}")
+
     return len(all_rows)
 
 
@@ -561,6 +600,17 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
         default=SENS_ACCURACY,
         help="Interpolation steps for sensitivity (wifiRxPlot sens_accuracy)",
     )
+    parser.add_argument(
+        "--no-radar",
+        action="store_true",
+        help="Skip sensitivity vs cur_degree polar (radar) charts",
+    )
+    parser.add_argument(
+        "--radar-dir",
+        metavar="DIR",
+        default=SENSITIVITY_RADAR_DIR,
+        help="Output directory for radar PNGs (default: <sensitivity_csv_stem>_radar/)",
+    )
     args = parser.parse_args(argv)
 
     if COPY_DIR and MOVE_DIR:
@@ -588,6 +638,8 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
             sens_out,
             pak_num=args.pak_num,
             sens_accuracy=args.sens_accuracy,
+            run_radar=RUN_SENSITIVITY_RADAR and not args.no_radar,
+            radar_out_dir=args.radar_dir,
         )
 
     list_with_config = LIST_OUT_WITH_CONFIG and not args.list_plain
