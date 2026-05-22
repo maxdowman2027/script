@@ -60,7 +60,7 @@ RUN_SENSITIVITY = True
 SENSITIVITY_OUT_CSV = None  # None → 在 ROOT_SEARCH_PATH 下 sensitivity_summary_YYYYMMDD_HHMMSS.csv
 PAK_NUM = 1000
 SENS_ACCURACY = 100
-# 6. 灵敏度雷达图（角度 = cur_degree，半径 = -sensitivity_dbm，越大越灵敏）
+# 6. 灵敏度雷达图（角度=cur_degree，半径=-sensitivity_dbm；同配置叠加 mld_en0/1 对比）
 RUN_SENSITIVITY_RADAR = True
 SENSITIVITY_RADAR_DIR = None  # None → 与灵敏度 CSV 同目录下的 <csv_stem>_radar/
 # =============================================================================

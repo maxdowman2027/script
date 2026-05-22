@@ -9,7 +9,7 @@
 - 路径解析 → band, phymode, 20m, ldpc, he …
 - testcase_folder → `mld_en`, `cur_degree`（当前角度 °）
 - 灵敏度（wifiRxPlot 算法）→ `sensitivity_summary_*.csv`
-- 极坐标雷达图：角度=cur_degree，半径=−sensitivity_dbm
+- 极坐标雷达图：角度=cur_degree，半径=−sensitivity_dbm；同图叠加 mld_en0/1 对比
 - 可选 copy/move、list-out TSV
 
 ## 运行

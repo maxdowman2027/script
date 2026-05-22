@@ -294,6 +294,16 @@ def _safe_filename_part(value: Any, default: str = "na") -> str:
     return re.sub(r"[^\w\-.]+", "_", text)[:80]
 
 
+def _radar_mld_filename_tag(mld_values: Sequence[str]) -> str:
+    """Filename tag for compared mld_en series on one chart."""
+    ordered = sorted({str(m).strip() for m in mld_values if str(m).strip() != ""}, key=lambda x: (len(x), x))
+    if not ordered:
+        return "mld_na"
+    if ordered == ["0", "1"]:
+        return "mld0v1"
+    return "mld" + "_".join(ordered)
+
+
 def plot_sensitivity_radar(
     rows: Sequence[Dict[str, Any]],
     out_dir: str,
@@ -301,12 +311,16 @@ def plot_sensitivity_radar(
     """
     Polar (radar) charts: angle = cur_degree (°), radius = -sensitivity_dbm (larger = more sensitive).
 
-    One PNG per (band, phymode, bandwidth, coding, wifi_format, mld_en, rx_chan, rate).
+    One PNG per (band, phymode, bandwidth, coding, wifi_format, rx_chan, rate), with each
+    mld_en (e.g. 0 and 1) overlaid on the same axes for comparison.
     """
     import matplotlib.pyplot as plt
     import numpy as np
 
-    groups: Dict[Tuple[Any, ...], List[Dict[str, Any]]] = defaultdict(list)
+    # config_key -> mld_en -> rows
+    groups: Dict[Tuple[Any, ...], Dict[str, List[Dict[str, Any]]]] = defaultdict(
+        lambda: defaultdict(list)
+    )
     for row in rows:
         deg = str(row.get("cur_degree") or "").strip()
         sens = row.get("sensitivity_dbm")
@@ -317,17 +331,17 @@ def plot_sensitivity_radar(
             float(sens)
         except (TypeError, ValueError):
             continue
-        key = (
+        mld_en = str(row.get("mld_en") or "").strip() or "na"
+        config_key = (
             row.get("band"),
             row.get("phymode"),
             row.get("bandwidth"),
             row.get("coding"),
             row.get("wifi_format"),
-            row.get("mld_en"),
             row.get("rx_chan"),
             row.get("rate"),
         )
-        groups[key].append(row)
+        groups[config_key][mld_en].append(row)
 
     if not groups:
         return []
@@ -335,58 +349,74 @@ def plot_sensitivity_radar(
     out_dir = os.path.abspath(out_dir)
     os.makedirs(out_dir, exist_ok=True)
     written: List[str] = []
+    series_colors = plt.cm.tab10.colors
 
-    for key, grp in sorted(groups.items(), key=lambda kv: str(kv[0])):
-        pts = sorted(
-            [(float(r["cur_degree"]), float(r["sensitivity_dbm"])) for r in grp],
-            key=lambda x: x[0],
-        )
-        degrees = [p[0] for p in pts]
-        sens_dbm = [p[1] for p in pts]
-        theta = np.deg2rad(degrees)
-        radius = [-s for s in sens_dbm]
-
-        theta_closed = np.append(theta, theta[0])
-        radius_closed = np.append(radius, radius[0])
-
+    for config_key, by_mld in sorted(groups.items(), key=lambda kv: str(kv[0])):
         (
             band,
             phymode,
             bandwidth,
             coding,
             wifi_format,
-            mld_en,
             rx_chan,
             rate,
-        ) = key
+        ) = config_key
 
-        fig, ax = plt.subplots(figsize=(8, 8), subplot_kw={"projection": "polar"})
-        ax.plot(theta_closed, radius_closed, "o-", linewidth=2, markersize=6)
-        ax.fill(theta_closed, radius_closed, alpha=0.2)
+        fig, ax = plt.subplots(figsize=(9, 9), subplot_kw={"projection": "polar"})
+        all_degrees: set = set()
+        mld_keys = sorted(by_mld.keys(), key=lambda x: (x == "na", x))
+
+        for idx, mld_en in enumerate(mld_keys):
+            grp = by_mld[mld_en]
+            pts = sorted(
+                [(float(r["cur_degree"]), float(r["sensitivity_dbm"])) for r in grp],
+                key=lambda x: x[0],
+            )
+            if not pts:
+                continue
+            degrees = [p[0] for p in pts]
+            sens_dbm = [p[1] for p in pts]
+            all_degrees.update(degrees)
+            theta = np.deg2rad(degrees)
+            radius = [-s for s in sens_dbm]
+            theta_closed = np.append(theta, theta[0])
+            radius_closed = np.append(radius, radius[0])
+            color = series_colors[idx % len(series_colors)]
+            label = f"mld_en={mld_en}"
+            ax.plot(
+                theta_closed,
+                radius_closed,
+                "o-",
+                linewidth=2,
+                markersize=6,
+                color=color,
+                label=label,
+            )
+            ax.fill(theta_closed, radius_closed, alpha=0.12, color=color)
+
+        if not all_degrees:
+            plt.close(fig)
+            continue
+
+        deg_list = sorted(all_degrees)
         ax.set_theta_zero_location("N")
         ax.set_theta_direction(-1)
-        ax.set_thetagrids(degrees, labels=[f"{int(d)}°" for d in degrees])
+        ax.set_thetagrids(deg_list, labels=[f"{int(d)}°" for d in deg_list])
+        mld_tag = _radar_mld_filename_tag(mld_keys)
         ax.set_title(
-            "RX sensitivity vs angle\n"
+            "RX sensitivity vs angle (mld_en compare)\n"
             f"{band} {phymode} {bandwidth} {coding} {wifi_format} | "
-            f"mld_en={mld_en} ch={rx_chan} rate={rate}\n"
+            f"ch={rx_chan} rate={rate}\n"
             f"(radius = −sensitivity_dbm, larger = more sensitive)",
             pad=20,
             fontsize=10,
         )
-        for deg, s_dbm, r_val in zip(degrees, sens_dbm, radius):
-            ax.annotate(
-                f"{s_dbm:.1f}",
-                xy=(np.deg2rad(deg), r_val),
-                xytext=(4, 4),
-                textcoords="offset points",
-                fontsize=8,
-            )
+        ax.legend(loc="upper right", bbox_to_anchor=(1.25, 1.1), fontsize=9)
 
         fname = (
             f"radar_{_safe_filename_part(band)}_{_safe_filename_part(phymode)}"
             f"_{_safe_filename_part(bandwidth)}_{_safe_filename_part(coding)}"
-            f"_{_safe_filename_part(wifi_format)}_mld{_safe_filename_part(mld_en)}"
+            f"_{_safe_filename_part(wifi_format)}_{mld_tag}"
             f"_ch{_safe_filename_part(rx_chan)}_rate{_safe_filename_part(rate)}.png"
         )
         out_path = os.path.join(out_dir, fname)

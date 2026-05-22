@@ -51,10 +51,11 @@
 
 - **角度轴**：`cur_degree`（°），0° 在正北，顺时针增加（与天线转台角度一致）。  
 - **径向**：`-sensitivity_dbm`（数值越大表示越灵敏，即 dBm 越负时半径越大）。  
-- **分组**：每个 `(band, phymode, bandwidth, coding, wifi_format, mld_en, rx_chan, rate)` 一张 PNG。  
+- **分组**：每个 `(band, phymode, bandwidth, coding, wifi_format, rx_chan, rate)` 一张 PNG；**同一图上叠加**不同 `mld_en`（典型为 **mld_en=0 与 mld_en=1** 对比，图例区分）。  
+- **文件名**：同时含 0/1 时为 `..._mld0v1_...png`。  
 - **输出目录**：默认与灵敏度 CSV 同目录下的 `<csv_stem>_radar/`（可用 `SENSITIVITY_RADAR_DIR` 或 `--radar-dir` 指定）。
 
-需至少 1 个有效点（含 `cur_degree` 且 `sensitivity_dbm ≠ 0`）；多角度时曲线闭合显示。
+需至少 1 个有效点（含 `cur_degree` 且 `sensitivity_dbm ≠ 0`）；多角度时各 `mld_en` 曲线分别闭合显示。
 
 ---
 
