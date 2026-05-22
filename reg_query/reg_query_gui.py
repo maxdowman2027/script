@@ -7,6 +7,7 @@ E22寄存器查询工具 - GUI版本
 3. 支持指定CSV文件路径
 4. 列出所有可用的寄存器定义CSV文件
 5. 将查询结果导出到文本文件
+6. 可选：输入整寄存器 32bit 读回值，按 CSV 位域解析各信号取值
 """
 
 import tkinter as tk
@@ -189,6 +190,79 @@ def align_write_tokens_to_queries(write_tokens, num_queries):
     while len(out) < num_queries:
         out.append('')
     return out
+
+
+def parse_full_reg32_value(text):
+    """
+    解析 32bit 寄存器读回值（十六进制或十进制）。
+    返回 (masked_uint32, None) 或 (None, 错误信息)。
+    """
+    if text is None:
+        return None, None
+    s = str(text).strip()
+    if not s:
+        return None, None
+    try:
+        v = int(s, 0)
+    except ValueError:
+        return None, f"32bit读值格式错误: {text}"
+    if v < 0:
+        return None, "32bit读值不支持负数"
+    masked = v & 0xFFFFFFFF
+    if v != masked:
+        # 允许超过 32 位时仅取低 32 位，并在输出里说明
+        pass
+    return masked, None
+
+
+def extract_bit_field_value(val32, msb, lsb):
+    """从 32bit 无符号值中取出 [msb:lsb] 字段（含边界）。"""
+    val32 &= 0xFFFFFFFF
+    if msb < lsb:
+        msb, lsb = lsb, msb
+    w = msb - lsb + 1
+    if w <= 0 or w > 32:
+        return 0
+    return (val32 >> lsb) & ((1 << w) - 1)
+
+
+def decode_register_read_value(info, val32):
+    """
+    将 32bit 读回值按 CSV 位域拆成各信号取值。
+    若无 bit_fields 但有 bit_pos（按名称命中子域），则只解析该域。
+    """
+    lines = []
+    v = val32 & 0xFFFFFFFF
+    lines.append(f"读回32bit: 0x{v:08X} ({v} 十进制)")
+    lines.append(f"  二进制: 0b{bin(v)[2:].zfill(32)}")
+
+    fields = list(info.get("bit_fields") or [])
+    if not fields and info.get("bit_pos"):
+        fields = [
+            {
+                "signal": info.get("reg_name") or "field",
+                "bit_pos": info["bit_pos"],
+                "default": info.get("bit_default", ""),
+            }
+        ]
+
+    if not fields:
+        lines.append("  (CSV 中无位域列表，无法按域拆分)")
+        return "\n".join(lines)
+
+    lines.append("\n按位域解析:")
+    for field in fields:
+        sig = str(field.get("signal", "")).strip() or "(unnamed)"
+        bp = field.get("bit_pos", "")
+        msb, lsb = parse_bit_range(bp)
+        fv = extract_bit_field_value(v, msb, lsb)
+        w = msb - lsb + 1
+        frag = f"  {sig:40s} {str(bp):12s} [{msb}:{lsb}] = 0x{fv:X} ({fv} 十进制)"
+        if w <= 16:
+            frag += f"  bin:{bin(fv)[2:].zfill(w)}"
+        lines.append(frag)
+
+    return "\n".join(lines)
 
 
 def parse_write_value_to_hex(write_value_text):
@@ -385,7 +459,9 @@ def find_register_by_address(search_addr, csv_dir=None):
     return None, "未找到该地址的寄存器"
 
 
-def format_register_info(info, write_value_text=None):
+def format_register_info(
+    info, write_value_text=None, reg_read_32=None, read_decode_error=None
+):
     """格式化寄存器信息为字符串"""
     lines = []
     lines.append("=" * 60)
@@ -421,6 +497,13 @@ def format_register_info(info, write_value_text=None):
     if rw.get('write_cmd_default'):
         lines.append(f"  写命令(默认值示例): {rw['write_cmd_default']}")
 
+    if read_decode_error:
+        lines.append("\n32bit读值按位域解析:")
+        lines.append(f"  错误: {read_decode_error}")
+    elif reg_read_32 is not None:
+        lines.append("\n32bit读值按位域解析:")
+        lines.append(decode_register_read_value(info, reg_read_32))
+
     lines.append("=" * 60)
 
     return '\n'.join(lines)
@@ -430,7 +513,7 @@ class RegQueryGUI:
     def __init__(self, root):
         self.root = root
         self.root.title("E22 寄存器查询工具")
-        self.root.geometry("900x700")
+        self.root.geometry("920x820")
 
         self.csv_dir = os.path.join(SCRIPT_DIR, 'csv_files')
 
@@ -445,8 +528,8 @@ class RegQueryGUI:
         self.root.columnconfigure(0, weight=1)
         self.root.rowconfigure(0, weight=1)
         main_frame.columnconfigure(1, weight=1)
-        main_frame.rowconfigure(7, weight=1)
-        main_frame.rowconfigure(9, weight=1)
+        main_frame.rowconfigure(8, weight=1)
+        main_frame.rowconfigure(10, weight=1)
 
         # 查询方式选择
         self.query_type = tk.StringVar(value="name")
@@ -478,28 +561,40 @@ class RegQueryGUI:
             justify=tk.LEFT,
         ).grid(row=3, column=2, sticky=tk.W, padx=(5, 0), pady=(0, 5))
 
+        # 32bit 读回值（可选）：按位域拆成各信号取值；多项与查询顺序对应
+        ttk.Label(main_frame, text="32bit读回值(可选):").grid(row=4, column=0, sticky=(tk.N, tk.W), pady=(0, 5))
+        self.read32_value_text = scrolledtext.ScrolledText(main_frame, height=3, wrap=tk.WORD)
+        self.read32_value_text.grid(row=4, column=1, sticky=(tk.W, tk.E), pady=(0, 5))
+        ttk.Label(
+            main_frame,
+            text="整寄存器读回值，按 CSV 位域解析。\n"
+                 "与查询顺序对应；仅 1 个值且多条查询时作用于全部。\n"
+                 "示例: 0xC30270D8 或 3277468120",
+            justify=tk.LEFT,
+        ).grid(row=4, column=2, sticky=tk.W, padx=(5, 0), pady=(0, 5))
+
         # 查询按钮
-        ttk.Button(main_frame, text="查询", command=self.perform_query, style="Accent.TButton").grid(row=4, column=0, columnspan=3, pady=(10, 0))
+        ttk.Button(main_frame, text="查询", command=self.perform_query, style="Accent.TButton").grid(row=5, column=0, columnspan=3, pady=(10, 0))
 
         # 列出可用CSV文件按钮
-        ttk.Button(main_frame, text="列出可用CSV文件", command=self.list_csv_files).grid(row=5, column=0, columnspan=3, pady=(5, 0))
+        ttk.Button(main_frame, text="列出可用CSV文件", command=self.list_csv_files).grid(row=6, column=0, columnspan=3, pady=(5, 0))
 
         # 查询结果显示
-        ttk.Label(main_frame, text="查询结果:").grid(row=6, column=0, sticky=tk.W, pady=(10, 5))
+        ttk.Label(main_frame, text="查询结果:").grid(row=7, column=0, sticky=tk.W, pady=(10, 5))
         self.result_text = scrolledtext.ScrolledText(main_frame, height=20)
-        self.result_text.grid(row=7, column=0, columnspan=3, sticky=(tk.W, tk.E, tk.N, tk.S), pady=(0, 10))
+        self.result_text.grid(row=8, column=0, columnspan=3, sticky=(tk.W, tk.E, tk.N, tk.S), pady=(0, 10))
 
         # 命令输出（每行纯命令，可直接复制执行）
-        ttk.Label(main_frame, text="命令输出(每行可直接执行):").grid(row=8, column=0, sticky=tk.W, pady=(0, 5))
+        ttk.Label(main_frame, text="命令输出(每行可直接执行):").grid(row=9, column=0, sticky=tk.W, pady=(0, 5))
         self.command_text = scrolledtext.ScrolledText(main_frame, height=10)
-        self.command_text.grid(row=9, column=0, columnspan=3, sticky=(tk.W, tk.E, tk.N, tk.S), pady=(0, 10))
+        self.command_text.grid(row=10, column=0, columnspan=3, sticky=(tk.W, tk.E, tk.N, tk.S), pady=(0, 10))
 
         # 导出按钮
-        ttk.Button(main_frame, text="导出结果到文件", command=self.export_result).grid(row=10, column=0, columnspan=3, pady=(0, 5))
+        ttk.Button(main_frame, text="导出结果到文件", command=self.export_result).grid(row=11, column=0, columnspan=3, pady=(0, 5))
 
         # 状态栏
         self.status_var = tk.StringVar(value="准备就绪")
-        ttk.Label(main_frame, textvariable=self.status_var, style="Status.TLabel").grid(row=11, column=0, columnspan=3, sticky=(tk.W, tk.E))
+        ttk.Label(main_frame, textvariable=self.status_var, style="Status.TLabel").grid(row=12, column=0, columnspan=3, sticky=(tk.W, tk.E))
 
         # 创建样式
         style = ttk.Style()
@@ -527,16 +622,20 @@ class RegQueryGUI:
         self.command_text.delete(1.0, tk.END)
 
         write_raw = self.write_value_text.get(1.0, tk.END)
-        # 创建后台线程执行查询（写值在主线程读取，避免 Tk 跨线程访问）
-        thread = threading.Thread(target=self.query_thread, args=(query_text, write_raw))
+        read_raw = self.read32_value_text.get(1.0, tk.END)
+        # 创建后台线程执行查询（写值/读值在主线程读取，避免 Tk 跨线程访问）
+        thread = threading.Thread(
+            target=self.query_thread, args=(query_text, write_raw, read_raw)
+        )
         thread.daemon = True
         thread.start()
 
-    def query_thread(self, query_text, write_raw):
+    def query_thread(self, query_text, write_raw, read_raw):
         """查询线程"""
         try:
             queries = split_query_tokens(query_text)
             write_tokens_full = split_write_value_tokens(write_raw)
+            read_tokens_full = split_write_value_tokens(read_raw)
 
             results = []
             errors = []
@@ -563,9 +662,38 @@ class RegQueryGUI:
                         f"写寄存器值项数多于查询项，已忽略末尾 {extra_n} 个写值"
                     )
 
+            # 32bit 读值：与写值相同的对齐与广播规则
+            if (
+                len(queries) > 1
+                and len(read_tokens_full) == 1
+                and read_tokens_full[0].strip()
+            ):
+                read_aligned = [read_tokens_full[0].strip()] * len(queries)
+            else:
+                read_extra = 0
+                if len(read_tokens_full) > len(queries):
+                    read_extra = len(read_tokens_full) - len(queries)
+                    read_tokens_full = read_tokens_full[: len(queries)]
+                read_aligned = align_write_tokens_to_queries(
+                    read_tokens_full, len(queries)
+                )
+                if read_extra > 0:
+                    errors.append(
+                        f"32bit读回值项数多于查询项，已忽略末尾 {read_extra} 个读值"
+                    )
+
             for idx, query in enumerate(queries):
                 wtok = write_aligned[idx] if idx < len(write_aligned) else ''
                 wv_for_cmd = wtok.strip() if wtok else None
+
+                rtok = read_aligned[idx] if idx < len(read_aligned) else ''
+                rtok_s = rtok.strip() if rtok else ''
+                reg_read_32 = None
+                read_decode_error = None
+                if rtok_s:
+                    reg_read_32, read_decode_error = parse_full_reg32_value(rtok_s)
+                    if read_decode_error:
+                        reg_read_32 = None
 
                 if self.query_type.get() == "name":
                     info, error = find_register_info(query, self.csv_dir)
@@ -582,7 +710,14 @@ class RegQueryGUI:
                         f"查询 '{query}' 写值解析: {rw['write_parse_error']}"
                     )
 
-                results.append(format_register_info(info, write_value_text=wv_for_cmd))
+                results.append(
+                    format_register_info(
+                        info,
+                        write_value_text=wv_for_cmd,
+                        reg_read_32=reg_read_32,
+                        read_decode_error=read_decode_error,
+                    )
+                )
                 command_lines.append(rw['read_cmd'])
                 command_lines.append(rw['write_cmd_for_execute'])
 
