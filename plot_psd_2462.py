@@ -8,7 +8,7 @@ from scipy.signal import welch
 import matplotlib.gridspec as gridspec
 from matplotlib.backends.backend_pdf import PdfPages
     # 创建PDF文件
-output_pdf = r"D:\test_data\wifi7\260508\9P\eht_5180_mcs8_len512_pwr0_9p_dacdata.pdf"
+output_pdf = r"D:\test_data\rls4\260513_magtrk_debug\rxdc_gain3out_data_58dB.pdf"
 # 采样率（80MHz）
 fs = 160e6  # 80MHz
 # 同时调整采样率
@@ -16,15 +16,15 @@ fs_downsampled = fs / 2
 # fs_downsampled = fs 
 def read_data():
     """读取CSV数据"""
-    csv_file = r"D:\test_data\wifi7\260508\9P\eht_5180_mcs8_len512_pwr0_9p_dacdata.csv"
+    csv_file = r"D:\test_data\rls4\260513_magtrk_debug\rxdc_gain3out_data_58dB.csv"
     try:
         df = pd.read_csv(csv_file)
 
         # 提取所需列的数据
-        dac_i_ch0 = df['dac_i_ch0'].values
-        dac_q_ch0 = df['dac_q_ch0'].values
-        dac_i_ch1 = df['dac_i_ch0'].values
-        dac_q_ch1 = df['dac_q_ch0'].values
+        dac_i_ch0 = df['adc_i_ch0'].values
+        dac_q_ch0 = df['adc_q_ch0'].values
+        dac_i_ch1 = df['rxgain_i_ch0'].values
+        dac_q_ch1 = df['rxgain_q_ch0'].values
 
         return dac_i_ch0, dac_q_ch0, dac_i_ch1, dac_q_ch1
 
@@ -36,9 +36,10 @@ def read_data():
 
 def normalize_data(data):
     """归一化数据到范围 [-1, 1]"""
-    data_min = np.min(data)
-    data_max = np.max(data)
-    normalized_data = 2 * (data - data_min) / (data_max - data_min) - 1
+    # data_min = np.min(data)
+    # data_max = np.max(data)
+    # normalized_data = 2 * (data - data_min) / (data_max - data_min) - 1
+    normalized_data = data / (2**12)
     return normalized_data
 
 def plot_psd(data_complex, fs, title, ax, color):
@@ -77,11 +78,15 @@ def main():
         return False
 
     # 归一化数据到[-1, 1]范围
-    dac_i_ch0_norm = normalize_data(dac_i_ch0)
-    dac_q_ch0_norm = normalize_data(dac_q_ch0)
-    dac_i_ch1_norm = normalize_data(dac_i_ch1)
-    dac_q_ch1_norm = normalize_data(dac_q_ch1)
+    # dac_i_ch0_norm = normalize_data(dac_i_ch0)
+    # dac_q_ch0_norm = normalize_data(dac_q_ch0)
+    # dac_i_ch1_norm = normalize_data(dac_i_ch1)
+    # dac_q_ch1_norm = normalize_data(dac_q_ch1)
 
+    dac_i_ch0_norm = dac_i_ch0
+    dac_q_ch0_norm = dac_q_ch0
+    dac_i_ch1_norm = dac_i_ch1
+    dac_q_ch1_norm = dac_q_ch1
     # 对数据进行2抽1降采样
     dac_i_ch0_norm = dac_i_ch0_norm[::2]
     dac_q_ch0_norm = dac_q_ch0_norm[::2]
