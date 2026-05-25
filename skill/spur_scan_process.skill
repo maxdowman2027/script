@@ -4,7 +4,7 @@
 `spur_notch/spur_scan_process.py` — 仓库根执行：`python spur_notch/spur_scan_process.py`
 
 ## 三步流水线
-1. IQ CSV → PSD 杂散检测 → `result/spur_scan_result.csv` + `output/spectrum/*.pdf`（IQ/PSD 图）
+1. IQ CSV → PSD 杂散检测 + 非DC/非40M倍频>40M倍频功率检查 → `result/spur_scan_result.csv` + `output/spectrum/*.pdf`
 2. 陷波 IIR 系数定点化 → `result/spur_scan_result_coef.csv`
 3. 按 Used_Frequency 算频点功率 → 回写 coef 的 `pwr`（`.bak` 备份）
 

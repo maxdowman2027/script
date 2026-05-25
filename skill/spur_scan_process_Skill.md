@@ -69,11 +69,18 @@ ADC/IQ CSV (phy_mode*_chan*.csv)
 
 **无杂散**：写入 `frequency/diff_pwr/pwr = no_spur`（列表字段为字符串 `no_spur`）。
 
+**非 DC 相对 40M 倍频功率检查**（写入 `spur_scan_result.csv` 扩展列）：
+
+- **DC 排除**：`|F| <= 0.1` MHz（`DC_MARGIN_MHZ`）视为中心/DC 邻域，不参与比较。  
+- **40M 倍频参考**：非 DC 且满足 40 MHz 栅格规则（与上表杂散筛选 `% 40 == 0` 相同）的频点，取其中 PSD 功率 **最大值** `harm_40m_ref_pwr_db`。  
+- **异常判定**：非 DC、**非** 40M 倍频、且 `PSD > SPUR_THR`、且 **功率 > harm_40m_ref_pwr_db** 的频点记入 `non_harm_above_40m_*`；`has_non_harm_above_40m` 为 `yes`/`no`/`no_40m_ref`（无倍频参考点时）。  
+- 控制台对 `yes` 打印 `[WARN]`；频谱 PDF 上用**橙色三角**标出异常频点。
+
 **频谱图输出**（`SAVE_SPECTRUM_PLOTS=True`，默认开启）：
 
 - 目录：`{OUTPUT_DIR}/output/spectrum/`
 - 每个输入 CSV 一个 PDF（与 `psd_plot.py` 相同两页）：**IQ 时域**（I/Q 波形）、**PSD 频谱**（`fftshift` 后功率密度 dB）
-- PSD 图含：`SPUR_THR` 水平参考线；筛选后的杂散频点 **红色圆点** 标注
+- PSD 图含：`SPUR_THR` 水平参考线；40M 栅格杂散 **红点**；高于倍频参考的非倍频点 **橙色三角**
 - 关闭：`main_process(..., save_spectrum_plots=False)` 或脚本底部 `SAVE_SPECTRUM_PLOTS = False`
 
 **输出列**：
@@ -85,6 +92,9 @@ ADC/IQ CSV (phy_mode*_chan*.csv)
 | `frequency` | 杂散相对频偏列表（MHz），或 `no_spur` |
 | `diff_pwr` | 相对 avg_pwr 的 dB 差 |
 | `pwr` | `10*log10(|P|)-58` 的初值（dB 量纲，与历史脚本一致） |
+| `harm_40m_ref_pwr_db` | 非 DC 的 40M 倍频点中最大 PSD (dB) |
+| `non_harm_above_40m_freq` / `_pwr` / `_diff` | 高于该参考的非倍频点（>SPUR_THR） |
+| `has_non_harm_above_40m` | `yes` / `no` / `no_40m_ref` |
 
 ---
 
