@@ -294,6 +294,13 @@ def _safe_filename_part(value: Any, default: str = "na") -> str:
     return re.sub(r"[^\w\-.]+", "_", text)[:80]
 
 
+def _radar_radius_from_sensitivity(sensitivity_dbm: float) -> float:
+    """Polar radius: 0 dBm sensitivity -> origin; else -sensitivity_dbm (larger = more sensitive)."""
+    if sensitivity_dbm == 0.0:
+        return 0.0
+    return -sensitivity_dbm
+
+
 def _radar_mld_filename_tag(mld_values: Sequence[str]) -> str:
     """Filename tag for compared mld_en series on one chart."""
     ordered = sorted({str(m).strip() for m in mld_values if str(m).strip() != ""}, key=lambda x: (len(x), x))
@@ -313,6 +320,10 @@ def plot_sensitivity_radar(
 
     One PNG per (band, phymode, bandwidth, coding, wifi_format, rx_chan, rate), with each
     mld_en (e.g. 0 and 1) overlaid on the same axes for comparison.
+
+    Points exist only for angles present in data (missing angles are not interpolated;
+    the polyline connects consecutive measured angles). sensitivity_dbm == 0 is drawn
+    at the origin on that angle axis.
     """
     import matplotlib.pyplot as plt
     import numpy as np
@@ -324,7 +335,7 @@ def plot_sensitivity_radar(
     for row in rows:
         deg = str(row.get("cur_degree") or "").strip()
         sens = row.get("sensitivity_dbm")
-        if not deg or sens in (None, "", 0, 0.0):
+        if not deg or sens in (None, ""):
             continue
         try:
             float(deg)
@@ -378,7 +389,7 @@ def plot_sensitivity_radar(
             sens_dbm = [p[1] for p in pts]
             all_degrees.update(degrees)
             theta = np.deg2rad(degrees)
-            radius = [-s for s in sens_dbm]
+            radius = [_radar_radius_from_sensitivity(s) for s in sens_dbm]
             theta_closed = np.append(theta, theta[0])
             radius_closed = np.append(radius, radius[0])
             color = series_colors[idx % len(series_colors)]

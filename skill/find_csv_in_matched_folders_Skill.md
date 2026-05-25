@@ -55,7 +55,7 @@
 - **文件名**：同时含 0/1 时为 `..._mld0v1_...png`。  
 - **输出目录**：默认与灵敏度 CSV 同目录下的 `<csv_stem>_radar/`（可用 `SENSITIVITY_RADAR_DIR` 或 `--radar-dir` 指定）。
 
-需至少 1 个有效点（含 `cur_degree` 且 `sensitivity_dbm ≠ 0`）；多角度时各 `mld_en` 曲线分别闭合显示。
+需至少 1 个有效点（含 `cur_degree` 且 `sensitivity_dbm` 有数值）；**`sensitivity_dbm = 0`** 时该角度点画在**原点**；某角度无数据则不插点，折线直接连到下一有数据的角度；多角度时各 `mld_en` 曲线闭合回首点。
 
 ---
 

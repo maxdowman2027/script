@@ -33,6 +33,7 @@ ROOT_SEARCH_PATH = (
 
 # 2. 要匹配的文件夹名（basename 通配符；正则模式时设 USE_REGEX_FOLDER=True）
 FOLDER_PATTERN = "wifi_txrx_test_RXSens_*_mld_en*_cur_degree*"
+# FOLDER_PATTERN = "wifi_txrx_test_*_11ac_*_mld_en*_cur_degree*"
 
 # 3. 匹配文件夹内的 CSV 文件名（通配符）
 CSV_PATTERN = "*.csv"
@@ -60,7 +61,7 @@ RUN_SENSITIVITY = True
 SENSITIVITY_OUT_CSV = None  # None → 在 ROOT_SEARCH_PATH 下 sensitivity_summary_YYYYMMDD_HHMMSS.csv
 PAK_NUM = 1000
 SENS_ACCURACY = 100
-# 6. 灵敏度雷达图（角度=cur_degree，半径=-sensitivity_dbm；同配置叠加 mld_en0/1 对比）
+# 6. 灵敏度雷达图（角度=cur_degree；sens=0 在原点；无数据角度不插点直连下一角度；mld_en0/1 同图对比）
 RUN_SENSITIVITY_RADAR = True
 SENSITIVITY_RADAR_DIR = None  # None → 与灵敏度 CSV 同目录下的 <csv_stem>_radar/
 # =============================================================================
