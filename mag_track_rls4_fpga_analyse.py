@@ -465,8 +465,8 @@ def main() -> None:
     args = parser.parse_args()
 
     default_csv = (
-        r"D:\chip_test\dev\xian_test\Xian-Esp-Test-Scripts\py_script_fpga_tx_wifi7\Log\mag_track_test_res\rls4"
-        r"\mag_track_test_res_20260513_182448.csv"
+        r"D:\chip_test\dev\xian_test\Xian-Esp-Test-Scripts\py_script_fpga_tx_wifi7\Log\mag_track_test_res\rls4\20260514"
+        r"\mag_track_test_res_20260514_115140.csv"
     )
     inp = args.input or default_csv
     if not os.path.exists(inp):

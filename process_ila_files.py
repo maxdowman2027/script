@@ -23,7 +23,7 @@ import sys
 # 配置参数 - 可根据需要修改
 # ===========================================
 # 输入目录：包含.ila文件的目录
-INPUT_DIR = r"D:\test_data\wifi7\260508\9P"
+INPUT_DIR = r"D:\test_data\rls4\260513_magtrk_debug"
 
 # 输出目录：用于保存提取后的CSV文件（默认与输入目录相同）
 # 如果需要保存到其他目录，请修改此处
@@ -40,11 +40,13 @@ DELETE_ORIGINAL = False
 
 # 提取后的CSV保留列（None表示保留所有列）
 # 示例：["Time", "sample_i", "sample_q"]
-KEEP_COLUMNS = ["dac_i_ch0[11:0]" ,"dac_q_ch0[11:0]"]
-
+# KEEP_COLUMNS = ["adc_q_ch0[11:0]","adc_i_ch0[11:0]"]
+KEEP_COLUMNS = ["adc_q_ch0[11:0]","adc_i_ch0[11:0]" ,"rxgain_i_ch0[11:0]" ,"rxgain_q_ch0[11:0]"]
+#
 # 提取后的CSV列重命名映射（None表示不重命名）
 # 示例：{"sample_i": "i_data", "sample_q": "q_data"}
-RENAME_COLUMNS =  ["dac_i_ch0" ,"dac_q_ch0"]
+# RENAME_COLUMNS =  ["adc_q_ch0","adc_i_ch0"]
+RENAME_COLUMNS =  ["adc_q_ch0","adc_i_ch0","rxgain_i_ch0" ,"rxgain_q_ch0"]
 
 # ===========================================
 # 核心处理函数

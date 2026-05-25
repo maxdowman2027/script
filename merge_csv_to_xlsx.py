@@ -1224,9 +1224,9 @@ def merge_csv_to_xlsx(input_dir, output_file, crc_fail_file=None,
 
 def main():
     parser = argparse.ArgumentParser(description="合并 risc_wifitx CSV 到 XLSX，并生成 15dBm EVM 透视统计表")
-    parser.add_argument("--input_dir", default=r"D:\chip_test\dev\xian_test\Xian-Esp-Test-Scripts\py_script_fpga_tx_wifi7\Log\wifi_tx_9p\0507")
-    parser.add_argument("--output_file", default=r"D:\chip_test\dev\xian_test\Xian-Esp-Test-Scripts\py_script_fpga_tx_wifi7\Log\wifi_tx_9p\0507/merged_tx_result.xlsx")
-    parser.add_argument("--crc_fail_file", default=r"D:\chip_test\dev\xian_test\Xian-Esp-Test-Scripts\py_script_fpga_tx_wifi7\Log\wifi_tx_9p\0507/tx_crc_fail_result.xlsx")
+    parser.add_argument("--input_dir", default=r"D:\chip_test\dev\xian_test\Xian-Esp-Test-Scripts\py_script_fpga_tx_wifi7\Log\wifi_tx_rls4\regression_260514_mld\2")
+    parser.add_argument("--output_file", default=r"D:\chip_test\dev\xian_test\Xian-Esp-Test-Scripts\py_script_fpga_tx_wifi7\Log\wifi_tx_rls4\regression_260514_mld\2/merged_tx_result.xlsx")
+    parser.add_argument("--crc_fail_file", default=r"D:\chip_test\dev\xian_test\Xian-Esp-Test-Scripts\py_script_fpga_tx_wifi7\Log\wifi_tx_rls4\regression_260514_mld\2/tx_crc_fail_result.xlsx")
     parser.add_argument("--summary_tx_pwr", type=float, default=15.0, help="统计表使用的 tx 功率点 (dBm)")
     parser.add_argument("--no_evm_summary", action="store_true", help="不生成独立 EVM 统计 xlsx")
     parser.add_argument(
@@ -1249,7 +1249,7 @@ def main():
     parser.add_argument(
         "--anomaly_rate_gap",
         type=float,
-        default=2.0,
+        default=2.5,
         help="同配置下 rate 均值劣于组内中位数的报警阈值 (dB)，默认 2",
     )
     parser.add_argument(

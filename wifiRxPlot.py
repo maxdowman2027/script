@@ -13,7 +13,7 @@ import time
 # filename = os.listdir(r'D:/workspace/fpga/Rx_data/' + testcase)
 # filename.sorted
 # foldername = 'D:/workspace/fpga/Rx_data_temp_test/'
-foldername = 'D:/users/gxu/spur_scan/260309/5G/160m/vht/notch_enable0/'
+foldername = r'D:\chip_test\dev\xian_test\Xian-Esp-Test-Scripts\rftest_data\2G\phymd20\20m\ldpc\he\wifi_txrx_test_RXSens_hesu_giltf1_phymd20_2.4G/'
 # foldername = 'D:/workspace/fpga/Rx_data_compare/'
 # foldername = 'D:/workspace/fpga/Rx_data/violate/'
 sens_accuracy = 100

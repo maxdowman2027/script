@@ -9,15 +9,15 @@ from datetime import datetime
 def main():
     # 可配置变量 - 直接在这里修改即可使用
     # 文件路径
-    file1 = r"D:\chip_test\dev\xian_test\Xian-Esp-Test-Scripts\py_script_fpga_tx_wifi7\Log\wifi_tx\260428_regression\merged_tx_result.xlsx"
-    file2 = r"D:\chip_test\dev\xian_test\Xian-Esp-Test-Scripts\py_script_fpga_tx_wifi7\Log\wifi_tx_9p\0507\merged_tx_result.xlsx"
+    file1 = r"D:\chip_test\dev\xian_test\Xian-Esp-Test-Scripts\py_script_fpga_tx_wifi7\Log\wifi_tx_rls4\regression_v3_260424\merged_tx_result.xlsx"
+    file2 = r"D:\chip_test\dev\xian_test\Xian-Esp-Test-Scripts\py_script_fpga_tx_wifi7\Log\wifi_tx_rls4\regression_260514_mld\2\merged_tx_result.xlsx"
 
     # 版本名称
-    version1 = "wifi7_9p_0428"
-    version2 = "wifi7_9p_0507"
+    version1 = "rls4_0424"
+    version2 = "rls4_0521"
 
     # 输出目录
-    output_dir = r"D:\chip_test\dev\xian_test\Xian-Esp-Test-Scripts\py_script_fpga_tx_wifi7\Log\wifi7_9p_evm_comparison"
+    output_dir = r"D:\chip_test\dev\xian_test\Xian-Esp-Test-Scripts\py_script_fpga_tx_wifi7\Log\rls4_9p_evm_comparison"
 
     # 创建输出目录
     os.makedirs(output_dir, exist_ok=True)

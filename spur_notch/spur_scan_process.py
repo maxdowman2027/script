@@ -807,9 +807,9 @@ def main_process(
 
 if __name__ == "__main__":
     # 配置参数
-    INPUT_DIR = r'D:\path\to\iq_csv'  # 数据文件目录
+    INPUT_DIR = r'D:\users\gxu\scripts\output\temp'  # 数据文件目录
     OUTPUT_DIR = INPUT_DIR  # 输出目录与输入目录相同
-    FS = 160  # 采样频率 (MHz)
+    FS = 80  # 采样频率 (MHz)
     SPUR_THR = 18  # 杂散检测阈值 (dB)
     Q = 5.0  # 陷波滤波器Q值
     RF_GAIN = 98  # 射频增益 (dB)
