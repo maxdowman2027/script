@@ -160,7 +160,7 @@
 | 阶段 | 脚本 / 产物 | 说明 |
 |------|----------------|------|
 | 系数与定点 | `spur_notch/notch_cal.py` | 独立 **IIR 陷波** 系数计算与定点化（与 `spur_scan_process` 内嵌逻辑同源，便于单测与对照）。 |
-| 扫描主流程 | `spur_notch/spur_scan_process.py` | **整合** PSD / 杂散检测 / `notch_cal` 思路 / 频点功率：`result/spur_scan_result.csv` → `spur_scan_result_coef.csv` 并回写 `pwr`；说明见 **`skill/spur_scan_process_Skill.md`**、`spur_scan_process.skill` |
+| 扫描主流程 | `spur_notch/spur_scan_process.py` | **整合** PSD / 杂散检测 / `notch_cal` / 频点功率；`output/spectrum/*.pdf` 保存 IQ+PSD 图；`result/*.csv` → coef 并回写 `pwr`；见 **`skill/spur_scan_process_Skill.md`** |
 | 回归与用例草稿 | `spur_notch/spur_scan_regression.py` | 批量读 coef 类 CSV，解析系数列表；含 `rls3p0_newfeature_notch_test`（打印 RX 范围 / 寄存器相关注释草稿）。 |
 | 两条件对比 | `spur_notch/spur_analysis.py`、`spur_notch/simple_spur_comparison.py` | 两份 `spur_scan_result*_coef.csv`（或同类）merge、功率差、异常阈值；**内部路径常写死**，运行前改路径。 |
 | 可视化 | `spur_notch/spur_visualization.py` | 读 `spur_comparison_analysis.xlsx` 等汇总表出图。 |

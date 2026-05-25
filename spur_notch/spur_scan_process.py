@@ -19,6 +19,7 @@ from scipy.signal import welch
 from scipy.signal.windows import hann
 import ast
 import math
+from typing import List
 
 
 # ===================== 1. 全局配置类（来自notch_cal.py） =====================
@@ -220,9 +221,94 @@ class IIR_FILTER_CLASS:
 
 
 # ===================== 4. PSD分析和杂散检测函数（来自psd_plot.py） =====================
-def detect_spurs_from_csv(input_dir, output_dir, FS, SPUR_THR=18):
+def _safe_plot_basename(file_path: str) -> str:
+    name = os.path.splitext(os.path.basename(file_path))[0]
+    return re.sub(r"[^\w\-.]+", "_", name)[:120]
+
+
+def save_spectrum_plots_pdf(
+    file_path: str,
+    data,
+    F,
+    P,
+    spur_frequencies,
+    plot_dir: str,
+    *,
+    spur_thr: float = 18,
+) -> str:
     """
-    处理目录下的CSV文件，计算PSD，检测杂散并输出spur_scan_result.csv
+    Save IQ time-domain and PSD spectrum plots (same style as psd_plot.py) to a PDF.
+    Detected spur frequencies are marked on the PSD figure.
+    """
+    os.makedirs(plot_dir, exist_ok=True)
+    pdf_path = os.path.join(plot_dir, f"{_safe_plot_basename(file_path)}.pdf")
+
+    plt.close("all")
+    fig_iq = plt.figure(figsize=(10, 4))
+    plt.plot(np.real(data), "o-", markersize=2, label="I")
+    plt.plot(np.imag(data), "rs-", markersize=2, label="Q")
+    plt.ylabel("magnitude")
+    plt.xlabel("time sample")
+    plt.title(os.path.basename(file_path))
+    plt.grid(True)
+    plt.legend(loc="best", fontsize=8)
+
+    F_shift = np.fft.fftshift(F)
+    P_db = 10 * np.log10(np.abs(np.fft.fftshift(P)))
+    fig_psd = plt.figure(figsize=(10, 4))
+    plt.plot(F_shift, P_db, "b-", linewidth=0.8, label="PSD")
+    plt.axhline(
+        spur_thr,
+        color="gray",
+        linestyle="--",
+        linewidth=1,
+        label=f"thr {spur_thr} dB",
+    )
+    spur_mhz = []
+    for sf in spur_frequencies:
+        if isinstance(sf, str) and sf.strip().lower() == "no_spur":
+            continue
+        try:
+            spur_mhz.append(float(sf))
+        except (TypeError, ValueError):
+            continue
+    for sf in spur_mhz:
+        idx = int(np.argmin(np.abs(F - sf)))
+        idx_s = int(np.argmin(np.abs(F_shift - F[idx])))
+        plt.plot(
+            F_shift[idx_s],
+            P_db[idx_s],
+            "ro",
+            markersize=8,
+            label="spur" if sf == spur_mhz[0] else None,
+        )
+    plt.title(os.path.basename(file_path))
+    plt.xlabel("Freq (MHz)")
+    plt.ylabel("power density (dB)")
+    plt.grid(True)
+    if spur_mhz:
+        plt.legend(loc="best", fontsize=8)
+
+    with PdfPages(pdf_path) as pdf:
+        pdf.savefig(fig_iq, bbox_inches="tight")
+        pdf.savefig(fig_psd, bbox_inches="tight")
+    plt.close(fig_iq)
+    plt.close(fig_psd)
+    return pdf_path
+
+
+def detect_spurs_from_csv(
+    input_dir,
+    output_dir,
+    FS,
+    SPUR_THR=18,
+    *,
+    spectrum_plot_dir=None,
+):
+    """
+    处理目录下的CSV文件，计算PSD，检测杂散并输出spur_scan_result.csv。
+
+    spectrum_plot_dir: 若指定，将每个文件的 IQ/PSD 图保存为 PDF（与 psd_plot.py 一致）。
     """
     os.makedirs(output_dir, exist_ok=True)
     csv_file_path = os.path.join(output_dir, "spur_scan_result.csv")
@@ -235,6 +321,7 @@ def detect_spurs_from_csv(input_dir, output_dir, FS, SPUR_THR=18):
         writer.writeheader()
 
     my_files = glob.glob(os.path.join(input_dir, '*.csv'))
+    saved_plots: List[str] = []
 
     for m in range(len(my_files)):
         file_name = my_files[m]
@@ -331,7 +418,27 @@ def detect_spurs_from_csv(input_dir, output_dir, FS, SPUR_THR=18):
             writer = csv.DictWriter(f, fieldnames=csv_header)
             writer.writerow(param_dict)
 
+        if spectrum_plot_dir:
+            try:
+                pdf_path = save_spectrum_plots_pdf(
+                    file_name,
+                    data,
+                    F,
+                    P,
+                    SPUR_F,
+                    spectrum_plot_dir,
+                    spur_thr=SPUR_THR,
+                )
+                saved_plots.append(pdf_path)
+            except Exception as ex:
+                print(f"[WARN] 频谱图保存失败 {basename}: {ex}")
+
     print(f"杂散检测完成，结果已保存到: {csv_file_path}")
+    if spectrum_plot_dir and saved_plots:
+        print(
+            f"频谱图已保存 {len(saved_plots)} 个 PDF 至: "
+            f"{os.path.abspath(spectrum_plot_dir)}"
+        )
     return csv_file_path
 
 
@@ -645,13 +752,32 @@ def process_directory_for_power(directory, i_col, q_col, Fs, NFFT, rfGain, spur_
 
 
 # ===================== 7. 主流程控制函数 =====================
-def main_process(input_dir, output_dir, FS, SPUR_THR, Q, rfGain, NFFT):
+def main_process(
+    input_dir,
+    output_dir,
+    FS,
+    SPUR_THR,
+    Q,
+    rfGain,
+    NFFT,
+    *,
+    save_spectrum_plots=True,
+):
     """
     主流程控制函数
     """
     # 步骤1：检测杂散并生成spur_scan_result.csv
     result_dir = os.path.join(output_dir, 'result')
-    spur_scan_result_csv = detect_spurs_from_csv(input_dir, result_dir, FS, SPUR_THR)
+    spectrum_plot_dir = None
+    if save_spectrum_plots:
+        spectrum_plot_dir = os.path.join(output_dir, 'output', 'spectrum')
+    spur_scan_result_csv = detect_spurs_from_csv(
+        input_dir,
+        result_dir,
+        FS,
+        SPUR_THR,
+        spectrum_plot_dir=spectrum_plot_dir,
+    )
 
     # 步骤2：计算陷波系数并生成spur_scan_result_coef.csv
     spur_scan_result_coef_csv = os.path.join(result_dir, "spur_scan_result_coef.csv")
@@ -681,16 +807,26 @@ def main_process(input_dir, output_dir, FS, SPUR_THR, Q, rfGain, NFFT):
 
 if __name__ == "__main__":
     # 配置参数
-    INPUT_DIR = r'D:\users\gxu\spur_scan\260310\scan_spur_data\xtal_duty_disable\loop_num3\40m'  # 数据文件目录
+    INPUT_DIR = r'D:\path\to\iq_csv'  # 数据文件目录
     OUTPUT_DIR = INPUT_DIR  # 输出目录与输入目录相同
     FS = 160  # 采样频率 (MHz)
     SPUR_THR = 18  # 杂散检测阈值 (dB)
     Q = 5.0  # 陷波滤波器Q值
     RF_GAIN = 98  # 射频增益 (dB)
     NFFT = 16000  # FFT点数
+    SAVE_SPECTRUM_PLOTS = True  # 步骤1：IQ/PSD 频谱 PDF → OUTPUT_DIR/output/spectrum/
 
     print("=" * 60)
     print("开始杂散扫描处理流程")
     print("=" * 60)
 
-    main_process(INPUT_DIR, OUTPUT_DIR, FS, SPUR_THR, Q, RF_GAIN, NFFT)
+    main_process(
+        INPUT_DIR,
+        OUTPUT_DIR,
+        FS,
+        SPUR_THR,
+        Q,
+        RF_GAIN,
+        NFFT,
+        save_spectrum_plots=SAVE_SPECTRUM_PLOTS,
+    )

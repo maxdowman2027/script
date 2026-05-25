@@ -9,6 +9,7 @@
 ```text
 ADC/IQ CSV (phy_mode*_chan*.csv)
     → [1] spur_scan_result.csv        （杂散频点、diff_pwr、pwr 初值）
+    → [1b] output/spectrum/*.pdf      （每文件 IQ 时域 + PSD 频谱图，可选）
     → [2] spur_scan_result_coef.csv   （Used_Frequency、X/Y_CoefFixed 定点系数）
     → [3] 回写 spur_scan_result_coef.csv 的 pwr 列（按 Used_Frequency 实测杂散功率）
 ```
@@ -67,6 +68,13 @@ ADC/IQ CSV (phy_mode*_chan*.csv)
 | 其它 2.4G 信道 | `(2412 + 5*(channel-1) + F[i]) % 40 == 0` |
 
 **无杂散**：写入 `frequency/diff_pwr/pwr = no_spur`（列表字段为字符串 `no_spur`）。
+
+**频谱图输出**（`SAVE_SPECTRUM_PLOTS=True`，默认开启）：
+
+- 目录：`{OUTPUT_DIR}/output/spectrum/`
+- 每个输入 CSV 一个 PDF（与 `psd_plot.py` 相同两页）：**IQ 时域**（I/Q 波形）、**PSD 频谱**（`fftshift` 后功率密度 dB）
+- PSD 图含：`SPUR_THR` 水平参考线；筛选后的杂散频点 **红色圆点** 标注
+- 关闭：`main_process(..., save_spectrum_plots=False)` 或脚本底部 `SAVE_SPECTRUM_PLOTS = False`
 
 **输出列**：
 
@@ -129,6 +137,7 @@ ADC/IQ CSV (phy_mode*_chan*.csv)
 | `Q` | 5.0 | 陷波 Q 值 |
 | `RF_GAIN` | 98 | 功率换算射频增益 (dB) |
 | `NFFT` | 16000 | FFT 点数 |
+| `SAVE_SPECTRUM_PLOTS` | True | 是否在 `output/spectrum/` 保存 IQ/PSD PDF |
 
 ---
 
@@ -164,7 +173,10 @@ OUTPUT_DIR/
 ├── result/
 │   ├── spur_scan_result.csv
 │   └── spur_scan_result_coef.csv   # 步骤 3 会原地更新 pwr 并生成 .bak
-└── output/                         # 功率步骤创建的目录（主流程占位）
+└── output/
+    ├── spectrum/                   # 步骤 1：每 CSV 一个 IQ+PSD 频谱 PDF
+    │   └── phy_mode0_chan6.pdf
+    └── ...                         # 步骤 3 功率处理占位目录
 ```
 
 ---
