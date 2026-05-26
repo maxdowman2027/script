@@ -39,6 +39,7 @@
    在相同 **`band` / coding（BCC·LDPC）/ `cbw` / NSS·STBC（来自 Sheet）/ `wifi_format`** 分组内：
    - 比较各 **rate** 在**全部 tx_pwr** 上的 **EVM 均值**：若某 rate 明显劣于组内中位数（默认高出 **2 dB**，即 EVM 数值更大），写入 **`[ANOMALY ALERT]`**。
    - 对每个 rate 的 **EVM–tx_pwr** 曲线，检测相邻功率点 **|ΔEVM|** 过大（默认 **3 dB**）。
+   - **NSS2 双流**：仅 **`_source_sheet` 为 NSS2** 且 **`evm_nss0`/`evm_nss1`** 均为有效数值的行；若 **`|evm_nss0 - evm_nss1| >` 阈值**（默认 **3 dB**，与知识库链路边距判据一致），写入 **`[ANOMALY ALERT] NSS2 chain EVM imbalance`**；单报告最多 **500** 条明细，超出追加汇总行。
 
 2. **HT rate 口径**  
    与 EVM 透视统计一致：STBC / NSS2 下 **`_normalize_ht_rate_for_summary`** 归一后再分组。
@@ -49,7 +50,8 @@
 
 4. **关闭 / 调参**  
    - `--no_evm_anomaly` / `run_evm_anomaly_check=False`  
-   - `--anomaly_report`、`--anomaly_rate_gap`（默认 2.0）、`--anomaly_curve_jump`（默认 3.0）
+   - `--anomaly_report`、`--anomaly_rate_gap`（默认 2.0）、`--anomaly_curve_jump`（默认 3.0）  
+   - NSS2 双流 EVM 差：`--anomaly_nss2_evm_gap`（默认 3.0）、`--no_anomaly_nss2`
 
 5. **数据采集**  
    只要开启 EVM 统计 **或** 异常扫描，脚本会从各 Sheet 合并数据中附带 **`_source_sheet`**；若仅关闭 EVM 透视但仍开启异常扫描，会按需二次读取 CSV 构建分析表。
@@ -86,7 +88,8 @@
    - `--wifi7_plot_dir`：指定 WiFi7 PDF/txt 输出目录。  
    - `--no_evm_anomaly`：不写 EVM 异常报告。  
    - `--anomaly_report`：异常报告 txt 路径。  
-   - `--anomaly_rate_gap`、`--anomaly_curve_jump`：异常阈值（dB）。
+   - `--anomaly_rate_gap`、`--anomaly_curve_jump`：异常阈值（dB）。  
+   - `--anomaly_nss2_evm_gap`、`--no_anomaly_nss2`：NSS2 `evm_nss0`/`evm_nss1` 差值阈值与开关。
 
 6. **依赖与数据列**  
    统计依赖 CSV 中常见字段：`tx_power_set(dBm)`、`wifi_format`、`rate`、`fec_coding`（或从 CSV 分组 Sheet 名推断 BCC/LDPC）、`rf_chan`、`cbw`，以及 EVM 列（`evm` / `evm_aver(dB)` / `aver_evmAll` / `evm_nss0` 等）。  
@@ -170,6 +173,7 @@ merge_csv_to_xlsx(
     anomaly_report_file=None,
     anomaly_rate_mean_gap_db=2.0,
     anomaly_curve_jump_db=3.0,
+    anomaly_nss2_evm_gap_db=3.0,  # None 或 <=0 关闭 NSS2 双流 EVM 差检测
 )
 ```
 
@@ -191,6 +195,7 @@ merge_csv_to_xlsx(
 | `anomaly_report_file` | 异常报告路径；`None` 则默认与合并文件同目录 |
 | `anomaly_rate_mean_gap_db` | 同配置下 rate 均值劣于组内中位数的阈值（dB） |
 | `anomaly_curve_jump_db` | 同一 rate 相邻功率点 \|ΔEVM\| 阈值（dB） |
+| `anomaly_nss2_evm_gap_db` | NSS2 下 \|evm_nss0 - evm_nss1\| 阈值（dB）；`None` 或 ≤0 关闭 |
 
 ---
 
@@ -208,6 +213,6 @@ merge_csv_to_xlsx(
 以下为旧版 `.skill` 文件的等价元数据摘要，供自动化工具索引：
 
 - **名称**: merge_csv_to_xlsx  
-- **描述**: 合并 `risc_wifitx` CSV 到 XLSX；CRC/Flatness/SpecMargin 失败拆分；EVM 统计单独多 Sheet 输出（band/coding/NSS×STBC），Sheet 内按 bw 分组跨 rate 标注最优/最差 EVM；合并后可选调用 `txAnalyse_wifi7` 生成 TX 多页 PDF（图标题由 CSV 业务列拼装，含 `suer_dcm` 时追加 `dcm=`）并输出 EVM 跨 rate / 功率曲线异常 txt。  
+- **描述**: 合并 `risc_wifitx` CSV 到 XLSX；CRC/Flatness/SpecMargin 失败拆分；EVM 统计单独多 Sheet 输出（band/coding/NSS×STBC），Sheet 内按 bw 分组跨 rate 标注最优/最差 EVM；合并后可选调用 `txAnalyse_wifi7` 生成 TX 多页 PDF（图标题由 CSV 业务列拼装，含 `suer_dcm` 时追加 `dcm=`）并输出 EVM 跨 rate / 功率曲线异常 txt，以及 **NSS2 双流 evm_nss0 vs evm_nss1** 差值异常。  
 - **标签**: CSV合并, XLSX, WiFi测试, EVM, CRC, Flatness, SpecMargin, WiFi7, matplotlib  
 - **需求**: pandas, openpyxl, numpy；WiFi7 绘图另需 matplotlib 及 TX CSV 完整列  

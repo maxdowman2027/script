@@ -6,7 +6,7 @@
 另：将指定功率点（默认 15 dBm）的 EVM 透视统计写入单独 XLSX；
 按 band、coding（LDPC/BCC）、NSS_STBC 组合分 Sheet；Sheet 内列为 bw_cbw、rate 及各 wifi_format 的平均 EVM，
 并在同一 bw_cbw 分组内跨 rate 标出各 wifi_format 列最优（最负）与最差（最不负）EVM 底色。
-合并完成后默认调用 txAnalyse_wifi7 生成 TX 多页 PDF（CSV 含 suer_dcm 时图标题含 dcm=），并对跨 rate EVM 均值与功率扫描曲线跳变做异常扫描（可 CLI 关闭）。
+合并完成后默认调用 txAnalyse_wifi7 生成 TX 多页 PDF（CSV 含 suer_dcm 时图标题含 dcm=），并对跨 rate EVM 均值、功率扫描曲线跳变及 **NSS2 双流 evm_nss0/evm_nss1 差**做异常扫描（可 CLI 关闭）。
 """
 
 import os
@@ -257,6 +257,93 @@ def _prepare_anomaly_dataframe(df_all):
         for r, wf, sc in zip(df["rate"], df["wifi_format"], df["_stream_cfg"])
     ]
     return df
+
+
+def analyze_nss2_evm_stream_imbalance(df_all, evm_nss_gap_db=3.0, max_alert_rows=500):
+    """
+    NSS2（双流）下比较 evm_nss0 与 evm_nss1：|ΔEVM| 过大视为链路边距异常（与工程常用 3 dB 阈值一致，可调）。
+
+    仅处理 _source_sheet 对应 NSS2 的行；需同时存在有效数值的 evm_nss0、evm_nss1。
+    """
+    if evm_nss_gap_db is None or float(evm_nss_gap_db) <= 0:
+        return []
+
+    gap_thr = float(evm_nss_gap_db)
+    if df_all is None or df_all.empty:
+        return []
+
+    df = df_all.copy()
+    df.columns = [str(c).strip() for c in df.columns]
+    if "evm_nss0" not in df.columns or "evm_nss1" not in df.columns:
+        return []
+
+    if "_source_sheet" not in df.columns:
+        return []
+
+    df["_stream_cfg"] = df["_source_sheet"].map(_stream_cfg_from_sheet)
+    sub = df[df["_stream_cfg"] == "NSS2"].copy()
+    if sub.empty:
+        return []
+
+    sub["_e0"] = pd.to_numeric(sub["evm_nss0"], errors="coerce")
+    sub["_e1"] = pd.to_numeric(sub["evm_nss1"], errors="coerce")
+    sub = sub.dropna(subset=["_e0", "_e1"])
+    if sub.empty:
+        return [f"NSS2 dual-stream EVM: no rows with both evm_nss0 and evm_nss1 numeric."]
+
+    pwr_col = "tx_power_set(dBm)"
+    if pwr_col in sub.columns:
+        sub["_pwr_num"] = pd.to_numeric(sub[pwr_col], errors="coerce")
+    else:
+        sub["_pwr_num"] = np.nan
+
+    if "wifi_format" in sub.columns:
+        sub["_wf"] = sub["wifi_format"]
+    else:
+        sub["_wf"] = ""
+
+    if "rate" in sub.columns:
+        sub["_rate"] = sub["rate"]
+    else:
+        sub["_rate"] = ""
+
+    if "rf_chan" in sub.columns:
+        sub["_band"] = sub["rf_chan"].map(_infer_band_from_rf_chan)
+    else:
+        sub["_band"] = "unknown"
+    sub["_coding"] = sub.apply(_fec_label_row, axis=1)
+    bw_col = "cbw" if "cbw" in sub.columns else None
+    sub["_bw"] = sub[bw_col] if bw_col else ""
+
+    sub["_gap"] = (sub["_e0"] - sub["_e1"]).abs()
+    bad = sub[sub["_gap"] > gap_thr].copy()
+    if bad.empty:
+        return [
+            f"NSS2 chain EVM (evm_nss0 vs evm_nss1): no |ΔEVM| > {gap_thr:.1f} dB."
+        ]
+
+    lines = []
+    n_bad = len(bad)
+    for _, row in bad.head(max_alert_rows).iterrows():
+        pwr_s = (
+            f"{float(row['_pwr_num']):.2f}"
+            if pd.notna(row["_pwr_num"])
+            else "n/a"
+        )
+        lines.append(
+            "[ANOMALY ALERT] NSS2 chain EVM imbalance (evm_nss0 vs evm_nss1): "
+            f"|ΔEVM|={float(row['_gap']):.2f} dB (threshold {gap_thr:.1f} dB); "
+            f"evm_nss0={float(row['_e0']):.2f} dB, evm_nss1={float(row['_e1']):.2f} dB; "
+            f"tx_pwr={pwr_s} dBm; rate={row['_rate']}; wifi_format={row['_wf']}; "
+            f"band={row['_band']}; coding={row['_coding']}; cbw={row['_bw']}; "
+            f"sheet={row.get('_source_sheet', '')}"
+        )
+    if n_bad > max_alert_rows:
+        lines.append(
+            f"[ANOMALY ALERT] NSS2 chain EVM imbalance: "
+            f"{n_bad - max_alert_rows} more row(s) omitted (cap {max_alert_rows})."
+        )
+    return lines
 
 
 def analyze_evm_tx_anomalies(
@@ -513,7 +600,8 @@ def merge_csv_to_xlsx(input_dir, output_file, crc_fail_file=None,
                       run_evm_anomaly_check=True,
                       anomaly_report_file=None,
                       anomaly_rate_mean_gap_db=2.0,
-                      anomaly_curve_jump_db=3.0):
+                      anomaly_curve_jump_db=3.0,
+                      anomaly_nss2_evm_gap_db=3.0):
     """
     合并指定文件夹中的CSV文件到XLSX文件
 
@@ -532,6 +620,7 @@ def merge_csv_to_xlsx(input_dir, output_file, crc_fail_file=None,
         anomaly_report_file: 异常报告 txt 路径；默认同目录 {basename}_evm_anomaly_report.txt
         anomaly_rate_mean_gap_db: 同配置下某 rate 均值劣于组内中位数的报警阈值（dB）
         anomaly_curve_jump_db: 同一 rate 相邻功率点 |ΔEVM| 报警阈值（dB）
+        anomaly_nss2_evm_gap_db: NSS2 下 |evm_nss0 - evm_nss1| 报警阈值（dB）；None 或 <=0 关闭
     """
     # 查找所有risc_wifitx_*.csv文件
     csv_files = glob.glob(os.path.join(input_dir, 'risc_wifitx_*.csv'))
@@ -1207,6 +1296,12 @@ def merge_csv_to_xlsx(input_dir, output_file, crc_fail_file=None,
                     rate_mean_gap_db=anomaly_rate_mean_gap_db,
                     curve_jump_db=anomaly_curve_jump_db,
                 )
+                if anomaly_nss2_evm_gap_db is not None and float(anomaly_nss2_evm_gap_db) > 0:
+                    lines.extend(
+                        analyze_nss2_evm_stream_imbalance(
+                            adf, evm_nss_gap_db=float(anomaly_nss2_evm_gap_db)
+                        )
+                    )
                 rep = anomaly_report_file or os.path.join(
                     base_dir, f"{base_name}_evm_anomaly_report.txt"
                 )
@@ -1224,9 +1319,9 @@ def merge_csv_to_xlsx(input_dir, output_file, crc_fail_file=None,
 
 def main():
     parser = argparse.ArgumentParser(description="合并 risc_wifitx CSV 到 XLSX，并生成 15dBm EVM 透视统计表")
-    parser.add_argument("--input_dir", default=r"D:\chip_test\dev\xian_test\Xian-Esp-Test-Scripts\py_script_fpga_tx_wifi7\Log\wifi_tx_rls4\regression_260514_mld\2")
-    parser.add_argument("--output_file", default=r"D:\chip_test\dev\xian_test\Xian-Esp-Test-Scripts\py_script_fpga_tx_wifi7\Log\wifi_tx_rls4\regression_260514_mld\2/merged_tx_result.xlsx")
-    parser.add_argument("--crc_fail_file", default=r"D:\chip_test\dev\xian_test\Xian-Esp-Test-Scripts\py_script_fpga_tx_wifi7\Log\wifi_tx_rls4\regression_260514_mld\2/tx_crc_fail_result.xlsx")
+    parser.add_argument("--input_dir", default=r"D:\chip_test\dev\xian_test\Xian-Esp-Test-Scripts\py_script_fpga_tx_wifi7\Log\wifi_tx_rls4\regression_260526")
+    parser.add_argument("--output_file", default=r"D:\chip_test\dev\xian_test\Xian-Esp-Test-Scripts\py_script_fpga_tx_wifi7\Log\wifi_tx_rls4\regression_260526/merged_tx_result.xlsx")
+    parser.add_argument("--crc_fail_file", default=r"D:\chip_test\dev\xian_test\Xian-Esp-Test-Scripts\py_script_fpga_tx_wifi7\Log\wifi_tx_rls4\regression_260526/tx_crc_fail_result.xlsx")
     parser.add_argument("--summary_tx_pwr", type=float, default=15.0, help="统计表使用的 tx 功率点 (dBm)")
     parser.add_argument("--no_evm_summary", action="store_true", help="不生成独立 EVM 统计 xlsx")
     parser.add_argument(
@@ -1258,6 +1353,17 @@ def main():
         default=3.0,
         help="同一 rate 相邻功率点 |ΔEVM| 报警阈值 (dB)，默认 3",
     )
+    parser.add_argument(
+        "--anomaly_nss2_evm_gap",
+        type=float,
+        default=3.0,
+        help="NSS2 双流 |evm_nss0 - evm_nss1| 报警阈值 (dB)，默认 3",
+    )
+    parser.add_argument(
+        "--no_anomaly_nss2",
+        action="store_true",
+        help="关闭 NSS2 evm_nss0/evm_nss1 链路边距异常检测",
+    )
     args = parser.parse_args()
 
     print(f"输入路径: {args.input_dir}")
@@ -1277,6 +1383,7 @@ def main():
         anomaly_report_file=args.anomaly_report,
         anomaly_rate_mean_gap_db=args.anomaly_rate_gap,
         anomaly_curve_jump_db=args.anomaly_curve_jump,
+        anomaly_nss2_evm_gap_db=None if args.no_anomaly_nss2 else args.anomaly_nss2_evm_gap,
     )
 
 
