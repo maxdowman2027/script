@@ -2,7 +2,7 @@
 # -*- coding: utf-8 -*-
 """
 整合仓库根目录下 `psd_plot.py`、`notch_cal.py`（算法同源，本文件内嵌）与 `clac_pwr_for_ofdm_signal.py` 的思路与能力。
-1. 处理CSV文件，计算PSD，检测杂散并输出spur_scan_result.csv（含非DC相对40M倍频功率检查）
+1. 处理CSV文件，计算PSD，检测杂散并输出spur_scan_result.csv
 2. 读取spur_scan_result.csv并计算系数，输出spur_scan_result_coef.csv
 3. 计算指定位置的功率并写回spur_scan_result_coef.csv
 """
@@ -221,80 +221,6 @@ class IIR_FILTER_CLASS:
 
 
 # ===================== 4. PSD分析和杂散检测函数（来自psd_plot.py） =====================
-DC_MARGIN_MHZ = 0.1  # |F| <= 该值视为 DC/中心频点邻域
-
-
-def is_dc_bin(f_mhz: float, dc_margin: float = DC_MARGIN_MHZ) -> bool:
-    return abs(f_mhz) <= dc_margin
-
-
-def is_40m_harmonic_bin(chan_val: int, f_mhz: float) -> bool:
-    """40 MHz 栅格倍频点判定（与杂散筛选规则一致）。"""
-    if chan_val > 14:
-        return (chan_val + f_mhz) % 40 == 0
-    if chan_val == 14:
-        return (2484 + f_mhz) % 40 == 0
-    return (2412 + 5 * (chan_val - 1) + f_mhz) % 40 == 0
-
-
-def psd_bin_power_db(p_value) -> float:
-    return float(10 * np.log10(np.abs(p_value)))
-
-
-def find_non_harmonic_above_40m_harmonic(
-    chan_val: int,
-    F,
-    P,
-    *,
-    spur_thr: float = 18,
-    dc_margin: float = DC_MARGIN_MHZ,
-) -> dict:
-    """
-    检查是否存在：非 DC 且非 40M 倍频栅格点，其 PSD 功率高于所有 40M 倍频点中的最大功率。
-
-    仅统计功率 > spur_thr 的非倍频点，避免噪声底误报。
-    """
-    harm_pwr_db: List[float] = []
-    for i in range(len(F)):
-        if is_dc_bin(F[i], dc_margin):
-            continue
-        if is_40m_harmonic_bin(chan_val, F[i]):
-            harm_pwr_db.append(psd_bin_power_db(P[i]))
-
-    if not harm_pwr_db:
-        return {
-            "harm_40m_ref_pwr_db": "",
-            "non_harm_above_40m_freq": ["no_40m_ref"],
-            "non_harm_above_40m_pwr": ["no_40m_ref"],
-            "non_harm_above_40m_diff": ["no_40m_ref"],
-            "has_non_harm_above_40m": "no_40m_ref",
-        }
-
-    ref_pwr = max(harm_pwr_db)
-    freqs: List[float] = []
-    pwrs: List[float] = []
-    diffs: List[float] = []
-    for i in range(len(F)):
-        if is_dc_bin(F[i], dc_margin):
-            continue
-        if is_40m_harmonic_bin(chan_val, F[i]):
-            continue
-        p_db = psd_bin_power_db(P[i])
-        if p_db <= spur_thr or p_db <= ref_pwr:
-            continue
-        freqs.append(round(float(F[i]), 4))
-        pwrs.append(round(p_db, 2))
-        diffs.append(round(p_db - ref_pwr, 2))
-
-    return {
-        "harm_40m_ref_pwr_db": round(ref_pwr, 2),
-        "non_harm_above_40m_freq": freqs if freqs else ["none"],
-        "non_harm_above_40m_pwr": pwrs if pwrs else ["none"],
-        "non_harm_above_40m_diff": diffs if diffs else ["none"],
-        "has_non_harm_above_40m": "yes" if freqs else "no",
-    }
-
-
 def _safe_plot_basename(file_path: str) -> str:
     name = os.path.splitext(os.path.basename(file_path))[0]
     return re.sub(r"[^\w\-.]+", "_", name)[:120]
@@ -309,7 +235,6 @@ def save_spectrum_plots_pdf(
     plot_dir: str,
     *,
     spur_thr: float = 18,
-    anomaly_frequencies=None,
 ) -> str:
     """
     Save IQ time-domain and PSD spectrum plots (same style as psd_plot.py) to a PDF.
@@ -361,27 +286,7 @@ def save_spectrum_plots_pdf(
     plt.xlabel("Freq (MHz)")
     plt.ylabel("power density (dB)")
     plt.grid(True)
-    anomaly_mhz = []
-    if anomaly_frequencies:
-        for af in anomaly_frequencies:
-            if isinstance(af, str) and af.strip().lower() in ("none", "no_40m_ref", "no_spur"):
-                continue
-            try:
-                anomaly_mhz.append(float(af))
-            except (TypeError, ValueError):
-                continue
-    for af in anomaly_mhz:
-        idx = int(np.argmin(np.abs(F - af)))
-        idx_s = int(np.argmin(np.abs(F_shift - F[idx])))
-        plt.plot(
-            F_shift[idx_s],
-            P_db[idx_s],
-            "^",
-            color="orange",
-            markersize=9,
-            label=">40M harm" if af == anomaly_mhz[0] else None,
-        )
-    if spur_mhz or anomaly_mhz:
+    if spur_mhz:
         plt.legend(loc="best", fontsize=8)
 
     with PdfPages(pdf_path) as pdf:
@@ -399,29 +304,16 @@ def detect_spurs_from_csv(
     SPUR_THR=18,
     *,
     spectrum_plot_dir=None,
-    dc_margin: float = DC_MARGIN_MHZ,
 ):
     """
     处理目录下的CSV文件，计算PSD，检测杂散并输出spur_scan_result.csv。
 
     spectrum_plot_dir: 若指定，将每个文件的 IQ/PSD 图保存为 PDF（与 psd_plot.py 一致）。
-    同时检查非 DC 频点是否存在功率高于 40M 倍频栅格参考（见 harm_40m_* / has_non_harm_above_40m 列）。
     """
     os.makedirs(output_dir, exist_ok=True)
     csv_file_path = os.path.join(output_dir, "spur_scan_result.csv")
 
-    csv_header = [
-        "phy_mode",
-        "channel",
-        "frequency",
-        "diff_pwr",
-        "pwr",
-        "harm_40m_ref_pwr_db",
-        "non_harm_above_40m_freq",
-        "non_harm_above_40m_pwr",
-        "non_harm_above_40m_diff",
-        "has_non_harm_above_40m",
-    ]
+    csv_header = ["phy_mode", "channel", "frequency", "diff_pwr", "pwr"]
 
     # 清空并创建输出文件
     with open(csv_file_path, 'w', newline='', encoding='utf-8') as f:
@@ -491,11 +383,21 @@ def detect_spurs_from_csv(
         pwr = []
 
         for i in result_indices:
-            if not is_dc_bin(F[i], dc_margin):
-                if is_40m_harmonic_bin(chan_val, F[i]):
-                    SPUR_F.append(F[i])
-                    diff_pwr.append(round((psd_bin_power_db(P[i]) - avg_pwr), 2))
-                    pwr.append(round((psd_bin_power_db(P[i]) - 58), 2))
+            if F[i] < -0.1 or F[i] > 0.1:
+                if chan_val > 14:
+                    if (chan_val + F[i]) % 40 == 0:
+                        SPUR_F.append(F[i])
+                        diff_pwr.append(round(((10 * np.log10(np.abs((P[i])))) - avg_pwr), 2))
+                        pwr.append(round(((10 * np.log10(np.abs(P[i]))) - 58), 2))
+                else:
+                    if chan_val == 14 and (2484 + F[i]) % 40 == 0:
+                        SPUR_F.append(F[i])
+                        diff_pwr.append(round(((10 * np.log10(np.abs((P[i])))) - avg_pwr), 2))
+                        pwr.append(round(((10 * np.log10(np.abs(P[i]))) - 58), 2))
+                    elif (2412 + 5 * (chan_val - 1) + F[i]) % 40 == 0:
+                        SPUR_F.append(F[i])
+                        diff_pwr.append(round(((10 * np.log10(np.abs((P[i])))) - avg_pwr), 2))
+                        pwr.append(round(((10 * np.log10(np.abs(P[i]))) - 58), 2))
 
         # 处理无杂散情况
         if len(SPUR_F) == 0:
@@ -503,24 +405,13 @@ def detect_spurs_from_csv(
             diff_pwr.append('no_spur')
             pwr.append('no_spur')
 
-        harm_check = find_non_harmonic_above_40m_harmonic(
-            chan_val, F, P, spur_thr=SPUR_THR, dc_margin=dc_margin
-        )
-        if harm_check["has_non_harm_above_40m"] == "yes":
-            print(
-                f"[WARN] 非40M倍频且高于倍频参考: phy_mode={phy_mode_val} chan={chan_val} "
-                f"ref={harm_check['harm_40m_ref_pwr_db']} dB "
-                f"freq={harm_check['non_harm_above_40m_freq']}"
-            )
-
         # 写入结果
         param_dict = {
             "phy_mode": phy_mode_val,
             "channel": chan_val,
             "frequency": SPUR_F,
             "diff_pwr": diff_pwr,
-            "pwr": pwr,
-            **harm_check,
+            "pwr": pwr
         }
 
         with open(csv_file_path, 'a', newline='', encoding='utf-8') as f:
@@ -529,7 +420,6 @@ def detect_spurs_from_csv(
 
         if spectrum_plot_dir:
             try:
-                anomaly_freqs = harm_check.get("non_harm_above_40m_freq")
                 pdf_path = save_spectrum_plots_pdf(
                     file_name,
                     data,
@@ -538,7 +428,6 @@ def detect_spurs_from_csv(
                     SPUR_F,
                     spectrum_plot_dir,
                     spur_thr=SPUR_THR,
-                    anomaly_frequencies=anomaly_freqs,
                 )
                 saved_plots.append(pdf_path)
             except Exception as ex:
@@ -888,7 +777,6 @@ def main_process(
         FS,
         SPUR_THR,
         spectrum_plot_dir=spectrum_plot_dir,
-        dc_margin=DC_MARGIN_MHZ,
     )
 
     # 步骤2：计算陷波系数并生成spur_scan_result_coef.csv
@@ -919,7 +807,7 @@ def main_process(
 
 if __name__ == "__main__":
     # 配置参数
-    INPUT_DIR = r'D:\path\to\iq_csv'  # 数据文件目录
+    INPUT_DIR = r'D:\users\gxu\scripts\output\temp'  # 数据文件目录
     OUTPUT_DIR = INPUT_DIR  # 输出目录与输入目录相同
     FS = 80  # 采样频率 (MHz)
     SPUR_THR = 18  # 杂散检测阈值 (dB)
