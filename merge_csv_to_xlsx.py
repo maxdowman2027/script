@@ -6,7 +6,7 @@
 另：将指定功率点（默认 15 dBm）的 EVM 透视统计写入单独 XLSX；
 按 band、coding（LDPC/BCC）、NSS_STBC 组合分 Sheet；Sheet 内列为 bw_cbw、rate 及各 wifi_format 的平均 EVM，
 并在同一 bw_cbw 分组内跨 rate 标出各 wifi_format 列最优（最负）与最差（最不负）EVM 底色。
-合并完成后默认调用 txAnalyse_wifi7 生成 TX 多页 PDF（CSV 含 suer_dcm 时图标题含 dcm=），并对跨 rate EVM 均值、功率扫描曲线跳变及 **NSS2 双流 evm_nss0/evm_nss1 差**做异常扫描（可 CLI 关闭）。
+合并完成后默认调用 txAnalyse_wifi7 生成 TX 多页 PDF（CSV 含 suer_dcm 时图标题含 dcm=），并对跨 rate EVM 均值、功率扫描曲线跳变及 **NSS2 双流 evm_nss0/evm_nss1 差**（单点 + 同 rate 跨 tx_pwr 链均值差）做异常扫描（可 CLI 关闭）。
 """
 
 import os
@@ -259,9 +259,20 @@ def _prepare_anomaly_dataframe(df_all):
     return df
 
 
-def analyze_nss2_evm_stream_imbalance(df_all, evm_nss_gap_db=3.0, max_alert_rows=500):
+def analyze_nss2_evm_stream_imbalance(
+    df_all,
+    evm_nss_gap_db=3.0,
+    max_alert_rows=500,
+    cross_pwr_mean_min_distinct_pwr=2,
+    max_cross_pwr_alert_rows=100,
+):
     """
-    NSS2（双流）下比较 evm_nss0 与 evm_nss1：|ΔEVM| 过大视为链路边距异常（与工程常用 3 dB 阈值一致，可调）。
+    NSS2（双流）下比较 evm_nss0 与 evm_nss1：
+
+    1) 单点：|ΔEVM| 过大视为链路边距异常（与工程常用 3 dB 阈值一致，可调）。
+    2) 同 rate、跨不同 tx_pwr：对每个功率点先聚合链上 EVM，再对功率求
+       mean(evm_nss0)、mean(evm_nss1)；若 |mean0 - mean1| 超过同一阈值，视为
+       系统性链路边距异常（可检出单点未超阈但整段功率扫描平均偏一侧的情况）。
 
     仅处理 _source_sheet 对应 NSS2 的行；需同时存在有效数值的 evm_nss0、evm_nss1。
     """
@@ -315,14 +326,101 @@ def analyze_nss2_evm_stream_imbalance(df_all, evm_nss_gap_db=3.0, max_alert_rows
     bw_col = "cbw" if "cbw" in sub.columns else None
     sub["_bw"] = sub[bw_col] if bw_col else ""
 
+    sub["_rate_norm"] = [
+        _normalize_ht_rate_for_summary(r, wf, "NSS2")
+        for r, wf in zip(sub["_rate"], sub["_wf"])
+    ]
+
+    lines = []
+
+    # --- 同 rate、跨 tx_pwr：链上 EVM 先按功率点取均值，再对功率求链均值之差 ---
+    min_p = int(cross_pwr_mean_min_distinct_pwr) if cross_pwr_mean_min_distinct_pwr else 2
+    if min_p < 2:
+        min_p = 2
+    cap_agg = int(max_cross_pwr_alert_rows) if max_cross_pwr_alert_rows else 100
+    if cap_agg < 1:
+        cap_agg = 1
+
+    agg_src = sub.dropna(subset=["_pwr_num"]).copy()
+    group_cols = ["_source_sheet", "_band", "_coding", "_bw", "_wf", "_rate_norm"]
+    agg_bad_rows = []
+    if agg_src.empty:
+        lines.append(
+            "NSS2 chain EVM (same rate, mean over tx_pwr): skipped (no valid tx_power_set(dBm))."
+        )
+    else:
+        for _key, g in agg_src.groupby(group_cols, dropna=False):
+            per_pwr = (
+                g.groupby("_pwr_num", observed=True)
+                .agg(m0=("_e0", "mean"), m1=("_e1", "mean"))
+                .dropna()
+            )
+            if len(per_pwr) < min_p:
+                continue
+            m0_all = float(per_pwr["m0"].mean())
+            m1_all = float(per_pwr["m1"].mean())
+            mean_gap = abs(m0_all - m1_all)
+            if mean_gap <= gap_thr:
+                continue
+            g0 = g.iloc[0]
+            agg_bad_rows.append(
+                (
+                    mean_gap,
+                    m0_all,
+                    m1_all,
+                    len(per_pwr),
+                    g0.get("_source_sheet", ""),
+                    g0.get("_rate", ""),
+                    g0.get("_rate_norm", ""),
+                    g0.get("_wf", ""),
+                    g0.get("_band", ""),
+                    g0.get("_coding", ""),
+                    g0.get("_bw", ""),
+                )
+            )
+
+        agg_bad_rows.sort(key=lambda t: t[0], reverse=True)
+        n_agg = len(agg_bad_rows)
+        for tup in agg_bad_rows[:cap_agg]:
+            (
+                mean_gap,
+                m0_all,
+                m1_all,
+                n_pwr,
+                sheet_s,
+                rate_raw,
+                rate_norm,
+                wf_s,
+                band_s,
+                coding_s,
+                bw_s,
+            ) = tup
+            lines.append(
+                "[ANOMALY ALERT] NSS2 chain EVM imbalance (same rate, mean over tx_pwr): "
+                f"|mean(evm_nss0)-mean(evm_nss1)|={mean_gap:.2f} dB (threshold {gap_thr:.1f} dB); "
+                f"mean_evm_nss0={m0_all:.2f} dB, mean_evm_nss1={m1_all:.2f} dB over {n_pwr} distinct tx_pwr; "
+                f"rate={rate_raw}; rate_norm={rate_norm}; wifi_format={wf_s}; "
+                f"band={band_s}; coding={coding_s}; cbw={bw_s}; sheet={sheet_s}"
+            )
+        if n_agg > cap_agg:
+            lines.append(
+                f"[ANOMALY ALERT] NSS2 chain EVM imbalance (same rate, mean over tx_pwr): "
+                f"{n_agg - cap_agg} more group(s) omitted (cap {cap_agg})."
+            )
+        if n_agg == 0:
+            lines.append(
+                f"NSS2 chain EVM (same rate, mean over tx_pwr, >= {min_p} powers): "
+                f"no |mean_nss0-mean_nss1| > {gap_thr:.1f} dB."
+            )
+
     sub["_gap"] = (sub["_e0"] - sub["_e1"]).abs()
     bad = sub[sub["_gap"] > gap_thr].copy()
     if bad.empty:
-        return [
-            f"NSS2 chain EVM (evm_nss0 vs evm_nss1): no |ΔEVM| > {gap_thr:.1f} dB."
-        ]
+        lines.append(
+            f"NSS2 chain EVM (point-wise evm_nss0 vs evm_nss1): no |ΔEVM| > {gap_thr:.1f} dB."
+        )
+        return lines
 
-    lines = []
     n_bad = len(bad)
     for _, row in bad.head(max_alert_rows).iterrows():
         pwr_s = (
@@ -620,7 +718,9 @@ def merge_csv_to_xlsx(input_dir, output_file, crc_fail_file=None,
         anomaly_report_file: 异常报告 txt 路径；默认同目录 {basename}_evm_anomaly_report.txt
         anomaly_rate_mean_gap_db: 同配置下某 rate 均值劣于组内中位数的报警阈值（dB）
         anomaly_curve_jump_db: 同一 rate 相邻功率点 |ΔEVM| 报警阈值（dB）
-        anomaly_nss2_evm_gap_db: NSS2 下 |evm_nss0 - evm_nss1| 报警阈值（dB）；None 或 <=0 关闭
+        anomaly_nss2_evm_gap_db: NSS2 下链路边距报警阈值（dB）；None 或 <=0 关闭。
+            同时用于：(1) 单点 |evm_nss0 - evm_nss1|；(2) 同 rate、跨不同 tx_pwr 上
+            对两链 EVM 分别按功率取均值后再比较 |mean_nss0 - mean_nss1|（至少 2 个有效功率点）。
     """
     # 查找所有risc_wifitx_*.csv文件
     csv_files = glob.glob(os.path.join(input_dir, 'risc_wifitx_*.csv'))
@@ -1357,7 +1457,7 @@ def main():
         "--anomaly_nss2_evm_gap",
         type=float,
         default=3.0,
-        help="NSS2 双流 |evm_nss0 - evm_nss1| 报警阈值 (dB)，默认 3",
+        help="NSS2 链路边距阈值 (dB)：单点 |evm_nss0-evm_nss1| 与同 rate 跨 tx_pwr 的 |mean_nss0-mean_nss1|，默认 3",
     )
     parser.add_argument(
         "--no_anomaly_nss2",

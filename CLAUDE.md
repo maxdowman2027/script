@@ -126,9 +126,9 @@
 | 发射 / EVM | `txAnalyse.py`、`txAnalyse_wifi7.py`、`txAnalyse_compatible.py`、`evm_comparison.py`、`tx_adcdump_data_parse.py`、`fake_tb_para.py`、`tx_test.py` |
 | 功率 / Mag Track | `tx_mag_tracking_test.py`、`txmagtrk_analyse.py`（E22）、`mag_track_rls4_fpga_analyse.py`（RLS4 FPGA，`mag_track_test_res` → EVM vs `tx_pwr` PDF，同 chan 基线）、`analyze_mag_track_test_res.py`（汇总/HTML）、`clac_pwr_for_ofdm_signal.py`、`compare_avg_pwr.py`、`compare_avg_pwr_ABCD.py` |
 | 杂散 / 频谱 / PSD | **陷波与杂散流水线、脚本关系见下文「Notch & Spur」**；通用绘图仍含 `psd_plot.py`、`psd_plot_1kHz.py`、`plot_spectrum.py`、`plot_spectrum_2462.py`、`plot_psd_2462.py`、`plot_csv_data.py`、`pwelch.py` |
-| 接收 / 灵敏度 | **`find_csv_in_matched_folders.py`** + **`wifi_rx_sensitivity.py`**（rftest_data 按文件夹通配找 RX CSV、灵敏度 CSV、**mld_en 对比雷达图**）；`wifiRxPlot.py`、`calculate_sensitivity_and_plot.py`；杂散见 **`spur_notch/wifiRxProcess.py`**（「Notch & Spur」） |
+| 接收 / 灵敏度 | **`find_csv_in_matched_folders.py`** + **`wifi_rx_sensitivity.py`**（rftest_data 按文件夹通配找 RX CSV、灵敏度 CSV、**mld_en 对比雷达图**）；**`organize_sensitivity_mld_diff.py`**（`*_result.csv` → mld_en0/1 宽表 + 差值 xlsx 着色）；`wifiRxPlot.py`、`calculate_sensitivity_and_plot.py`；杂散见 **`spur_notch/wifiRxProcess.py`**（「Notch & Spur」） |
 | RU / 符号 / 参数 | `find_ru26.py`、`find_ru26_nsym.py`、`find_precise_ru26.py`、`find_nsym_16.py`、`find_nsym_340.py`、`calculate_ru26_params.py`、`cal_symbol_num.py`、`generate_ru26_cases.py` 等（`spur_notch/notch_cal.py` 见「Notch & Spur」） |
-| Excel / CSV / 校验 | `merge_csv_to_xlsx.py`（合并 risc_wifitx、可选 EVM 透视、默认 WiFi7 TX PDF + EVM 异常报告含 **NSS2 evm_nss0/evm_nss1 差**；PDF 标题含 `suer_dcm` 时带 `dcm=`）、`file_merge.py`、`compare_data.py`、`cac_diff_xlsx.py`；大量 `check_*.py`；`analyze_*.py`、`explore_excel.py`、`detect_outliers.py`、`validate_conversion.py` 等 |
+| Excel / CSV / 校验 | `merge_csv_to_xlsx.py`（合并 risc_wifitx、可选 EVM 透视、默认 WiFi7 TX PDF + EVM 异常报告含 **NSS2 evm_nss0/evm_nss1** 单点差与同 rate 跨 tx_pwr 链均值差；PDF 标题含 `suer_dcm` 时带 `dcm=`）、`file_merge.py`、`compare_data.py`、`cac_diff_xlsx.py`；大量 `check_*.py`；`analyze_*.py`、`explore_excel.py`、`detect_outliers.py`、`validate_conversion.py` 等 |
 | 寄存器（根目录） | `compare_reg_csv.py`（详细查询与 CSV 源文件在 `reg_query/`） |
 | 报告 / 汇总 | `generate_report.py`、`analyze_merged_tx_result.py`、`analyze_all_sheets.py`、`analyze_multi_sheet.py`、`summarize_fail_configs.py`、`view_comparison_results.py`、`verify_merged_files.py`、`my_ag.py` 等 |
 | 文件与路径工具 | **`find_csv_in_matched_folders.py`**（见下文「RX CSV 检索与灵敏度雷达」）、`wifi_rx_sensitivity.py`、`file_rename.py` 等 |
@@ -209,21 +209,37 @@ spur_notch/notch_cal.py  ←──算法参照──→  spur_notch/spur_scan_pr
 | 灵敏度 | 按 `rx_*` 会话目录合并 CSV，算法同 **`wifiRxPlot.py`**（PER 插值 → `sensitivity_dbm`）→ `sensitivity_summary_*.csv` |
 | 雷达图 | 极坐标：角度 = `cur_degree`，半径 = `-sensitivity_dbm`；**同 RF 配置一张图叠加 mld_en=0/1**（图例对比，文件名 `*_mld0v1_*`） |
 | 可选 | copy/move 命中 CSV、`--list-out` TSV（含路径解析列） |
+| 宽表整理 | **`organize_sensitivity_mld_diff.py`**：对 `output/sensitivity_out/result/*_result.csv` 按 `bandwidth/coding/wifi_format/cur_degree/rate/rx_chan` 合并 mld_en0/1 → `organized/*_mld_wide.csv` + 差值列着色 xlsx |
 
 **配置区要点**（脚本顶部）：`ROOT_SEARCH_PATH`、`FOLDER_PATTERN`、`RUN_SENSITIVITY`、`SENSITIVITY_OUT_CSV`、`RUN_SENSITIVITY_RADAR`、`SENSITIVITY_RADAR_DIR`、`PAK_NUM`、`SENS_ACCURACY`。
 
-**依赖**：`pandas`、`matplotlib`（雷达 PNG）。
+**依赖**：`pandas`、`matplotlib`（雷达 PNG）；宽表整理另需 `openpyxl`。
+
+### 灵敏度 mld_en 宽表整理（organize_sensitivity_mld_diff）
+
+**脚本**：根目录 `organize_sensitivity_mld_diff.py`。  
+**技能**：`skill/organize_sensitivity_mld_diff.skill`、`skill/organize_sensitivity_mld_diff_Skill.md`。
+
+**作用**：将长表灵敏度结果（每行一个 `mld_en`）合并为宽表一行，输出 `sensitivity_dbm_mld_en0`、`sensitivity_dbm_mld_en1`、`sensitivity_dbm_mld_diff`（**en0 − en1**，dB）；xlsx 中差值列按阈值绿/黄/红着色。
+
+**典型命令**：
+
+```bash
+python organize_sensitivity_mld_diff.py
+python organize_sensitivity_mld_diff.py --input_dir ./output/sensitivity_out/result --combined ./output/sensitivity_out/result/organized/all_mld_wide.csv
+```
 
 ### 脚本分类与功能索引
 
 #### 1. 数据合并与格式化工具
 | 脚本名称 | 功能说明 | 详细文档 |
 |---------|---------|---------|
-| `merge_csv_to_xlsx.py` | 合并 `risc_wifitx_*.csv` 为按信道/编码/NSS 分 Sheet 的 XLSX；可选 EVM 透视统计；合并后默认可调用 `txAnalyse_wifi7` 出 TX 多页 PDF（CSV 含 `suer_dcm` 时图标题含 `dcm=`），并写 EVM 跨 rate/功率曲线异常报告及 **NSS2 双流 evm_nss0 vs evm_nss1** 差值告警 | merge_csv_to_xlsx_skill.md |
+| `merge_csv_to_xlsx.py` | 合并 `risc_wifitx_*.csv` 为按信道/编码/NSS 分 Sheet 的 XLSX；可选 EVM 透视统计；合并后默认可调用 `txAnalyse_wifi7` 出 TX 多页 PDF（CSV 含 `suer_dcm` 时图标题含 `dcm=`），并写 EVM 跨 rate/功率曲线异常报告及 **NSS2 双流** `evm_nss0` vs `evm_nss1` 告警（**单点**链间差 + **同 rate 跨 tx_pwr** 两链均值差） | merge_csv_to_xlsx_skill.md |
 | `file_merge.py` | 文件合并工具 | file_merge_Skill.md |
 | `file_rename.py` | 文件重命名工具 | - |
 | `find_csv_in_matched_folders.py` | 递归匹配 testcase 文件夹收集 RX CSV；路径 + `testcase_folder` 解析（`mld_en`、`cur_degree`）；灵敏度汇总 CSV；**同配置叠加 mld_en0/1 雷达对比图**；copy/move、list-out、顶部配置区 | `skill/find_csv_in_matched_folders_Skill.md` |
 | `wifi_rx_sensitivity.py` | PER 插值求 `sensitivity_dbm`（同 wifiRxPlot）；`parse_testcase_folder_params`、`plot_sensitivity_radar`（供 find_csv 调用） | `skill/find_csv_in_matched_folders_Skill.md` |
+| `organize_sensitivity_mld_diff.py` | `*_result.csv` 宽表合并 mld_en0/1；差值 en0−en1；`organized/*_mld_wide.csv` + 着色 xlsx | `skill/organize_sensitivity_mld_diff.skill` + `skill/organize_sensitivity_mld_diff_Skill.md` |
 | `process_ila_files.py` | 处理FPGA导出的ILA信号文件，解压缩并提取waveform.csv，按原始文件名重命名 | process_ila_files.skill |
 
 #### 2. EVM 分析工具
@@ -300,6 +316,7 @@ spur_notch/notch_cal.py  ←──算法参照──→  spur_notch/spur_scan_pr
 |---------|---------|-------|
 | `find_csv_in_matched_folders.py` | 主流程：通配找文件夹 → 收集 CSV → 路径/`mld_en`/`cur_degree` 解析 → 灵敏度 CSV → 雷达图（默认 `<csv_stem>_radar/`） | `skill/find_csv_in_matched_folders.skill` + `skill/find_csv_in_matched_folders_Skill.md` |
 | `wifi_rx_sensitivity.py` | 灵敏度计算与雷达绘制模块；可被 find_csv 或脚本内 API 单独调用 | 同上 |
+| `organize_sensitivity_mld_diff.py` | 整理 `*_result.csv`：同配置合并 mld_en0/1 宽表，`sensitivity_dbm_mld_diff`=en0−en1，xlsx 差值列着色 | `skill/organize_sensitivity_mld_diff.skill` + `skill/organize_sensitivity_mld_diff_Skill.md` |
 
 ### 子目录补充说明（与「仓库目录结构总览」对应）
 
@@ -336,7 +353,7 @@ spur_notch/notch_cal.py  ←──算法参照──→  spur_notch/spur_scan_pr
 #### skill/
 - **位置**: `./skill/`
 - **内容**: Claude Code 技能（`*.skill`）与各脚本配套的 `*_Skill.md`
-- **常见技能文件**: `txAnalyse.skill`、`evm_comparison.skill`、`txmagtrk_analyse.skill`、`mag_track_rls4_fpga_analyse.skill`、`analyze_mag_track_test_res.skill`、`spur_scan_process.skill`、`spur_diff_and_mark_red.skill`、`merge_csv_to_xlsx_skill.md`、`process_ila_files.skill`、`my_ag.skill` 等（完整列表以目录为准）
+- **常见技能文件**: `txAnalyse.skill`、`evm_comparison.skill`、`txmagtrk_analyse.skill`、`mag_track_rls4_fpga_analyse.skill`、`analyze_mag_track_test_res.skill`、`spur_scan_process.skill`、`spur_diff_and_mark_red.skill`、`merge_csv_to_xlsx_skill.md`、`organize_sensitivity_mld_diff.skill`、`process_ila_files.skill`、`my_ag.skill` 等（完整列表以目录为准）
 - **`spur_scan_process`**（杂散扫描主流程）:
   - **`spur_scan_process.skill`** — 三步流水线、输入格式、配置项
   - **`spur_scan_process_Skill.md`** — PSD 检测规则、信道筛选、陷波定点、产物路径、API
@@ -345,6 +362,10 @@ spur_notch/notch_cal.py  ←──算法参照──→  spur_notch/spur_scan_pr
   - **`find_csv_in_matched_folders.skill`** — 配置项、命令示例、指向完整 MD
   - **`find_csv_in_matched_folders_Skill.md`** — 路径解析表、灵敏度 CSV 列、雷达图分组（mld_en0/1 同图）、`--no-radar` / `--radar-dir`、Python API
   - 对应脚本：根目录 `find_csv_in_matched_folders.py`、`wifi_rx_sensitivity.py`；详见上文 **「RX CSV 检索与灵敏度雷达」**
+- **`organize_sensitivity_mld_diff`**（灵敏度 mld_en 宽表）:
+  - **`organize_sensitivity_mld_diff.skill`** — 默认路径、命令示例、指向完整 MD
+  - **`organize_sensitivity_mld_diff_Skill.md`** — 配对键、输出列、差值公式与 xlsx 着色阈值、Python API
+  - 对应脚本：根目录 `organize_sensitivity_mld_diff.py`；输入常为 `find_csv` 产出的 `*_result.csv`
 - **子目录 `merged_tx_result_analysis/`**: 合并 TX 结果分析相关说明脚本与 `generate_report.py` 等，与根目录 `generate_report.py`、`analyze_merged_tx_result.py` 等配合使用
 
 ### 常用命令示例
@@ -404,6 +425,10 @@ python find_csv_in_matched_folders.py --sensitivity-out "D:\path\to\sens_summary
 python find_csv_in_matched_folders.py --no-radar --no-sensitivity
 python find_csv_in_matched_folders.py --list-out "D:\path\to\matched.tsv" -v
 
+# 灵敏度 *_result.csv → mld_en0/1 宽表 + 差值着色 xlsx（默认 output/sensitivity_out/result/organized）
+python organize_sensitivity_mld_diff.py
+python organize_sensitivity_mld_diff.py --input_dir "D:\users\gxu\scripts\output\sensitivity_out\result" --combined "D:\path\to\all_mld_wide.csv"
+
 # Notch / spur（在仓库根目录执行；脚本位于 spur_notch/）
 python spur_notch/spur_scan_process.py   # 改脚本底部 INPUT_DIR/FS/SPUR_THR/Q 等
 python spur_notch/wifiRxProcess.py
@@ -416,6 +441,7 @@ python spur_notch/move_spur_scan_result_csvs.py
 /skill analyze_mag_track_test_res  # Mag track 回归 CSV 分析
 /skill mag_track_rls4_fpga_analyse  # RLS4 FPGA mag_track PDF 与基线对比
 /skill find_csv_in_matched_folders  # RX CSV 检索、灵敏度 CSV、mld_en 对比雷达图
+/skill organize_sensitivity_mld_diff  # 灵敏度 result CSV → mld_en 宽表与差值 xlsx
 /skill spur_scan_process           # 杂散扫描：PSD→coef→pwr 三步流水线
 ```
 

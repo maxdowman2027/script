@@ -1,0 +1,23 @@
+# organize_sensitivity_mld_diff.py
+
+## 功能
+- 读灵敏度 `*_result.csv`（长表，含 mld_en=0/1）
+- 按 bandwidth、coding、wifi_format、cur_degree、rate、rx_chan 合并为一行
+- 列：`sensitivity_dbm_mld_en0`、`sensitivity_dbm_mld_en1`、`sensitivity_dbm_mld_diff`（en0 − en1）
+- 输出 `*_mld_wide.csv` + `*_mld_wide.xlsx`（差值列绿/黄/红填充）
+
+## 默认路径
+- 输入：`output/sensitivity_out/result/*_result.csv`
+- 输出：`output/sensitivity_out/result/organized/`
+
+## 运行
+```bash
+python organize_sensitivity_mld_diff.py
+python organize_sensitivity_mld_diff.py --input_dir D:\path\to\result --combined D:\path\to\all.csv
+```
+
+## 上游
+`find_csv_in_matched_folders.py` / `wifi_rx_sensitivity.py`
+
+## 文档
+`skill/organize_sensitivity_mld_diff_Skill.md`
