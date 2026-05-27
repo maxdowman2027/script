@@ -39,9 +39,8 @@
    在相同 **`band` / coding（BCC·LDPC）/ `cbw` / NSS·STBC（来自 Sheet）/ `wifi_format`** 分组内：
    - 比较各 **rate** 在**全部 tx_pwr** 上的 **EVM 均值**：若某 rate 明显劣于组内中位数（默认高出 **2 dB**，即 EVM 数值更大），写入 **`[ANOMALY ALERT]`**。
    - 对每个 rate 的 **EVM–tx_pwr** 曲线，检测相邻功率点 **|ΔEVM|** 过大（默认 **3 dB**）。
-   - **NSS2 双流**：仅 **`_source_sheet` 为 NSS2** 且 **`evm_nss0`/`evm_nss1`** 均为有效数值的行。
-     - **单点**：若 **`|evm_nss0 - evm_nss1| >` 阈值**（默认 **3 dB**），写入 **`[ANOMALY ALERT] NSS2 chain EVM imbalance (evm_nss0 vs evm_nss1)`**；单报告最多 **500** 条明细，超出追加汇总行。
-     - **同 rate、跨 tx_pwr**：在 **sheet / band / coding / cbw / wifi_format / rate_norm（HT 与透视表同口径）** 分组内，对每个 **tx_pwr** 先对两链取均值，再对功率求 **mean(evm_nss0)**、**mean(evm_nss1)**；若 **`|mean_nss0 - mean_nss1| >` 同一阈值** 且该组至少有 **2** 个不同功率点，写入 **`[ANOMALY ALERT] NSS2 chain EVM imbalance (same rate, mean over tx_pwr)`**（最多 **100** 组，超出汇总）。用于检出单点未超阈但整段功率扫描上两链系统偏置的情况。无有效 `tx_power_set(dBm)` 时跳过该项并打印说明行。
+   - **NSS2 双流**：仅 **`_source_sheet` 为 NSS2** 且 **`evm_nss0`/`evm_nss1`** 均为有效数值的行；**不做单个 tx_pwr 点** 的链间差对比。
+     - **同 rate、全部 tx_pwr 平均**：在 **sheet / band / coding / cbw / wifi_format / rate_norm** 分组内，对每个 **tx_pwr** 先对两链取均值，再对各功率点求 **mean(evm_nss0)**、**mean(evm_nss1)**；若 **`|mean_nss0 - mean_nss1| >` 阈值**（默认 **3 dB**）且至少有 **2** 个不同 **tx_pwr**，写入 **`[ANOMALY ALERT] NSS2 chain EVM imbalance (mean over all tx_pwr)`**（最多 **100** 组，超出汇总）。无有效 `tx_power_set(dBm)` 时跳过并打印说明行。
 
 2. **HT rate 口径**  
    与 EVM 透视统计一致：STBC / NSS2 下 **`_normalize_ht_rate_for_summary`** 归一后再分组。
@@ -53,7 +52,7 @@
 4. **关闭 / 调参**  
    - `--no_evm_anomaly` / `run_evm_anomaly_check=False`  
    - `--anomaly_report`、`--anomaly_rate_gap`（默认 2.0）、`--anomaly_curve_jump`（默认 3.0）  
-   - NSS2 双流 EVM 差：`--anomaly_nss2_evm_gap`（默认 3.0，同时作用于**单点链间差**与**同 rate 跨 tx_pwr 链均值差**）、`--no_anomaly_nss2`
+   - NSS2 双流 EVM 差：`--anomaly_nss2_evm_gap`（默认 3.0，**同 rate 全部 tx_pwr 平均**链间差）、`--no_anomaly_nss2`
 
 5. **数据采集**  
    只要开启 EVM 统计 **或** 异常扫描，脚本会从各 Sheet 合并数据中附带 **`_source_sheet`**；若仅关闭 EVM 透视但仍开启异常扫描，会按需二次读取 CSV 构建分析表。

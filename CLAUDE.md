@@ -128,7 +128,7 @@
 | 杂散 / 频谱 / PSD | **陷波与杂散流水线、脚本关系见下文「Notch & Spur」**；通用绘图仍含 `psd_plot.py`、`psd_plot_1kHz.py`、`plot_spectrum.py`、`plot_spectrum_2462.py`、`plot_psd_2462.py`、`plot_csv_data.py`、`pwelch.py` |
 | 接收 / 灵敏度 | **`find_csv_in_matched_folders.py`** + **`wifi_rx_sensitivity.py`**（rftest_data 按文件夹通配找 RX CSV、灵敏度 CSV、**mld_en 对比雷达图**）；**`organize_sensitivity_mld_diff.py`**（`*_result.csv` → mld_en0/1 宽表 + 差值 xlsx 着色）；`wifiRxPlot.py`、`calculate_sensitivity_and_plot.py`；杂散见 **`spur_notch/wifiRxProcess.py`**（「Notch & Spur」） |
 | RU / 符号 / 参数 | `find_ru26.py`、`find_ru26_nsym.py`、`find_precise_ru26.py`、`find_nsym_16.py`、`find_nsym_340.py`、`calculate_ru26_params.py`、`cal_symbol_num.py`、`generate_ru26_cases.py` 等（`spur_notch/notch_cal.py` 见「Notch & Spur」） |
-| Excel / CSV / 校验 | `merge_csv_to_xlsx.py`（合并 risc_wifitx、可选 EVM 透视、默认 WiFi7 TX PDF + EVM 异常报告含 **NSS2 evm_nss0/evm_nss1** 单点差与同 rate 跨 tx_pwr 链均值差；PDF 标题含 `suer_dcm` 时带 `dcm=`）、`file_merge.py`、`compare_data.py`、`cac_diff_xlsx.py`；大量 `check_*.py`；`analyze_*.py`、`explore_excel.py`、`detect_outliers.py`、`validate_conversion.py` 等 |
+| Excel / CSV / 校验 | `merge_csv_to_xlsx.py`（合并 risc_wifitx、可选 EVM 透视、默认 WiFi7 TX PDF + EVM 异常报告含 **NSS2** 同 rate **全部 tx_pwr 平均**链间 EVM 差；PDF 标题含 `suer_dcm` 时带 `dcm=`）、`file_merge.py`、`compare_data.py`、`cac_diff_xlsx.py`；大量 `check_*.py`；`analyze_*.py`、`explore_excel.py`、`detect_outliers.py`、`validate_conversion.py` 等 |
 | 寄存器（根目录） | `compare_reg_csv.py`（详细查询与 CSV 源文件在 `reg_query/`） |
 | 报告 / 汇总 | `generate_report.py`、`analyze_merged_tx_result.py`、`analyze_all_sheets.py`、`analyze_multi_sheet.py`、`summarize_fail_configs.py`、`view_comparison_results.py`、`verify_merged_files.py`、`my_ag.py` 等 |
 | 文件与路径工具 | **`find_csv_in_matched_folders.py`**（见下文「RX CSV 检索与灵敏度雷达」）、`wifi_rx_sensitivity.py`、`file_rename.py` 等 |
@@ -234,7 +234,7 @@ python organize_sensitivity_mld_diff.py --input_dir ./output/sensitivity_out/res
 #### 1. 数据合并与格式化工具
 | 脚本名称 | 功能说明 | 详细文档 |
 |---------|---------|---------|
-| `merge_csv_to_xlsx.py` | 合并 `risc_wifitx_*.csv` 为按信道/编码/NSS 分 Sheet 的 XLSX；可选 EVM 透视统计；合并后默认可调用 `txAnalyse_wifi7` 出 TX 多页 PDF（CSV 含 `suer_dcm` 时图标题含 `dcm=`），并写 EVM 跨 rate/功率曲线异常报告及 **NSS2 双流** `evm_nss0` vs `evm_nss1` 告警（**单点**链间差 + **同 rate 跨 tx_pwr** 两链均值差） | merge_csv_to_xlsx_skill.md |
+| `merge_csv_to_xlsx.py` | 合并 `risc_wifitx_*.csv` 为按信道/编码/NSS 分 Sheet 的 XLSX；可选 EVM 透视统计；合并后默认可调用 `txAnalyse_wifi7` 出 TX 多页 PDF（CSV 含 `suer_dcm` 时图标题含 `dcm=`），并写 EVM 跨 rate/功率曲线异常报告及 **NSS2** 同 rate **全部 tx_pwr 平均** `evm_nss0`/`evm_nss1` 链间差告警 | merge_csv_to_xlsx_skill.md |
 | `file_merge.py` | 文件合并工具 | file_merge_Skill.md |
 | `file_rename.py` | 文件重命名工具 | - |
 | `find_csv_in_matched_folders.py` | 递归匹配 testcase 文件夹收集 RX CSV；路径 + `testcase_folder` 解析（`mld_en`、`cur_degree`）；灵敏度汇总 CSV；**同配置叠加 mld_en0/1 雷达对比图**；copy/move、list-out、顶部配置区 | `skill/find_csv_in_matched_folders_Skill.md` |
