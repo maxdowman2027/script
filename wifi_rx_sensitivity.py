@@ -450,8 +450,28 @@ def _radar_radius_from_sensitivity(sensitivity_dbm: float) -> float:
 
 
 def _radar_diff_point_color(diff_dbm: float) -> str:
-    """Green if mld_en0 - mld_en1 >= 0, else red (matches wide-table xlsx convention)."""
+    """Green if mld_en0 - mld_en1 >= 0 (outside zero ring), red if < 0 (inside)."""
     return "#2ca02c" if float(diff_dbm) >= 0 else "#d62728"
+
+
+def _mld_diff_polar_layout(
+    diffs: Sequence[float],
+    *,
+    margin_db: float = 0.5,
+) -> Tuple[float, float, List[float]]:
+    """
+    Map signed diff (mld_en0 - mld_en1) to polar radius with a diff=0 reference ring.
+
+    r0 = zero circle; plot radius = r0 + diff so diff>0 is outside, diff<0 inside.
+    """
+    d_min = float(min(diffs))
+    d_max = float(max(diffs))
+    span = d_max - d_min
+    pad = margin_db if span < 1e-9 else max(margin_db, 0.08 * span)
+    r0 = max(pad, -d_min + pad)
+    radii = [r0 + float(d) for d in diffs]
+    r_plot_max = max(radii + [r0 + pad])
+    return r0, r_plot_max, radii
 
 
 def plot_sensitivity_mld_diff_radar(
@@ -461,14 +481,13 @@ def plot_sensitivity_mld_diff_radar(
     diff_col: str = SENS_MLD_DIFF_COL,
 ) -> List[str]:
     """
-    Polar charts: angle = cur_degree (°), radius = |sensitivity_dbm_mld_diff|.
+    Polar charts: angle = cur_degree (°), signed radius = r0 + sensitivity_dbm_mld_diff.
 
-    One PNG per (band, phymode, bandwidth, coding, wifi_format, rx_chan, rate).
-    Input rows are wide-table records (mld_en0/1 already merged per angle).
-    Marker/line color: green if diff >= 0 (en0 − en1), red if diff < 0.
-    Polyline connects measured angles only (no interpolation).
+    Dashed ring at r0 is diff=0 (mld_en0 − mld_en1). diff>0 outside (green, 优化);
+    diff<0 inside (red, 恶化). Polyline connects measured angles only (no interpolation).
     """
     import matplotlib.pyplot as plt
+    from matplotlib.lines import Line2D
 
     groups: Dict[Tuple[Any, ...], List[Tuple[float, float]]] = defaultdict(list)
     for row in rows:
@@ -518,29 +537,55 @@ def plot_sensitivity_mld_diff_radar(
         degrees = [p[0] for p in pts]
         diffs = [p[1] for p in pts]
         theta = np.deg2rad(degrees)
-        radius = [abs(d) for d in diffs]
+        r0, r_plot_max, radius = _mld_diff_polar_layout(diffs)
         colors = [_radar_diff_point_color(d) for d in diffs]
 
         fig, ax = plt.subplots(figsize=(9, 9), subplot_kw={"projection": "polar"})
+        theta_bg = np.linspace(0, 2 * np.pi, 360)
+
+        # 圈内红 / 圈外绿 背景（diff=0 为 r0 虚线圆）
+        ax.fill(theta_bg, np.full_like(theta_bg, r0), color="#ffcccc", alpha=0.35, zorder=0)
+        ax.fill_between(
+            theta_bg,
+            r0,
+            np.full_like(theta_bg, r_plot_max),
+            color="#ccffcc",
+            alpha=0.28,
+            zorder=0,
+        )
+        ax.plot(
+            theta_bg,
+            np.full_like(theta_bg, r0),
+            color="#333333",
+            linestyle="--",
+            linewidth=2.0,
+            zorder=3,
+        )
+
         for i in range(len(theta)):
             j = (i + 1) % len(theta)
+            mid_diff = 0.5 * (diffs[i] + diffs[j])
+            seg_color = _radar_diff_point_color(mid_diff)
             ax.plot(
                 [theta[i], theta[j]],
                 [radius[i], radius[j]],
-                color="#888888",
-                linewidth=1.2,
-                alpha=0.7,
-                zorder=1,
+                color=seg_color,
+                linewidth=1.4,
+                alpha=0.75,
+                zorder=2,
             )
-        ax.scatter(theta, radius, c=colors, s=56, zorder=2, edgecolors="black", linewidths=0.4)
+        ax.scatter(
+            theta,
+            radius,
+            c=colors,
+            s=58,
+            zorder=4,
+            edgecolors="black",
+            linewidths=0.45,
+        )
 
-        if len(theta) > 1:
-            theta_closed = np.append(theta, theta[0])
-            radius_closed = np.append(radius, radius[0])
-            ax.plot(theta_closed, radius_closed, color="#666666", linewidth=0.8, alpha=0.35, zorder=0)
-
-        r_max = max(radius) if radius else 1.0
-        ax.set_ylim(0, r_max * 1.15 if r_max > 0 else 1.0)
+        r_min = min(radius) if radius else 0.0
+        ax.set_ylim(max(0.0, r_min * 0.92), r_plot_max * 1.08)
         ax.set_theta_zero_location("N")
         ax.set_theta_direction(-1)
         ax.set_thetagrids(degrees, labels=[f"{int(d)}°" for d in degrees])
@@ -548,20 +593,35 @@ def plot_sensitivity_mld_diff_radar(
             "RX sensitivity mld diff vs angle\n"
             f"{band} {phymode} {bandwidth} {coding} {wifi_format} | "
             f"ch={rx_chan} rate={rate}\n"
-            f"(radius = |mld_en0 − mld_en1| dB; green ≥0, red <0)",
+            f"(radius = r0 + (mld_en0−mld_en1); dashed ring = 0 dB; "
+            f"outside green / inside red)",
             pad=20,
             fontsize=10,
         )
-        from matplotlib.lines import Line2D
 
         ax.legend(
             handles=[
-                Line2D([0], [0], marker="o", color="w", markerfacecolor="#2ca02c", label="diff ≥ 0"),
-                Line2D([0], [0], marker="o", color="w", markerfacecolor="#d62728", label="diff < 0"),
+                Line2D([0], [0], color="#333333", linestyle="--", linewidth=2, label="diff = 0 dB"),
+                Line2D(
+                    [0],
+                    [0],
+                    marker="o",
+                    color="w",
+                    markerfacecolor="#2ca02c",
+                    label="outside ring (diff > 0, better)",
+                ),
+                Line2D(
+                    [0],
+                    [0],
+                    marker="o",
+                    color="w",
+                    markerfacecolor="#d62728",
+                    label="inside ring (diff < 0, worse)",
+                ),
             ],
             loc="upper right",
-            bbox_to_anchor=(1.28, 1.1),
-            fontsize=9,
+            bbox_to_anchor=(1.32, 1.1),
+            fontsize=8,
         )
 
         fname = (

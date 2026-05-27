@@ -56,8 +56,8 @@
 
 2. **雷达图**（`RUN_SENSITIVITY_RADAR=True`，默认）：`plot_sensitivity_mld_diff_radar`（基于宽表）  
    - **角度轴**：`cur_degree`（°），0° 正北、顺时针  
-   - **径向**：**|sensitivity_dbm_mld_diff|**（dB）  
-   - **颜色**：绿 = diff ≥ 0，红 = diff &lt; 0  
+   - **径向**：**r0 + sensitivity_dbm_mld_diff**（带符号，dB）；**虚线圆 = diff 0**  
+   - **圈外**（diff &gt; 0）：绿色，表示相对 mld_en=1 **优化**；**圈内**（diff &lt; 0）：红色，表示**恶化**  
    - **分组**：每个 `(band, phymode, bandwidth, coding, wifi_format, rx_chan, rate)` 一张 PNG；文件名 `radar_mld_diff_...png`  
    - **输出目录**：`<csv_stem>_radar/`（`SENSITIVITY_RADAR_DIR` / `--radar-dir`）
 

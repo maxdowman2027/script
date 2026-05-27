@@ -9,7 +9,7 @@
 - 路径解析 → band, phymode, 20m, ldpc, he …
 - testcase_folder → `mld_en`, `cur_degree`（当前角度 °）
 - 灵敏度（wifiRxPlot 算法）→ `sensitivity_summary_*.csv`
-- 宽表 mld_en0/1 + 差值列；雷达：角度=cur_degree，半径=|mld_diff|，绿≥0红<0
+- 宽表 mld_en0/1；雷达：r=r0+signed diff，虚线圆=0，圈外绿圈内红
 - 可选 copy/move、list-out TSV
 
 ## 运行
