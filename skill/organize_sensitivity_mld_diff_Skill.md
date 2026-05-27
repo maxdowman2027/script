@@ -11,10 +11,16 @@
 ## 数据流位置
 
 ```text
-find_csv_in_matched_folders.py  →  sensitivity_summary / *_result.csv（长表，含 mld_en）
-        ↓
-organize_sensitivity_mld_diff.py  →  *_mld_wide.csv + *_mld_wide.xlsx（宽表 + 差值着色）
+find_csv_in_matched_folders.py
+  → sensitivity_summary_*.csv（长表，含 mld_en）
+  → <同 stem>_mld_wide.csv/.xlsx（宽表，自动）
+  → <同 stem>_radar/（mld_diff 雷达图，角度=cur_degree，半径=|diff|）
+
+organize_sensitivity_mld_diff.py（离线）
+  → 对已存在的 *_result.csv 做宽表；核心 API 在 wifi_rx_sensitivity.py
 ```
+
+**说明**：宽表合并与 `plot_sensitivity_mld_diff_radar` 已整合进 `wifi_rx_sensitivity.py`；`find_csv` 默认在算完灵敏度后自动调用，无需再单独跑 organize（除非只整理历史 CSV）。
 
 典型输入目录（脚本默认）：
 

@@ -16,8 +16,10 @@ python organize_sensitivity_mld_diff.py
 python organize_sensitivity_mld_diff.py --input_dir D:\path\to\result --combined D:\path\to\all.csv
 ```
 
-## 上游
-`find_csv_in_matched_folders.py` / `wifi_rx_sensitivity.py`
+## 上游 / 实现
+- 核心：`wifi_rx_sensitivity.merge_mld_sensitivity_rows` / `plot_sensitivity_mld_diff_radar`
+- 在线：`find_csv_in_matched_folders.py`（灵敏度后自动宽表 + 差值雷达）
+- 离线：本脚本处理已有 `*_result.csv`
 
 ## 文档
 `skill/organize_sensitivity_mld_diff_Skill.md`

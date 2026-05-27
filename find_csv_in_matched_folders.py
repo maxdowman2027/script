@@ -20,6 +20,8 @@ from collections import OrderedDict
 from dataclasses import dataclass, replace
 from typing import Any, Dict, Iterator, List, Optional, Sequence, Tuple
 
+import pandas as pd
+
 import wifi_rx_sensitivity as wrx_sens
 
 
@@ -61,8 +63,9 @@ RUN_SENSITIVITY = True
 SENSITIVITY_OUT_CSV = None  # None → 在 ROOT_SEARCH_PATH 下 sensitivity_summary_YYYYMMDD_HHMMSS.csv
 PAK_NUM = 1000
 SENS_ACCURACY = 100
-# 6. 灵敏度雷达图（角度=cur_degree；sens=0 在原点；无数据角度不插点直连下一角度；mld_en0/1 同图对比）
+# 6. 灵敏度宽表 + 雷达图（合并 mld_en0/1 → sensitivity_dbm_mld_diff；雷达图用差值 vs cur_degree）
 RUN_SENSITIVITY_RADAR = True
+RUN_MLD_WIDE_OUTPUT = True  # 写出 <sensitivity_csv_stem>_mld_wide.csv/.xlsx
 SENSITIVITY_RADAR_DIR = None  # None → 与灵敏度 CSV 同目录下的 <csv_stem>_radar/
 # =============================================================================
 
@@ -474,6 +477,11 @@ def _default_radar_out_dir(sensitivity_csv: str) -> str:
     return f"{base}_radar"
 
 
+def _default_mld_wide_paths(sensitivity_csv: str) -> Tuple[str, str]:
+    base, _ = os.path.splitext(os.path.abspath(sensitivity_csv))
+    return f"{base}_mld_wide.csv", f"{base}_mld_wide.xlsx"
+
+
 def run_sensitivity_for_hits(
     hits: Sequence[CsvHit],
     out_csv: str,
@@ -482,6 +490,9 @@ def run_sensitivity_for_hits(
     sens_accuracy: int = 100,
     run_radar: bool = True,
     radar_out_dir: Optional[str] = None,
+    run_mld_wide: bool = True,
+    mld_wide_csv: Optional[str] = None,
+    mld_wide_xlsx: Optional[str] = None,
 ) -> int:
     """
     Group hits by RX session directory (parent folder of CSV), merge logs, compute
@@ -519,14 +530,44 @@ def run_sensitivity_for_hits(
         f"({len(all_rows)} rows, {ok_sessions} session(s))"
     )
 
+    wide_csv, wide_xlsx = mld_wide_csv, mld_wide_xlsx
+    if run_mld_wide and (wide_csv is None or wide_xlsx is None):
+        d_csv, d_xlsx = _default_mld_wide_paths(out_csv)
+        wide_csv = wide_csv or d_csv
+        wide_xlsx = wide_xlsx or d_xlsx
+
+    wide_df = pd.DataFrame()
+    if run_mld_wide and wide_csv and wide_xlsx:
+        try:
+            wide_df = wrx_sens.write_mld_wide_from_long_rows(all_rows, wide_csv, wide_xlsx)
+            if wide_df.empty:
+                print("[WARN] No mld_en0+1 pairs for wide table (check mld_en in testcase folders)")
+            else:
+                print(
+                    f"[OK] MLD wide table: {os.path.abspath(wide_csv)} "
+                    f"({len(wide_df)} rows, diff = mld_en0 − mld_en1)"
+                )
+        except Exception as ex:
+            print(f"[WARN] MLD wide table skipped: {ex}")
+
     if run_radar:
         radar_dir = radar_out_dir or _default_radar_out_dir(out_csv)
         try:
-            pngs = wrx_sens.plot_sensitivity_radar(all_rows, radar_dir)
-            if pngs:
-                print(f"[OK] Sensitivity radar: {len(pngs)} chart(s) in {os.path.abspath(radar_dir)}")
+            if not wide_df.empty:
+                wide_rows = wide_df.to_dict(orient="records")
+                pngs = wrx_sens.plot_sensitivity_mld_diff_radar(wide_rows, radar_dir)
             else:
-                print("[WARN] No radar charts (need cur_degree and valid sensitivity_dbm)")
+                pngs = []
+            if pngs:
+                print(
+                    f"[OK] Sensitivity mld-diff radar: {len(pngs)} chart(s) in "
+                    f"{os.path.abspath(radar_dir)}"
+                )
+            else:
+                print(
+                    "[WARN] No mld-diff radar charts "
+                    "(need wide table with cur_degree and sensitivity_dbm_mld_diff)"
+                )
         except Exception as ex:
             print(f"[WARN] Radar plot skipped: {ex}")
 
@@ -604,7 +645,12 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
     parser.add_argument(
         "--no-radar",
         action="store_true",
-        help="Skip sensitivity vs cur_degree polar (radar) charts",
+        help="Skip mld-diff sensitivity radar charts",
+    )
+    parser.add_argument(
+        "--no-mld-wide",
+        action="store_true",
+        help="Skip mld_en wide CSV/XLSX (radar requires wide table)",
     )
     parser.add_argument(
         "--radar-dir",
@@ -634,6 +680,7 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
     if run_sens and hits:
         sens_out = args.sensitivity_out or _default_sensitivity_out_path(args.root)
         print(f"\nComputing RX sensitivity (wifiRxPlot algorithm) -> {sens_out}")
+        run_mld_wide = RUN_MLD_WIDE_OUTPUT and not args.no_mld_wide
         run_sensitivity_for_hits(
             hits,
             sens_out,
@@ -641,6 +688,7 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
             sens_accuracy=args.sens_accuracy,
             run_radar=RUN_SENSITIVITY_RADAR and not args.no_radar,
             radar_out_dir=args.radar_dir,
+            run_mld_wide=run_mld_wide,
         )
 
     list_with_config = LIST_OUT_WITH_CONFIG and not args.list_plain

@@ -45,17 +45,25 @@
 
 ---
 
-## 灵敏度雷达图（极坐标）
+## mld_en 宽表与灵敏度雷达图（极坐标）
 
-在灵敏度 CSV 写出后（`RUN_SENSITIVITY_RADAR=True`，默认开启）：
+在灵敏度长表 CSV 写出后（`RUN_SENSITIVITY=True`）：
 
-- **角度轴**：`cur_degree`（°），0° 在正北，顺时针增加（与天线转台角度一致）。  
-- **径向**：`-sensitivity_dbm`（数值越大表示越灵敏，即 dBm 越负时半径越大）。  
-- **分组**：每个 `(band, phymode, bandwidth, coding, wifi_format, rx_chan, rate)` 一张 PNG；**同一图上叠加**不同 `mld_en`（典型为 **mld_en=0 与 mld_en=1** 对比，图例区分）。  
-- **文件名**：同时含 0/1 时为 `..._mld0v1_...png`。  
-- **输出目录**：默认与灵敏度 CSV 同目录下的 `<csv_stem>_radar/`（可用 `SENSITIVITY_RADAR_DIR` 或 `--radar-dir` 指定）。
+1. **宽表**（`RUN_MLD_WIDE_OUTPUT=True`，默认）：`wifi_rx_sensitivity.write_mld_wide_from_long_rows`  
+   - 输出 `<sensitivity_csv_stem>_mld_wide.csv`、`_mld_wide.xlsx`  
+   - 列：`sensitivity_dbm_mld_en0`、`sensitivity_dbm_mld_en1`、`sensitivity_dbm_mld_diff`（**mld_en0 − mld_en1**，dB）  
+   - 仅保留同时有 mld_en=0/1 的测点（`bandwidth/coding/wifi_format/cur_degree/rate/rx_chan` 相同）
 
-需至少 1 个有效点（含 `cur_degree` 且 `sensitivity_dbm` 有数值）；**`sensitivity_dbm = 0`** 时该角度点画在**原点**；某角度无数据则不插点，折线直接连到下一有数据的角度；多角度时各 `mld_en` 曲线闭合回首点。
+2. **雷达图**（`RUN_SENSITIVITY_RADAR=True`，默认）：`plot_sensitivity_mld_diff_radar`（基于宽表）  
+   - **角度轴**：`cur_degree`（°），0° 正北、顺时针  
+   - **径向**：**|sensitivity_dbm_mld_diff|**（dB）  
+   - **颜色**：绿 = diff ≥ 0，红 = diff &lt; 0  
+   - **分组**：每个 `(band, phymode, bandwidth, coding, wifi_format, rx_chan, rate)` 一张 PNG；文件名 `radar_mld_diff_...png`  
+   - **输出目录**：`<csv_stem>_radar/`（`SENSITIVITY_RADAR_DIR` / `--radar-dir`）
+
+无宽表时不会出雷达图。`--no-mld-wide` 跳过宽表；`--no-radar` 跳过雷达图。
+
+旧版 `plot_sensitivity_radar`（长表叠加 mld_en0/1、半径=−sensitivity_dbm）仍保留在 `wifi_rx_sensitivity.py`，**find_csv 默认不再调用**。
 
 ---
 
@@ -69,7 +77,8 @@
 | `MOVE_DIR` / `COPY_DIR` | 复制/移动目标（二选一） |
 | `RUN_SENSITIVITY` | 默认是否计算灵敏度（`True`） |
 | `SENSITIVITY_OUT_CSV` | 灵敏度 CSV 路径；`None` 为自动命名 |
-| `RUN_SENSITIVITY_RADAR` | 是否生成雷达图（`True`） |
+| `RUN_MLD_WIDE_OUTPUT` | 是否写 mld 宽表 csv/xlsx（`True`） |
+| `RUN_SENSITIVITY_RADAR` | 是否生成 mld-diff 雷达图（`True`） |
 | `SENSITIVITY_RADAR_DIR` | 雷达图目录；`None` 为 `<csv_stem>_radar/` |
 | `PAK_NUM` | PER 分母包数（默认 1000） |
 | `SENS_ACCURACY` | 插值步数（默认 100） |
@@ -82,6 +91,8 @@
 python find_csv_in_matched_folders.py
 python find_csv_in_matched_folders.py --sensitivity-out D:\out\sens_summary.csv
 python find_csv_in_matched_folders.py --radar-dir D:\out\radar
+python find_csv_in_matched_folders.py --no-mld-wide
+python find_csv_in_matched_folders.py --no-radar
 python find_csv_in_matched_folders.py --no-radar
 python find_csv_in_matched_folders.py --no-sensitivity
 ```
