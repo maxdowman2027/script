@@ -2,22 +2,83 @@ import pandas as pd
 import matplotlib.pyplot as plt
 import seaborn as sns
 import os
+import re
 import numpy as np
 from datetime import datetime
+
+
+# merge_csv_to_xlsx 典型 Sheet：channel{num}_{BCC|LDPC}[_{NSS1|NSS2|STBC}]
+_MERGED_TX_SHEET_RE = re.compile(
+    r"^channel(\d+)_(BCC|LDPC)(?:_(NSS1|NSS2|STBC))?$",
+    re.IGNORECASE,
+)
+
+
+def parse_merged_tx_sheet_name(sheet_name):
+    """
+    Parse channel / coding / stream suffix from merged_tx_result style sheet names.
+    Returns (channel_str, coding_upper, nss_upper_or_None) or None if pattern does not match.
+    """
+    if sheet_name is None:
+        return None
+    m = _MERGED_TX_SHEET_RE.match(str(sheet_name).strip())
+    if not m:
+        return None
+    ch, coding, nss = m.group(1), m.group(2).upper(), m.group(3)
+    return (ch, coding, nss.upper() if nss else None)
+
+
+def find_matching_sheet(old_sheet, new_sheets):
+    """
+    Match sheet from file1 to file2: exact name (case-insensitive) first, then same
+    channel/coding/NSS suffix from parse_merged_tx_sheet_name. Avoids false matches
+    from substring rules (e.g. NSS1 vs NSS2, or unrelated sheets sharing 'ht').
+    """
+    old_ci = str(old_sheet).strip().lower()
+    new_list = list(new_sheets)
+    for ns in new_list:
+        if str(ns).strip().lower() == old_ci:
+            return ns
+    old_key = parse_merged_tx_sheet_name(old_sheet)
+    if old_key is not None:
+        for ns in new_list:
+            if parse_merged_tx_sheet_name(ns) == old_key:
+                return ns
+    return None
+
+
+def _sheet_is_nss2(sheet_name):
+    u = str(sheet_name).upper()
+    if "NSS2" in u:
+        return True
+    key = parse_merged_tx_sheet_name(sheet_name)
+    return key is not None and key[2] == "NSS2"
+
+
+def _resolve_evm_column(df):
+    """Pick primary EVM column for single-stream compare."""
+    for col in ("evm", "evm_aver(dB)", "aver_evmAll"):
+        if col in df.columns:
+            return col
+    if "evm_nss0" in df.columns:
+        return "evm_nss0"
+    if "evm_nss1" in df.columns:
+        return "evm_nss1"
+    return None
 
 
 def main():
     # 可配置变量 - 直接在这里修改即可使用
     # 文件路径
     file1 = r"D:\chip_test\dev\xian_test\Xian-Esp-Test-Scripts\py_script_fpga_tx_wifi7\Log\wifi_tx_rls4\regression_v3_260424\merged_tx_result.xlsx"
-    file2 = r"D:\chip_test\dev\xian_test\Xian-Esp-Test-Scripts\py_script_fpga_tx_wifi7\Log\wifi_tx_rls4\regression_260514_mld\2\merged_tx_result.xlsx"
+    file2 = r"D:\chip_test\dev\xian_test\Xian-Esp-Test-Scripts\py_script_fpga_tx_wifi7\Log\wifi_tx_rls4\regression_260526\merged_tx_result.xlsx"
 
     # 版本名称
     version1 = "rls4_0424"
-    version2 = "rls4_0521"
+    version2 = "rls4_0526"
 
     # 输出目录
-    output_dir = r"D:\chip_test\dev\xian_test\Xian-Esp-Test-Scripts\py_script_fpga_tx_wifi7\Log\rls4_9p_evm_comparison"
+    output_dir = r"D:\chip_test\dev\xian_test\Xian-Esp-Test-Scripts\py_script_fpga_tx_wifi7\Log\rls4_9p_evm_comparison_0526"
 
     # 创建输出目录
     os.makedirs(output_dir, exist_ok=True)
@@ -80,30 +141,15 @@ def main():
             print(f"\n=== Comparing {sheet1} ({version1}) and {matched_sheet} ({version2}) ===")
             compare_dataframes(df1, data2[matched_sheet], sheet1, matched_sheet, comparison_result, output_dir, version1, version2)
         else:
-            print(f"\nWarning: No matching {version2} Sheet found for {version1} {sheet1}")
+            print(
+                f"\nWarning: No matching {version2} Sheet found for {version1} {sheet1} "
+                f"(exact name or channel/coding/NSS suffix match failed)"
+            )
 
     # 保存对比结果
     save_comparison_results(comparison_result, output_dir, version1, version2, file1, file2)
 
     print(f"\n分析完成！所有结果已保存在: {output_dir}")
-
-
-def find_matching_sheet(old_sheet, new_sheets):
-    # 尝试找到匹配的Sheet，考虑可能的命名差异
-    old_sheet_lower = old_sheet.lower()
-    for new_sheet in new_sheets:
-        new_sheet_lower = new_sheet.lower()
-        if old_sheet_lower == new_sheet_lower:
-            return new_sheet
-        if '2g' in old_sheet_lower and '2g' in new_sheet_lower:
-            return new_sheet
-        if '5g' in old_sheet_lower and '5g' in new_sheet_lower:
-            return new_sheet
-        if 'vht' in old_sheet_lower and 'vht' in new_sheet_lower:
-            return new_sheet
-        if 'ht' in old_sheet_lower and 'ht' in new_sheet_lower:
-            return new_sheet
-    return None
 
 
 def count_version1_rows_with_key_in_df2(df1, df2, merge_cols):
@@ -119,6 +165,172 @@ def count_version1_rows_with_key_in_df2(df1, df2, merge_cols):
     keys_v2 = df2[merge_cols].drop_duplicates()
     chk = df1[merge_cols].merge(keys_v2, on=merge_cols, how="left", indicator=True)
     return int((chk["_merge"] == "both").sum())
+
+
+def _compare_dataframes_nss2_dual(
+    df1,
+    df2,
+    sheet1,
+    sheet2,
+    merge_cols,
+    comparison_result,
+    output_dir,
+    version1,
+    version2,
+):
+    """Merge on same keys; compare evm_nss0 and evm_nss1 between two builds."""
+    df1_cols = merge_cols + ["evm_nss0", "evm_nss1"]
+    df2_cols = merge_cols + ["evm_nss0", "evm_nss1"]
+    if "psdu_crc" in df1.columns:
+        df1_cols.append("psdu_crc")
+    if "psdu_crc" in df2.columns:
+        df2_cols.append("psdu_crc")
+
+    merged_df = pd.merge(
+        df1[df1_cols],
+        df2[df2_cols],
+        on=merge_cols,
+        how="inner",
+        suffixes=(f"_{version1}", f"_{version2}"),
+    )
+
+    v1_rows_with_match = count_version1_rows_with_key_in_df2(df1, df2, merge_cols)
+    inner_join_rows = len(merged_df)
+    v1_match_rate_pct = (v1_rows_with_match / len(df1)) * 100 if len(df1) else 0.0
+
+    print(
+        f"Inner join rows: {inner_join_rows}; "
+        f"version1 rows with key in version2: {v1_rows_with_match}/{len(df1)} "
+        f"({v1_match_rate_pct:.2f}%)"
+    )
+
+    c0v1 = f"evm_nss0_{version1}"
+    c0v2 = f"evm_nss0_{version2}"
+    c1v1 = f"evm_nss1_{version1}"
+    c1v2 = f"evm_nss1_{version2}"
+    for c in (c0v1, c0v2, c1v1, c1v2):
+        merged_df[c] = pd.to_numeric(merged_df[c], errors="coerce")
+
+    merged_df["evm_diff_nss0"] = merged_df[c0v2] - merged_df[c0v1]
+    merged_df["evm_diff_nss1"] = merged_df[c1v2] - merged_df[c1v1]
+    merged_df["abs_diff_nss0"] = merged_df["evm_diff_nss0"].abs()
+    merged_df["abs_diff_nss1"] = merged_df["evm_diff_nss1"].abs()
+    # Combined metrics for summary / heatmap (mean trend; max-abs flags worst chain)
+    merged_df["evm_diff"] = (merged_df["evm_diff_nss0"] + merged_df["evm_diff_nss1"]) / 2.0
+    merged_df["abs_diff"] = merged_df[["abs_diff_nss0", "abs_diff_nss1"]].max(axis=1)
+
+    output_file = os.path.join(output_dir, f"{sheet1}_vs_{sheet2}_detailed.xlsx")
+    merged_df.to_excel(output_file, index=False)
+
+    import openpyxl
+    from openpyxl.styles import PatternFill
+
+    wb = openpyxl.load_workbook(output_file)
+    ws = wb.active
+
+    def get_evm_fill(evm_value):
+        if evm_value <= -30:
+            return PatternFill(start_color="00FF00", end_color="00FF00", fill_type="solid")
+        if evm_value <= -25:
+            return PatternFill(start_color="90EE90", end_color="90EE90", fill_type="solid")
+        if evm_value <= -20:
+            return PatternFill(start_color="FFFF00", end_color="FFFF00", fill_type="solid")
+        if evm_value <= -15:
+            return PatternFill(start_color="FFA500", end_color="FFA500", fill_type="solid")
+        return PatternFill(start_color="FF0000", end_color="FF0000", fill_type="solid")
+
+    def get_diff_fill(diff_value):
+        if diff_value <= -2:
+            return PatternFill(start_color="00FF00", end_color="00FF00", fill_type="solid")
+        if diff_value <= -1:
+            return PatternFill(start_color="90EE90", end_color="90EE90", fill_type="solid")
+        if diff_value <= 1:
+            return PatternFill(start_color="FFFF00", end_color="FFFF00", fill_type="solid")
+        if diff_value <= 2:
+            return PatternFill(start_color="FFA500", end_color="FFA500", fill_type="solid")
+        return PatternFill(start_color="FF0000", end_color="FF0000", fill_type="solid")
+
+    header_map = {cell.value: idx + 1 for idx, cell in enumerate(ws[1])}
+    for col_name in (c0v1, c0v2, c1v1, c1v2):
+        ci = header_map.get(col_name)
+        if not ci:
+            continue
+        for row in range(2, ws.max_row + 1):
+            cell = ws.cell(row=row, column=ci)
+            if isinstance(cell.value, (int, float)):
+                cell.fill = get_evm_fill(cell.value)
+    for col_name in ("evm_diff_nss0", "evm_diff_nss1", "evm_diff"):
+        ci = header_map.get(col_name)
+        if not ci:
+            continue
+        for row in range(2, ws.max_row + 1):
+            cell = ws.cell(row=row, column=ci)
+            if isinstance(cell.value, (int, float)):
+                cell.fill = get_diff_fill(cell.value)
+
+    fail_fill = PatternFill(start_color="FF0000", end_color="FF0000", fill_type="solid")
+    for crc_key in (f"psdu_crc_{version1}", f"psdu_crc_{version2}"):
+        ci = header_map.get(crc_key)
+        if not ci:
+            continue
+        for row in range(2, ws.max_row + 1):
+            cell = ws.cell(row=row, column=ci)
+            cell_value = str(cell.value).strip().lower() if cell.value else ""
+            if cell_value == "fail":
+                cell.fill = fail_fill
+
+    wb.save(output_file)
+
+    stats = merged_df.groupby(["wifi_format", "rate"]).agg(
+        count=("evm_diff", "count"),
+        mean_diff=("evm_diff", "mean"),
+        median_diff=("evm_diff", "median"),
+        std_diff=("evm_diff", "std"),
+        min_diff=("evm_diff", "min"),
+        max_diff=("evm_diff", "max"),
+        mean_abs_diff=("abs_diff", "mean"),
+        mean_diff_nss0=("evm_diff_nss0", "mean"),
+        mean_diff_nss1=("evm_diff_nss1", "mean"),
+        version1_mean_evm_nss0=(c0v1, "mean"),
+        version2_mean_evm_nss0=(c0v2, "mean"),
+        version1_mean_evm_nss1=(c1v1, "mean"),
+        version2_mean_evm_nss1=(c1v2, "mean"),
+    ).reset_index()
+
+    stats.to_excel(os.path.join(output_dir, f"{sheet1}_vs_{sheet2}_summary.xlsx"), index=False)
+
+    plot_comparison(
+        stats,
+        merged_df,
+        sheet1,
+        sheet2,
+        output_dir,
+        version1,
+        version2,
+        c0v1,
+        c0v2,
+        nss2_pair=(c0v1, c0v2, c1v1, c1v2),
+    )
+
+    comparison_result.append(
+        {
+            f"{version1}_sheet": sheet1,
+            f"{version2}_sheet": sheet2,
+            "matched_count": inner_join_rows,
+            "inner_join_rows": inner_join_rows,
+            "version1_rows_with_key_in_v2": v1_rows_with_match,
+            "version1_match_rate_pct": v1_match_rate_pct,
+            f"total_{version1}_records": len(df1),
+            f"total_{version2}_records": len(df2),
+            "mean_evm_diff": stats["mean_diff"].mean(),
+            "max_evm_diff": stats["max_diff"].max(),
+            "min_evm_diff": stats["min_diff"].min(),
+            "avg_abs_diff": stats["mean_abs_diff"].mean(),
+            f"{version1}_evm_col": "evm_nss0+evm_nss1",
+            f"{version2}_evm_col": "evm_nss0+evm_nss1",
+            "nss2_dual_stream": True,
+        }
+    )
 
 
 def compare_dataframes(df1, df2, sheet1, sheet2, comparison_result, output_dir, version1, version2):
@@ -146,26 +358,47 @@ def compare_dataframes(df1, df2, sheet1, sheet2, comparison_result, output_dir, 
 
     print(f"Found {len(shared_additional_cols)} shared additional parameter columns: {', '.join(shared_additional_cols)}")
 
-    # 确定使用哪个EVM列
-    evm_col1 = 'evm'
-    if 'evm' not in df1.columns:
-        if 'evm_nss0' in df1.columns:
-            evm_col1 = 'evm_nss0'
-        elif 'evm_nss1' in df1.columns:
-            evm_col1 = 'evm_nss1'
-        else:
-            print(f"Warning: No EVM column found in {version1} data")
-            return
+    merge_cols = core_cols + shared_additional_cols
 
-    if 'evm' not in df2.columns:
+    nss2_dual = (
+        _sheet_is_nss2(sheet1)
+        and _sheet_is_nss2(sheet2)
+        and "evm_nss0" in df1.columns
+        and "evm_nss1" in df1.columns
+        and "evm_nss0" in df2.columns
+        and "evm_nss1" in df2.columns
+    )
+    if nss2_dual:
+        print(
+            "NSS2 dual-stream mode: comparing evm_nss0 and evm_nss1 separately "
+            f"({version1} vs {version2})."
+        )
+        _compare_dataframes_nss2_dual(
+            df1,
+            df2,
+            sheet1,
+            sheet2,
+            merge_cols,
+            comparison_result,
+            output_dir,
+            version1,
+            version2,
+        )
+        return
+
+    evm_col1 = _resolve_evm_column(df1)
+    evm_col2 = _resolve_evm_column(df2)
+    if not evm_col1:
+        print(f"Warning: No EVM column found in {version1} data")
+        return
+    if not evm_col2:
         print(f"Warning: No EVM column found in {version2} data")
         return
 
     # 使用所有共有列进行合并，确保参数一致
-    merge_cols = core_cols + shared_additional_cols
     # 添加psdu_crc列（如果存在）
     df1_cols = merge_cols + [evm_col1]
-    df2_cols = merge_cols + ['evm']
+    df2_cols = merge_cols + [evm_col2]
     if 'psdu_crc' in df1.columns:
         df1_cols.append('psdu_crc')
     if 'psdu_crc' in df2.columns:
@@ -191,7 +424,7 @@ def compare_dataframes(df1, df2, sheet1, sheet2, comparison_result, output_dir, 
 
     # Excel / log 中 EVM 可能为字符串（如 '--'）；统一为浮点后再做差，避免 str - float
     col_v1 = f'{evm_col1}_{version1}'
-    col_v2 = f'evm_{version2}'
+    col_v2 = f'{evm_col2}_{version2}'
     merged_df[col_v1] = pd.to_numeric(merged_df[col_v1], errors='coerce')
     merged_df[col_v2] = pd.to_numeric(merged_df[col_v2], errors='coerce')
 
@@ -215,9 +448,9 @@ def compare_dataframes(df1, df2, sheet1, sheet2, comparison_result, output_dir, 
     evm_col2_idx = None
     evm_diff_col_idx = None
     for idx, cell in enumerate(ws[1]):
-        if cell.value == f'{evm_col1}_{version1}':
+        if cell.value == col_v1:
             evm_col1_idx = idx + 1
-        elif cell.value == f'evm_{version2}':
+        elif cell.value == col_v2:
             evm_col2_idx = idx + 1
         elif cell.value == 'evm_diff':
             evm_diff_col_idx = idx + 1
@@ -308,18 +541,18 @@ def compare_dataframes(df1, df2, sheet1, sheet2, comparison_result, output_dir, 
         min_diff=('evm_diff', 'min'),
         max_diff=('evm_diff', 'max'),
         mean_abs_diff=('abs_diff', 'mean'),
-        version1_mean_evm=(f'{evm_col1}_{version1}', 'mean'),
-        version1_median_evm=(f'{evm_col1}_{version1}', 'median'),
-        version1_std_evm=(f'{evm_col1}_{version1}', 'std'),
-        version2_mean_evm=(f'evm_{version2}', 'mean'),
-        version2_median_evm=(f'evm_{version2}', 'median'),
-        version2_std_evm=(f'evm_{version2}', 'std')
+        version1_mean_evm=(col_v1, 'mean'),
+        version1_median_evm=(col_v1, 'median'),
+        version1_std_evm=(col_v1, 'std'),
+        version2_mean_evm=(col_v2, 'mean'),
+        version2_median_evm=(col_v2, 'median'),
+        version2_std_evm=(col_v2, 'std')
     ).reset_index()
 
     stats.to_excel(os.path.join(output_dir, f'{sheet1}_vs_{sheet2}_summary.xlsx'), index=False)
 
     # 可视化
-    plot_comparison(stats, merged_df, sheet1, sheet2, output_dir, evm_col1, version1, version2)
+    plot_comparison(stats, merged_df, sheet1, sheet2, output_dir, version1, version2, col_v1, col_v2)
 
     # 更新比较结果列表
     comparison_result.append({
@@ -336,45 +569,107 @@ def compare_dataframes(df1, df2, sheet1, sheet2, comparison_result, output_dir, 
         'max_evm_diff': stats['max_diff'].max(),
         'min_evm_diff': stats['min_diff'].min(),
         'avg_abs_diff': stats['mean_abs_diff'].mean(),
-        f'{version1}_evm_col': evm_col1
+        f'{version1}_evm_col': evm_col1,
+        f'{version2}_evm_col': evm_col2,
+        'nss2_dual_stream': False,
     })
 
 
-def plot_comparison(stats, merged_df, sheet1, sheet2, output_dir, evm_col1, version1, version2):
+def plot_comparison(
+    stats,
+    merged_df,
+    sheet1,
+    sheet2,
+    output_dir,
+    version1,
+    version2,
+    col_v1,
+    col_v2,
+    nss2_pair=None,
+):
+    """
+    col_v1, col_v2: merged column names for version1 / version2 primary EVM.
+    nss2_pair: if set, (c0v1, c0v2, c1v1, c1v2) for NSS2 dual scatter / dual histogram.
+    """
     sheet_dir = os.path.join(output_dir, f'{sheet1}_vs_{sheet2}')
     os.makedirs(sheet_dir, exist_ok=True)
 
     # 1. EVM difference distribution histogram
     plt.figure(figsize=(12, 6))
-    plt.hist(merged_df['evm_diff'], bins=30, alpha=0.7, color='b')
-    plt.axvline(merged_df['evm_diff'].mean(), color='r', linestyle='--', label=f'Mean = {merged_df["evm_diff"].mean():.2f}')
-    plt.axvline(0, color='g', linestyle='-', label='No Difference')
-    plt.title(f'{sheet1} vs {sheet2} EVM Difference Distribution')
-    plt.xlabel('EVM Difference (dB)')
-    plt.ylabel('Number of Records')
+    if nss2_pair and "evm_diff_nss0" in merged_df.columns and "evm_diff_nss1" in merged_df.columns:
+        plt.hist(merged_df["evm_diff_nss0"], bins=30, alpha=0.5, color="b", label="Δ evm_nss0")
+        plt.hist(merged_df["evm_diff_nss1"], bins=30, alpha=0.5, color="orange", label="Δ evm_nss1")
+        plt.axvline(0, color="g", linestyle="-", label="No Difference")
+        plt.title(f"{sheet1} vs {sheet2} EVM Difference (NSS2 chains)")
+    else:
+        plt.hist(merged_df["evm_diff"], bins=30, alpha=0.7, color="b")
+        plt.axvline(
+            merged_df["evm_diff"].mean(),
+            color="r",
+            linestyle="--",
+            label=f'Mean = {merged_df["evm_diff"].mean():.2f}',
+        )
+        plt.axvline(0, color="g", linestyle="-", label="No Difference")
+        plt.title(f"{sheet1} vs {sheet2} EVM Difference Distribution")
+    plt.xlabel("EVM Difference (dB)")
+    plt.ylabel("Number of Records")
     plt.legend()
     plt.grid(True)
     plt.tight_layout()
-    plt.savefig(os.path.join(sheet_dir, 'evm_diff_distribution.png'), dpi=150)
+    plt.savefig(os.path.join(sheet_dir, "evm_diff_distribution.png"), dpi=150)
     plt.close()
 
     # 2. Average difference by wifi_format and rate
     plt.figure(figsize=(16, 8))
-    pivot = stats.pivot(index='rate', columns='wifi_format', values='mean_diff')
-    sns.heatmap(pivot, annot=True, cmap='coolwarm', fmt='.2f', cbar_kws={'label': 'Average EVM Difference (dB)'})
-    plt.title(f'{sheet1} vs {sheet2} Average EVM Difference by Format and Rate')
+    pivot = stats.pivot(index="rate", columns="wifi_format", values="mean_diff")
+    sns.heatmap(pivot, annot=True, cmap="coolwarm", fmt=".2f", cbar_kws={"label": "Average EVM Difference (dB)"})
+    ttl = f"{sheet1} vs {sheet2} Average EVM Difference by Format and Rate"
+    if nss2_pair:
+        ttl += " (mean of nss0 & nss1 Δ)"
+    plt.title(ttl)
     plt.tight_layout()
     plt.savefig(os.path.join(sheet_dir, 'evm_diff_heatmap.png'), dpi=150)
     plt.close()
 
     # 3. Version 1 vs Version 2 EVM comparison scatter plot
     plt.figure(figsize=(12, 10))
-    plt.scatter(merged_df[f'{evm_col1}_{version1}'], merged_df[f'evm_{version2}'], alpha=0.6, s=20)
-    plt.plot([merged_df[f'{evm_col1}_{version1}'].min(), merged_df[f'{evm_col1}_{version1}'].max()],
-             [merged_df[f'{evm_col1}_{version1}'].min(), merged_df[f'{evm_col1}_{version1}'].max()], 'r--', label='Ideal Case')
-    plt.xlabel(f'{version1} EVM ({evm_col1}) (dB)')
-    plt.ylabel(f'{version2} EVM (dB)')
-    plt.title(f'{sheet1} vs {sheet2} {version1} vs {version2} EVM Comparison')
+    if nss2_pair:
+        c0v1, c0v2, c1v1, c1v2 = nss2_pair
+        plt.scatter(merged_df[c0v1], merged_df[c0v2], alpha=0.5, s=18, label="evm_nss0")
+        plt.scatter(merged_df[c1v1], merged_df[c1v2], alpha=0.5, s=18, label="evm_nss1")
+        lo = float(
+            min(merged_df[c0v1].min(), merged_df[c1v1].min(), merged_df[c0v2].min(), merged_df[c1v2].min())
+        )
+        hi = float(
+            max(merged_df[c0v1].max(), merged_df[c1v1].max(), merged_df[c0v2].max(), merged_df[c1v2].max())
+        )
+        plt.plot([lo, hi], [lo, hi], "r--", label="Ideal Case")
+        plt.xlabel(f"{version1} EVM (dB)")
+        plt.ylabel(f"{version2} EVM (dB)")
+        plt.title(f"{sheet1} vs {sheet2} NSS2 per-chain EVM")
+    else:
+        plt.scatter(merged_df[col_v1], merged_df[col_v2], alpha=0.6, s=20)
+        plt.plot(
+            [
+                merged_df[col_v1].min(),
+                merged_df[col_v1].max(),
+            ],
+            [
+                merged_df[col_v1].min(),
+                merged_df[col_v1].max(),
+            ],
+            "r--",
+            label="Ideal Case",
+        )
+        def _strip_ver_suffix(col: str, ver: str) -> str:
+            suf = "_" + ver
+            return col[: -len(suf)] if col.endswith(suf) else col
+
+        short1 = _strip_ver_suffix(col_v1, version1)
+        short2 = _strip_ver_suffix(col_v2, version2)
+        plt.xlabel(f"{version1} EVM ({short1}) (dB)")
+        plt.ylabel(f"{version2} EVM ({short2}) (dB)")
+        plt.title(f"{sheet1} vs {sheet2} {version1} vs {version2} EVM Comparison")
     plt.legend()
     plt.grid(True)
     plt.tight_layout()
