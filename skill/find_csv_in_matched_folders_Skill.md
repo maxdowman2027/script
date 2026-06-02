@@ -56,8 +56,13 @@
 
 2. **雷达图**（`RUN_SENSITIVITY_RADAR=True`，默认）：`plot_sensitivity_mld_diff_radar`（基于宽表）  
    - **角度轴**：`cur_degree`（°），0° 正北、顺时针  
-   - **径向**：**r0 + sensitivity_dbm_mld_diff**（带符号，dB）；**虚线圆 = diff 0**  
+   - **径向**：**r0 + sensitivity_dbm_mld_diff**（带符号，dB）；**虚线圆 = diff 0**（可见范围内）  
    - **圈外**（diff &gt; 0）：绿色，表示相对 mld_en=1 **优化**；**圈内**（diff &lt; 0）：红色，表示**恶化**  
+   - **刻度优化**（`wifi_rx_sensitivity._mld_diff_polar_layout`）：  
+     - **全部 diff ≤ 0（仅恶化）**：径向轴 **zoom 到实测 [d_min, d_max] 区间**，各角度恶化幅度可辨；0 dB 参考环可能在视窗上方，图顶标注 `0 dB ref ↑`  
+     - **正负混合**：以 diff=0 为心 **对称** 展开内外径向空间  
+     - **同心参考圆**：按 diff（dB）标注（如 `-1.0 dB`、`0 dB`、`+1.0 dB`），步长 0.25/0.5/1 dB 自适应  
+     - **散点标注**：每点显示 `±x.xx` dB 差值  
    - **分组**：每个 `(band, phymode, bandwidth, coding, wifi_format, rx_chan, rate)` 一张 PNG；文件名 `radar_mld_diff_...png`  
    - **输出目录**：`<csv_stem>_radar/`（`SENSITIVITY_RADAR_DIR` / `--radar-dir`）
 

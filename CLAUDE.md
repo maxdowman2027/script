@@ -207,7 +207,7 @@ spur_notch/notch_cal.py  ←──算法参照──→  spur_notch/spur_scan_pr
 | 文件夹匹配 | `FOLDER_PATTERN` 通配 testcase 目录（如 `wifi_txrx_test_RXSens_*_mld_en*_cur_degree*`） |
 | 路径解析 | `band` / `phymode(phymd)` / `bandwidth` / `coding` / `wifi_format`；从 `testcase_folder` 解析 **`mld_en`**、**`cur_degree`**（转台角度 °） |
 | 灵敏度 | 按 `rx_*` 会话目录合并 CSV，算法同 **`wifiRxPlot.py`**（PER 插值 → `sensitivity_dbm`）→ `sensitivity_summary_*.csv` |
-| 宽表 + 雷达 | 灵敏度 CSV 后自动写 `<stem>_mld_wide.csv/.xlsx`；雷达角度=`cur_degree`，半径=**r0+signed diff**，虚线圆 diff=0，圈外绿/圈内红（`plot_sensitivity_mld_diff_radar`） |
+| 宽表 + 雷达 | 灵敏度 CSV 后自动写 `<stem>_mld_wide.csv/.xlsx`；雷达角度=`cur_degree`，半径=**r0+signed diff**；diff 刻度同心圆 + 点标注；恶化-only 时 zoom 实测 diff 区间；圈外绿/圈内红（`plot_sensitivity_mld_diff_radar`） |
 | 可选 | copy/move 命中 CSV、`--list-out` TSV；`--no-mld-wide` 跳过宽表（雷达依赖宽表） |
 | 离线宽表 | **`organize_sensitivity_mld_diff.py`**：仅整理已有 `*_result.csv`（API 同 `wifi_rx_sensitivity`） |
 
