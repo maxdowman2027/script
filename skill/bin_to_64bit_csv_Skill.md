@@ -15,47 +15,72 @@
 ```text
 espwifi_modem_dump / FPGA 原始 .bin
   → bin_to_64bit_csv.py
-  → <stem>.csv（#dump_data 列，每行 0x + 16 位 hex）
+  → <stem>.csv（完整 #dump_data）
+  → <stem>_data.csv（去掉 4-word delimiter 块）
+  → <stem>_delim_report.csv（帧头丢数 flag / 32B 计数）
   → tx_adcdump_data_parse.py（按 bit 字段提取 I/Q 等有符号数）
-  → parse_64bit_data.py（可选：再拆低/高 32-bit 与 sample_i/q）
 ```
+
+---
+
+## 完整 delimiter（4 个连续 64-bit word）
+
+仅当 **连续 4 个 word** 同时匹配下列模式时，才从 `_data.csv` 中整段剔除（支持两种顺序）：
+
+**文档顺序**（从内向外）：
+
+| 序号 | 64-bit word |
+|------|-------------|
+| 1–2 | `0x0000000000000000` |
+| 3 | `0x00000000ABABABAB` |
+| 4 | `0x55555555xxxxxxxx` |
+
+**E22 dump 线上顺序**（数据中常见）：`0x55555555xx` → `ABABABAB` → `0` → `0`
+
+### 第 4 word 帧头（`0x55555555xxxxxxxx`）
+
+| 字段 | 位域 | 说明 |
+|------|------|------|
+| 高 32 bit | `[63:32]` | 固定 **`0x55555555`** |
+| 丢数 flag | 低 32 bit **bit31** | `1` = 本间隔内曾发生数据丢失 |
+| 丢失量 | 低 32 bit **bit30:0** | 丢失数据长度，单位 **32 Bytes** |
+
+示例：`0x555555558000006F` → flag=1，lost_units=0x6F=111 → **3552 Bytes** 丢失。
+
+单独的 `0x0` 或 `ABABABAB` **不会**被剔除（避免误删有效采样零值）。
 
 ---
 
 ## 输入 / 输出
 
-| 项目 | 说明 |
+| 文件 | 说明 |
 |------|------|
-| 输入 | 任意 `.bin`；文件长度应为 8 的整数倍（余数 &lt; 8 字节会警告并丢弃） |
-| 默认字节序 | **big-endian** uint64（适配 `espwifi_modem_dump` 类 dump） |
-| 默认输出 | 与输入同目录、同 stem + `.csv` |
+| `<stem>.csv` | 完整原始 dump |
+| `<stem>_data.csv` | 去掉 delimiter 块后的纯数据（默认生成） |
+| `<stem>_delim_report.csv` | 每个 delimiter 块的帧头解析（默认生成） |
+
+### `_delim_report.csv` 列
+
+| 列 | 说明 |
+|----|------|
+| `block_index` | delimiter 块序号（从 0） |
+| `start_word_index` | 在原始 word 流中的起始下标 |
+| `frame_header_hex` | 第 4 word（`0x55555555xxxxxxxx`） |
+| `data_lost_flag` | 0 / 1 |
+| `lost_units_32B` | 丢失量（32-byte 单位） |
+| `lost_bytes` | `lost_units_32B × 32` |
 
 ### 输出样式 `dump`（默认）
-
-与现有 ADC dump CSV 兼容：
 
 ```csv
 #dump_data 
 0x7C3FF67DBFF20900,
-0x7C8FF67EFFF10900,
 ...
 ```
 
-- 表头行：`#dump_data `（末尾有空格，与历史 dump 一致）
-- 每行：`0x` + **16 位大写十六进制** + 逗号
-
 ### 输出样式 `full`
 
-标准 CSV 表头，含扩展列：
-
-| 列 | 说明 |
-|----|------|
-| `index` | 从 0 开始的 word 序号 |
-| `dump_data` | `0x` + 16 位 hex |
-| `uint64_dec` | 十进制无符号 64 位值 |
-| `uint64_hex` | 同上 hex |
-| `low32_hex` | 低 32 位 hex |
-| `high32_hex` | 高 32 位 hex |
+含 `index`、`dump_data`、`uint64_dec`、`low32_hex`、`high32_hex` 等列。
 
 ---
 
@@ -63,11 +88,12 @@ espwifi_modem_dump / FPGA 原始 .bin
 
 | 变量 | 含义 |
 |------|------|
-| `INPUT_BIN` | 默认输入 `.bin` 路径 |
-| `OUTPUT_CSV` | 输出 CSV；空 → `<input_stem>.csv` |
-| `BYTEORDER` | `big` / `little`（默认 `big`） |
+| `INPUT_BIN` | 默认输入 `.bin` |
+| `OUTPUT_CSV` | 主 CSV；空 → `<input_stem>.csv` |
+| `BYTEORDER` | `big` / `little` |
 | `OUTPUT_STYLE` | `dump` / `full` |
-| `CHUNK_WORDS` | 流式读写块大小（64-bit word 数，默认 8192） |
+| `WRITE_FILTERED_CSV` | 写 `_data.csv`（默认 True） |
+| `WRITE_DELIM_REPORT` | 写 `_delim_report.csv`（默认 True） |
 
 ---
 
@@ -75,70 +101,43 @@ espwifi_modem_dump / FPGA 原始 .bin
 
 ```bash
 python bin_to_64bit_csv.py
-python bin_to_64bit_csv.py "D:\test_data\E22_M2\260604\espwifi_modem_dump.20260604-033842-003.bin"
 python bin_to_64bit_csv.py input.bin -o output.csv
-python bin_to_64bit_csv.py input.bin --style full
-python bin_to_64bit_csv.py input.bin --byteorder little
-python bin_to_64bit_csv.py -h
+python bin_to_64bit_csv.py input.bin --no-filtered
+python bin_to_64bit_csv.py input.bin --no-delim-report
+python bin_to_64bit_csv.py input.bin --byteorder big
 ```
 
 | 参数 | 说明 |
 |------|------|
-| `input_bin` | 输入 `.bin`（可选，默认用配置区 `INPUT_BIN`） |
-| `-o`, `--output` | 输出 CSV 路径 |
-| `--byteorder` | `big` / `little` |
-| `--style` | `dump` / `full` |
-| `--chunk-words` | 流式块大小 |
+| `-o`, `--output` | 主 CSV 路径 |
+| `--no-filtered` | 不写 `_data.csv` |
+| `--no-delim-report` | 不写 `_delim_report.csv` |
+| `--filtered-suffix` | 默认 `_data` |
+| `--delim-report-suffix` | 默认 `_delim_report` |
 
 ---
 
 ## Python API
 
 ```python
-from bin_to_64bit_csv import convert_bin_to_csv
+from bin_to_64bit_csv import convert_bin_to_csv, find_delimiter_blocks, parse_frame_header_word
 
-n = convert_bin_to_csv(
+total, data, n_blocks = convert_bin_to_csv(
     r"D:\path\to\dump.bin",
     r"D:\path\to\dump.csv",
     byteorder="big",
-    output_style="dump",
 )
-print(n)  # 写入的 64-bit word 数
 ```
-
----
-
-## 与相关脚本的关系
-
-| 脚本 | 关系 |
-|------|------|
-| `tx_adcdump_data_parse.py` | **下游**：读 `#dump_data` 列，按 `[high:low]` 提取有符号 I/Q |
-| `parse_64bit_data.py` | **可选下游**：读已含 hex 的文本 CSV，拆低/高 32-bit 与 12-bit sample |
-| `process_ila_files.py` | 无关（ILA ZIP → waveform.csv） |
 
 ---
 
 ## 依赖
 
-- Python 3.6+
-- 标准库 only（`struct`, `csv`, `argparse`）
-
----
-
-## 常见问题
-
-**Q: 转换后 word 数不对？**  
-A: 检查文件大小是否被 8 整除；若有 trailing bytes，脚本会 stderr 警告。
-
-**Q: hex 与示波器 / 抓包工具不一致？**  
-A: 尝试 `--byteorder little`；`espwifi_modem_dump` 默认用 **big**。
-
-**Q: 下一步如何得到 I/Q？**  
-A: 将生成的 CSV 设为 `tx_adcdump_data_parse.py` 的 `input_file`，配置 `bit_fields` / `column_names`。
+- Python 3.6+，标准库 only
 
 ---
 
 ## Skill 元数据
 
-- **描述**: `.bin` → 64-bit `#dump_data` CSV；衔接 ADC dump 解析流水线  
-- **标签**: bin, dump, 64-bit, espwifi_modem_dump, #dump_data, tx_adcdump, E22
+- **描述**: `.bin` → 64-bit CSV；4-word delimiter 剔除与帧头丢数报告  
+- **标签**: bin, dump, espwifi_modem_dump, delimiter, ABABABAB, 55555555, tx_adcdump

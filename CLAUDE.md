@@ -241,14 +241,14 @@ python organize_sensitivity_mld_diff.py --input_dir ./output/sensitivity_out/res
 | `wifi_rx_sensitivity.py` | PER 插值求 `sensitivity_dbm`（同 wifiRxPlot）；`parse_testcase_folder_params`、`plot_sensitivity_radar`（供 find_csv 调用） | `skill/find_csv_in_matched_folders_Skill.md` |
 | `organize_sensitivity_mld_diff.py` | `*_result.csv` 宽表合并 mld_en0/1；差值 en0−en1；`organized/*_mld_wide.csv` + 着色 xlsx | `skill/organize_sensitivity_mld_diff.skill` + `skill/organize_sensitivity_mld_diff_Skill.md` |
 | `process_ila_files.py` | 处理FPGA导出的ILA信号文件，解压缩并提取waveform.csv，按原始文件名重命名 | process_ila_files.skill |
-| `bin_to_64bit_csv.py` | 原始 `.bin`（8B/word）→ `#dump_data` 64-bit hex CSV；默认 big-endian；衔接 `tx_adcdump_data_parse` | `skill/bin_to_64bit_csv.skill` + `skill/bin_to_64bit_csv_Skill.md` |
+| `bin_to_64bit_csv.py` | 原始 `.bin`（8B/word）→ `#dump_data` CSV + `_data.csv`（去 4-word delimiter）+ `_delim_report.csv`（帧头丢数 flag） | `skill/bin_to_64bit_csv.skill` + `skill/bin_to_64bit_csv_Skill.md` |
 
 #### ADC / modem dump 流水线（bin → I/Q）
 
 | 阶段 | 脚本 | 产物 |
 |------|------|------|
-| bin → hex CSV | **`bin_to_64bit_csv.py`** | `<stem>.csv`（`#dump_data`，每行 `0x` + 16 hex） |
-| bit 字段 → 有符号数 | **`tx_adcdump_data_parse.py`** | I/Q 等列（配置 `bit_fields`） |
+| bin → hex CSV | **`bin_to_64bit_csv.py`** | `<stem>.csv`；`<stem>_data.csv`（剔除 `0,0,ABAB,0x55555555xx` 四 word 块）；`<stem>_delim_report.csv`（帧头 bit31=丢数 flag，bit30:0=丢失/32B） |
+| bit 字段 → 有符号数 | **`tx_adcdump_data_parse.py`** | I/Q 等列（用 **`*_data.csv`**，配置 `bit_fields`） |
 | 可选 32-bit 拆分 | **`parse_64bit_data.py`** | 低/高 32-bit + 12-bit sample_i/q |
 
 典型输入：`espwifi_modem_dump.*.bin`（如 E22 M2 测试目录）。说明见 **`skill/bin_to_64bit_csv_Skill.md`**。
@@ -293,7 +293,7 @@ python organize_sensitivity_mld_diff.py --input_dir ./output/sensitivity_out/res
 | `check_excel_fill.py` | 检查 Excel 填充色 | check_excel_fill_Skill.md |
 | `check_columns.py` | 检查列一致性 | check_columns_Skill.md |
 | `validate_conversion.py` | 验证数据转换 | validate_conversion_Skill.md |
-| `bin_to_64bit_csv.py` | `.bin` dump → 64-bit `#dump_data` CSV（`dump`/`full` 样式，默认 big-endian） | `skill/bin_to_64bit_csv_Skill.md` |
+| `bin_to_64bit_csv.py` | `.bin` → `#dump_data` + `_data`（4-word delimiter 剔除）+ `_delim_report`（丢数 flag/32B 计数） | `skill/bin_to_64bit_csv_Skill.md` |
 | `tx_adcdump_data_parse.py` | 将 ADC 采样数据的 bit 字段转换为有符号数 | tx_adcdump_data_parse_Skill.md |
 
 #### 8. 寄存器查询与比较工具
@@ -380,7 +380,7 @@ python organize_sensitivity_mld_diff.py --input_dir ./output/sensitivity_out/res
   - 对应脚本：根目录 `organize_sensitivity_mld_diff.py`；输入常为 `find_csv` 产出的 `*_result.csv`
 - **`bin_to_64bit_csv`**（modem/FPGA 原始 dump → CSV）:
   - **`bin_to_64bit_csv.skill`** — 配置项、命令示例、指向完整 MD
-  - **`bin_to_64bit_csv_Skill.md`** — 输入输出格式、`dump`/`full` 样式、byteorder、与 `tx_adcdump_data_parse` 流水线
+  - **`bin_to_64bit_csv_Skill.md`** — 4-word delimiter 格式、帧头 flag/丢失量、`_data` / `_delim_report` 输出
   - 对应脚本：根目录 `bin_to_64bit_csv.py`；典型输入 `espwifi_modem_dump.*.bin`
 - **子目录 `merged_tx_result_analysis/`**: 合并 TX 结果分析相关说明脚本与 `generate_report.py` 等，与根目录 `generate_report.py`、`analyze_merged_tx_result.py` 等配合使用
 
