@@ -1,0 +1,23 @@
+# bin_to_64bit_csv.py
+
+## 功能
+- 原始 `.bin`（8 字节/word）→ CSV
+- 默认 `#dump_data` + `0x` 16 位 hex 行（兼容 `tx_adcdump_data_parse.py`）
+- `--style full`：index / dec / 高低 32-bit
+- 默认 byteorder **big**（espwifi_modem_dump）
+
+## 配置区
+`INPUT_BIN` / `OUTPUT_CSV` / `BYTEORDER` / `OUTPUT_STYLE`
+
+## 运行
+```bash
+python bin_to_64bit_csv.py
+python bin_to_64bit_csv.py "D:\test_data\E22_M2\260604\espwifi_modem_dump.20260604-033842-003.bin" -o out.csv
+python bin_to_64bit_csv.py input.bin --style full
+```
+
+## 下游
+`tx_adcdump_data_parse.py` → bit 字段转有符号 I/Q
+
+## 文档
+`skill/bin_to_64bit_csv_Skill.md`
