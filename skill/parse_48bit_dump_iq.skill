@@ -1,0 +1,21 @@
+# parse_48bit_dump_iq.py
+
+## 功能
+- 输入：64-bit `#dump_data` CSV（通常来自 `bin_to_64bit_csv.py` 的 `*_data.csv`）
+- 拆包：每 **3 x uint64 → 4 x uint48**（160M AXI dump 等非 64-bit 对齐采样）
+- 解析：每个 48-bit → 3 路 8-bit 有符号 I/Q（`sample_i_0/q_0` … `sample_i_2/q_2`）
+- 输出均含 **`dump_data_48`** 列（拆分后的原始 48-bit hex）
+- `--merge-iq`：展平为 `sample_i` / `sample_q` 连续流（同 48-bit 的 3 行重复同一 `dump_data_48`）
+
+## 运行
+```bash
+python parse_48bit_dump_iq.py input_data.csv
+python parse_48bit_dump_iq.py input_data.csv --merge-iq -o output_iq_merged.csv
+```
+
+## 上游 / 下游
+`*_data.csv` ← `bin_to_64bit_csv.py`  
+`*_iq_merged.csv` → `plot_psd_2462.py` / 频谱分析
+
+## 文档
+`skill/parse_48bit_dump_iq_Skill.md`
