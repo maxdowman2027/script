@@ -1,13 +1,16 @@
 # bin_to_64bit_csv.py
 
 ## 功能
-- `.bin`（8B/word）→ `#dump_data` CSV + `_data.csv` + `_delim_report.csv`
+- 输入：单个 `.bin` **或目录**（非递归扫描目录下全部 `.bin`，按名排序批量转换）
+- 输出：每个 `.bin` → `#dump_data` CSV + `_data.csv` + `_delim_report.csv`
 - delimiter 为 **4 word 整段**：0, 0, ABABABAB, 0x55555555xxxxxxxx
 - 帧头低32：bit31=丢数flag，bit30:0=丢失字节数/32
 
 ## 运行
 ```bash
 python bin_to_64bit_csv.py input.bin
+python bin_to_64bit_csv.py D:\path\to\bin_folder
+python bin_to_64bit_csv.py D:\path\to\bin_folder -o D:\path\to\csv_out
 python bin_to_64bit_csv.py input.bin --no-delim-report
 ```
 

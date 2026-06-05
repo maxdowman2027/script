@@ -24,8 +24,8 @@ from typing import BinaryIO, Iterator, List, Optional, Sequence, Set, Tuple
 # =============================================================================
 # 配置区（直接改这里可免命令行）
 # =============================================================================
-INPUT_BIN = r"D:\test_data\E22_M2\260604\espwifi_modem_dump.20260604-033842-003.bin"
-OUTPUT_CSV = ""  # 空 → 与输入同目录、同 stem + .csv
+INPUT_BIN = r"D:\test_data\E22_M2\260604\data_4"  # .bin 文件或含 .bin 的目录（目录时批量转换）
+OUTPUT_CSV = ""  # 空 → 各输入同目录、同 stem + .csv；目录批量时 -o 可指定输出目录
 BYTEORDER = "little"  # espwifi_modem_dump .bin：按文件字节序读 uint64
 OUTPUT_STYLE = "dump"  # dump | full
 CHUNK_WORDS = 8192  # 流式读写的块大小（64-bit word 数）
@@ -204,6 +204,48 @@ def delimiter_skip_indices(blocks: Sequence[DelimiterBlock]) -> Set[int]:
 def default_output_path(input_bin: str) -> str:
     base, _ext = os.path.splitext(os.path.abspath(input_bin))
     return f"{base}.csv"
+
+
+def discover_bin_files(input_path: str) -> List[str]:
+    """
+    Resolve input to one or more .bin files.
+
+    - File path → single-element list
+    - Directory → non-recursive, sorted ``*.bin`` / ``*.BIN`` in that folder
+    """
+    input_path = os.path.abspath(input_path)
+    if os.path.isfile(input_path):
+        return [input_path]
+    if not os.path.isdir(input_path):
+        raise FileNotFoundError(input_path)
+
+    bins: List[str] = []
+    for name in sorted(os.listdir(input_path)):
+        if not name.lower().endswith(".bin"):
+            continue
+        full = os.path.join(input_path, name)
+        if os.path.isfile(full):
+            bins.append(full)
+
+    if not bins:
+        raise FileNotFoundError(f"No .bin files found in directory: {input_path}")
+    return bins
+
+
+def resolve_output_csv_for_bin(
+    input_bin: str,
+    output_csv: str,
+    *,
+    output_dir: str = "",
+) -> str:
+    """Map one .bin to its output CSV path given CLI/config output options."""
+    if output_dir:
+        os.makedirs(output_dir, exist_ok=True)
+        stem = os.path.splitext(os.path.basename(input_bin))[0]
+        return os.path.join(os.path.abspath(output_dir), f"{stem}.csv")
+    if output_csv:
+        return os.path.abspath(output_csv)
+    return default_output_path(input_bin)
 
 
 def sibling_output_path(output_csv: str, suffix: str) -> str:
@@ -385,6 +427,77 @@ def convert_bin_to_csv(
     return total_count, data_count, len(blocks)
 
 
+def convert_bin_inputs(
+    input_path: str,
+    output_csv: str = "",
+    *,
+    byteorder: str = BYTEORDER,
+    output_style: str = OUTPUT_STYLE,
+    chunk_words: int = CHUNK_WORDS,
+    write_filtered_csv: bool = WRITE_FILTERED_CSV,
+    filtered_suffix: str = FILTERED_CSV_SUFFIX,
+    write_delim_report: bool = WRITE_DELIM_REPORT,
+    delim_report_suffix: str = DELIM_REPORT_SUFFIX,
+) -> List[Tuple[str, int, int, int]]:
+    """
+    Convert one .bin or every ``.bin`` in a directory.
+
+    Returns list of (input_bin, total_words, data_words, delimiter_block_count).
+    """
+    bin_files = discover_bin_files(input_path)
+    output_dir = ""
+
+    if output_csv:
+        abs_out = os.path.abspath(output_csv)
+        if len(bin_files) > 1:
+            if abs_out.lower().endswith(".csv") and not os.path.isdir(abs_out):
+                raise ValueError(
+                    f"Input directory has {len(bin_files)} .bin file(s); "
+                    f"--output must be a directory, not a single .csv file: {output_csv!r}"
+                )
+            output_dir = abs_out
+            os.makedirs(output_dir, exist_ok=True)
+        elif os.path.isdir(abs_out):
+            output_dir = abs_out
+            output_csv = ""
+
+    results: List[Tuple[str, int, int, int]] = []
+    total_files = len(bin_files)
+
+    if total_files > 1:
+        print(f"Found {total_files} .bin file(s) under {os.path.abspath(input_path)}")
+
+    for idx, bin_path in enumerate(bin_files, start=1):
+        if total_files > 1:
+            print(f"\n=== [{idx}/{total_files}] {os.path.basename(bin_path)} ===")
+
+        out_csv = resolve_output_csv_for_bin(
+            bin_path,
+            output_csv,
+            output_dir=output_dir,
+        )
+        total, data, n_blocks = convert_bin_to_csv(
+            bin_path,
+            out_csv,
+            byteorder=byteorder,
+            output_style=output_style,
+            chunk_words=chunk_words,
+            write_filtered_csv=write_filtered_csv,
+            filtered_suffix=filtered_suffix,
+            write_delim_report=write_delim_report,
+            delim_report_suffix=delim_report_suffix,
+        )
+        results.append((bin_path, total, data, n_blocks))
+
+    if total_files > 1:
+        print(
+            f"\n[OK] Batch done: {total_files} file(s), "
+            f"{sum(r[1] for r in results)} total 64-bit word(s)"
+        )
+
+    return results
+
+
 def build_parser() -> argparse.ArgumentParser:
     p = argparse.ArgumentParser(
         description="Convert binary dump (.bin) to CSV with 64-bit hex rows (#dump_data)."
@@ -393,13 +506,16 @@ def build_parser() -> argparse.ArgumentParser:
         "input_bin",
         nargs="?",
         default=INPUT_BIN,
-        help="Input .bin path",
+        help="Input .bin file, or directory to convert all .bin files in (non-recursive)",
     )
     p.add_argument(
         "-o",
         "--output",
         default=OUTPUT_CSV,
-        help="Output CSV path (default: <input_stem>.csv)",
+        help=(
+            "Output CSV for single input, or output directory when input is a folder "
+            "with multiple .bin files (default: <each_input_stem>.csv beside each .bin)"
+        ),
     )
     p.add_argument(
         "--byteorder",
@@ -445,7 +561,7 @@ def build_parser() -> argparse.ArgumentParser:
 def main(argv: Optional[List[str]] = None) -> int:
     args = build_parser().parse_args(argv)
     try:
-        convert_bin_to_csv(
+        convert_bin_inputs(
             args.input_bin,
             args.output,
             byteorder=args.byteorder,
