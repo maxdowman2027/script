@@ -125,7 +125,7 @@
 |------|-------------------|
 | 发射 / EVM | `txAnalyse.py`、`txAnalyse_wifi7.py`、`txAnalyse_compatible.py`、`evm_comparison.py`、**`bin_to_64bit_csv.py`**（`.bin` → 64-bit `#dump_data` CSV）、`tx_adcdump_data_parse.py`、`fake_tb_para.py`、`tx_test.py` |
 | 功率 / Mag Track | `tx_mag_tracking_test.py`、`txmagtrk_analyse.py`（E22）、`mag_track_rls4_fpga_analyse.py`（RLS4 FPGA，`mag_track_test_res` → EVM vs `tx_pwr` PDF，同 chan 基线）、`analyze_mag_track_test_res.py`（汇总/HTML）、`clac_pwr_for_ofdm_signal.py`、`compare_avg_pwr.py`、`compare_avg_pwr_ABCD.py` |
-| 杂散 / 频谱 / PSD | **陷波与杂散流水线、脚本关系见下文「Notch & Spur」**；通用绘图仍含 `psd_plot.py`、`psd_plot_1kHz.py`、`plot_spectrum.py`、`plot_spectrum_2462.py`、`plot_psd_2462.py`、`plot_csv_data.py`、`pwelch.py` |
+| 杂散 / 频谱 / PSD | **陷波与杂散流水线、脚本关系见下文「Notch & Spur」**；通用绘图仍含 `psd_plot.py`、`psd_plot_1kHz.py`、`plot_spectrum.py`、`plot_spectrum_2462.py`、`plot_psd_2462.py`、`plot_csv_data.py`、`pwelch.py`；**`parse_48bit_dump_iq.py`**（160M AXI 48-bit I/Q 从 64-bit `#dump_data` 拆包） |
 | 接收 / 灵敏度 | **`find_csv_in_matched_folders.py`** + **`wifi_rx_sensitivity.py`**（rftest_data 按文件夹通配找 RX CSV、灵敏度 CSV、**mld_en 对比雷达图**）；**`organize_sensitivity_mld_diff.py`**（`*_result.csv` → mld_en0/1 宽表 + 差值 xlsx 着色）；`wifiRxPlot.py`、`calculate_sensitivity_and_plot.py`；杂散见 **`spur_notch/wifiRxProcess.py`**（「Notch & Spur」） |
 | RU / 符号 / 参数 | `find_ru26.py`、`find_ru26_nsym.py`、`find_precise_ru26.py`、`find_nsym_16.py`、`find_nsym_340.py`、`calculate_ru26_params.py`、`cal_symbol_num.py`、`generate_ru26_cases.py` 等（`spur_notch/notch_cal.py` 见「Notch & Spur」） |
 | Excel / CSV / 校验 | `merge_csv_to_xlsx.py`（合并 risc_wifitx、可选 EVM 透视、默认 WiFi7 TX PDF + EVM 异常报告含 **NSS2** 同 rate **全部 tx_pwr 平均**链间 EVM 差；PDF 标题含 `suer_dcm` 时带 `dcm=`）、`file_merge.py`、`compare_data.py`、`cac_diff_xlsx.py`；大量 `check_*.py`；`analyze_*.py`、`explore_excel.py`、`detect_outliers.py`、`validate_conversion.py` 等 |
@@ -242,16 +242,18 @@ python organize_sensitivity_mld_diff.py --input_dir ./output/sensitivity_out/res
 | `organize_sensitivity_mld_diff.py` | `*_result.csv` 宽表合并 mld_en0/1；差值 en0−en1；`organized/*_mld_wide.csv` + 着色 xlsx | `skill/organize_sensitivity_mld_diff.skill` + `skill/organize_sensitivity_mld_diff_Skill.md` |
 | `process_ila_files.py` | 处理FPGA导出的ILA信号文件，解压缩并提取waveform.csv，按原始文件名重命名 | process_ila_files.skill |
 | `bin_to_64bit_csv.py` | 原始 `.bin`（8B/word）→ `#dump_data` CSV + `_data.csv`（去 4-word delimiter）+ `_delim_report.csv`（帧头丢数 flag） | `skill/bin_to_64bit_csv.skill` + `skill/bin_to_64bit_csv_Skill.md` |
+| `parse_48bit_dump_iq.py` | 64-bit `*_data.csv` → 48-bit 拆包（3×uint64→4×uint48）+ 3 路 8-bit I/Q；输出 `dump_data_48` + 6 列或 `--merge-iq` 连续 `sample_i/q`；**支持目录批量** | `skill/parse_48bit_dump_iq.skill` + `skill/parse_48bit_dump_iq_Skill.md` |
 
 #### ADC / modem dump 流水线（bin → I/Q）
 
 | 阶段 | 脚本 | 产物 |
 |------|------|------|
 | bin → hex CSV | **`bin_to_64bit_csv.py`** | `<stem>.csv`；`<stem>_data.csv`（剔除 `0,0,ABAB,0x55555555xx` 四 word 块）；`<stem>_delim_report.csv`（帧头 bit31=丢数 flag，bit30:0=丢失/32B） |
-| bit 字段 → 有符号数 | **`tx_adcdump_data_parse.py`** | I/Q 等列（用 **`*_data.csv`**，配置 `bit_fields`） |
+| 48-bit AXI 拆包 + I/Q | **`parse_48bit_dump_iq.py`** | `<stem>_48bit_parse.csv`（`dump_data_48` + `sample_i_0/q_0`…`sample_i_2/q_2`）；或 **`--merge-iq`** → `<stem>_iq_merged.csv`（连续 `sample_i`/`sample_q`，供 `plot_psd_2462.py` 等） |
+| bit 字段 → 有符号数（64-bit 直解） | **`tx_adcdump_data_parse.py`** | I/Q 等列（用 **`*_data.csv`**，配置 `bit_fields`；非 48-bit 打包路径） |
 | 可选 32-bit 拆分 | **`parse_64bit_data.py`** | 低/高 32-bit + 12-bit sample_i/q |
 
-典型输入：`espwifi_modem_dump.*.bin`（如 E22 M2 测试目录）。说明见 **`skill/bin_to_64bit_csv_Skill.md`**。
+典型输入：`espwifi_modem_dump.*.bin` → `*_data.csv`（E22 M2）；160M AXI 场景再经 **`parse_48bit_dump_iq.py`**。说明见 **`skill/bin_to_64bit_csv_Skill.md`**、**`skill/parse_48bit_dump_iq_Skill.md`**。
 
 #### 2. EVM 分析工具
 | 脚本名称 | 功能说明 | 详细文档 |
@@ -294,6 +296,7 @@ python organize_sensitivity_mld_diff.py --input_dir ./output/sensitivity_out/res
 | `check_columns.py` | 检查列一致性 | check_columns_Skill.md |
 | `validate_conversion.py` | 验证数据转换 | validate_conversion_Skill.md |
 | `bin_to_64bit_csv.py` | `.bin` → `#dump_data` + `_data`（4-word delimiter 剔除）+ `_delim_report`（丢数 flag/32B 计数） | `skill/bin_to_64bit_csv_Skill.md` |
+| `parse_48bit_dump_iq.py` | `*_data.csv` → 48-bit 拆包 + 8-bit I/Q；`dump_data_48` 列；目录批量 | `skill/parse_48bit_dump_iq_Skill.md` |
 | `tx_adcdump_data_parse.py` | 将 ADC 采样数据的 bit 字段转换为有符号数 | tx_adcdump_data_parse_Skill.md |
 
 #### 8. 寄存器查询与比较工具
@@ -365,7 +368,7 @@ python organize_sensitivity_mld_diff.py --input_dir ./output/sensitivity_out/res
 #### skill/
 - **位置**: `./skill/`
 - **内容**: Claude Code 技能（`*.skill`）与各脚本配套的 `*_Skill.md`
-- **常见技能文件**: `txAnalyse.skill`、`evm_comparison.skill`、`txmagtrk_analyse.skill`、`mag_track_rls4_fpga_analyse.skill`、`analyze_mag_track_test_res.skill`、`spur_scan_process.skill`、`spur_diff_and_mark_red.skill`、`merge_csv_to_xlsx_skill.md`、`organize_sensitivity_mld_diff.skill`、`bin_to_64bit_csv.skill`、`process_ila_files.skill`、`my_ag.skill` 等（完整列表以目录为准）
+- **常见技能文件**: `txAnalyse.skill`、`evm_comparison.skill`、`txmagtrk_analyse.skill`、`mag_track_rls4_fpga_analyse.skill`、`analyze_mag_track_test_res.skill`、`spur_scan_process.skill`、`spur_diff_and_mark_red.skill`、`merge_csv_to_xlsx_skill.md`、`organize_sensitivity_mld_diff.skill`、`bin_to_64bit_csv.skill`、`parse_48bit_dump_iq.skill`、`process_ila_files.skill`、`my_ag.skill` 等（完整列表以目录为准）
 - **`spur_scan_process`**（杂散扫描主流程）:
   - **`spur_scan_process.skill`** — 三步流水线、输入格式、配置项
   - **`spur_scan_process_Skill.md`** — PSD 检测规则、信道筛选、陷波定点、产物路径、API
@@ -382,6 +385,10 @@ python organize_sensitivity_mld_diff.py --input_dir ./output/sensitivity_out/res
   - **`bin_to_64bit_csv.skill`** — 配置项、命令示例、指向完整 MD
   - **`bin_to_64bit_csv_Skill.md`** — 4-word delimiter 格式、帧头 flag/丢失量、`_data` / `_delim_report` 输出
   - 对应脚本：根目录 `bin_to_64bit_csv.py`；典型输入 `espwifi_modem_dump.*.bin`
+- **`parse_48bit_dump_iq`**（160M AXI 48-bit I/Q 从 64-bit CSV 拆包）:
+  - **`parse_48bit_dump_iq.skill`** — 拆包规则、merge-iq、目录批量、指向完整 MD
+  - **`parse_48bit_dump_iq_Skill.md`** — 3×uint64→4×uint48、`dump_data_48` 列、8-bit I/Q 位域、CLI/API
+  - 对应脚本：根目录 `parse_48bit_dump_iq.py`；输入 `bin_to_64bit` 的 `*_data.csv`；输出可接 `plot_psd_2462.py`
 - **子目录 `merged_tx_result_analysis/`**: 合并 TX 结果分析相关说明脚本与 `generate_report.py` 等，与根目录 `generate_report.py`、`analyze_merged_tx_result.py` 等配合使用
 
 ### 常用命令示例
@@ -445,9 +452,13 @@ python find_csv_in_matched_folders.py --list-out "D:\path\to\matched.tsv" -v
 python organize_sensitivity_mld_diff.py
 python organize_sensitivity_mld_diff.py --input_dir "D:\users\gxu\scripts\output\sensitivity_out\result" --combined "D:\path\to\all_mld_wide.csv"
 
-# modem/FPGA 原始 .bin → 64-bit #dump_data CSV（默认 big-endian；再交 tx_adcdump 解析 I/Q）
+# modem/FPGA 原始 .bin → 64-bit #dump_data CSV（默认 big-endian；再交 tx_adcdump 或 48-bit 解析）
 python bin_to_64bit_csv.py "D:\test_data\E22_M2\260604\espwifi_modem_dump.20260604-033842-003.bin"
 python bin_to_64bit_csv.py input.bin -o output.csv --style full
+
+# 160M AXI：64-bit *_data.csv → 48-bit I/Q（单文件或目录批量）
+python parse_48bit_dump_iq.py "D:\path\to\espwifi_modem_dump.*_data.csv"
+python parse_48bit_dump_iq.py "D:\path\to\axi_dump_csv_folder" --merge-iq
 
 # Notch / spur（在仓库根目录执行；脚本位于 spur_notch/）
 python spur_notch/spur_scan_process.py   # 改脚本底部 INPUT_DIR/FS/SPUR_THR/Q 等
@@ -463,6 +474,7 @@ python spur_notch/move_spur_scan_result_csvs.py
 /skill find_csv_in_matched_folders  # RX CSV 检索、灵敏度 CSV、mld_en 对比雷达图
 /skill organize_sensitivity_mld_diff  # 灵敏度 result CSV → mld_en 宽表与差值 xlsx
 /skill bin_to_64bit_csv  # espwifi_modem_dump / FPGA .bin → 64-bit #dump_data CSV
+/skill parse_48bit_dump_iq  # 160M AXI *_data.csv → 48-bit 拆包 + I/Q（可 merge 连续流）
 /skill spur_scan_process           # 杂散扫描：PSD→coef→pwr 三步流水线
 ```
 
