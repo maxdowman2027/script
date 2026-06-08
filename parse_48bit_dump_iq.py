@@ -31,12 +31,9 @@ from typing import Dict, Iterator, List, Optional, Sequence, Tuple
 # =============================================================================
 # 配置区
 # =============================================================================
-INPUT_CSV = (
-    r"D:\test_data\E22_M2\260605\axi_dump_160M_data_parse"
-    r"\espwifi_modem_dump.20260605-065335-001_data.csv"
-)
-OUTPUT_CSV = ""  # 空 → <input_stem>_48bit_parse.csv
-MERGE_IQ = False  # True → 输出 sample_i / sample_q 连续流（同 merge_dump_3data_iq）
+INPUT_CSV = r"D:\test_data\E22_M2\260605\axi_dump_160M_data_parse"  # CSV 文件或含 CSV 的目录（目录时批量）
+OUTPUT_CSV = ""  # 空 → 各输入同目录自动命名；目录批量时 -o 可指定输出目录
+MERGE_IQ = True  # True → 输出 sample_i / sample_q 连续流（同 merge_dump_3data_iq）
 KEEP_DUMP_DATA = False  # True → 保留源 #dump_data 列（每 48-bit 行重复所属 64-bit 组首 word）
 DUMP_DATA_48_COL = "dump_data_48"  # 48bit_parse / merge_iq 均输出拆分后的原始 48-bit hex
 
@@ -203,10 +200,66 @@ def build_parsed_row(
     return row
 
 
+OUTPUT_SUFFIX_48BIT = "_48bit_parse"
+OUTPUT_SUFFIX_IQ_MERGED = "_iq_merged"
+
+
 def default_output_path(input_csv: str, *, merge_iq: bool) -> str:
     base, ext = os.path.splitext(os.path.abspath(input_csv))
-    suffix = "_iq_merged" if merge_iq else "_48bit_parse"
+    suffix = OUTPUT_SUFFIX_IQ_MERGED if merge_iq else OUTPUT_SUFFIX_48BIT
     return f"{base}{suffix}{ext}"
+
+
+def is_generated_output_csv(path: str) -> bool:
+    """Skip outputs from this script when scanning an input directory."""
+    stem = os.path.splitext(os.path.basename(path))[0].lower()
+    return stem.endswith(OUTPUT_SUFFIX_48BIT) or stem.endswith(OUTPUT_SUFFIX_IQ_MERGED)
+
+
+def discover_input_csvs(input_path: str) -> List[str]:
+    """
+    Resolve input to one or more CSV files.
+
+    - File path → single-element list
+    - Directory → non-recursive sorted ``*.csv`` (excludes this script's outputs)
+    """
+    input_path = os.path.abspath(input_path)
+    if os.path.isfile(input_path):
+        return [input_path]
+    if not os.path.isdir(input_path):
+        raise FileNotFoundError(input_path)
+
+    csvs: List[str] = []
+    for name in sorted(os.listdir(input_path)):
+        if not name.lower().endswith(".csv"):
+            continue
+        full = os.path.join(input_path, name)
+        if not os.path.isfile(full):
+            continue
+        if is_generated_output_csv(full):
+            continue
+        csvs.append(full)
+
+    if not csvs:
+        raise FileNotFoundError(f"No input .csv files found in directory: {input_path}")
+    return csvs
+
+
+def resolve_output_csv_for_input(
+    input_csv: str,
+    output_csv: str,
+    *,
+    output_dir: str = "",
+    merge_iq: bool,
+) -> str:
+    if output_dir:
+        os.makedirs(output_dir, exist_ok=True)
+        stem = os.path.splitext(os.path.basename(input_csv))[0]
+        suffix = OUTPUT_SUFFIX_IQ_MERGED if merge_iq else OUTPUT_SUFFIX_48BIT
+        return os.path.join(os.path.abspath(output_dir), f"{stem}{suffix}.csv")
+    if output_csv:
+        return os.path.abspath(output_csv)
+    return default_output_path(input_csv, merge_iq=merge_iq)
 
 
 def parse_48bit_dump_iq(
@@ -217,7 +270,7 @@ def parse_48bit_dump_iq(
     keep_dump_data: bool = KEEP_DUMP_DATA,
 ) -> Tuple[int, int, int]:
     """
-    Parse 64-bit dump CSV → 48-bit IQ rows.
+    Parse one 64-bit dump CSV → 48-bit IQ rows.
 
     Returns (input_uint64_count, output_rows, skipped_tail_uint64).
     """
@@ -300,6 +353,69 @@ def parse_48bit_dump_iq(
     return len(words), len(parsed_rows), skipped_tail
 
 
+def parse_48bit_dump_inputs(
+    input_path: str,
+    output_csv: str = "",
+    *,
+    merge_iq: bool = MERGE_IQ,
+    keep_dump_data: bool = KEEP_DUMP_DATA,
+) -> List[Tuple[str, int, int, int]]:
+    """
+    Parse one CSV or every input ``.csv`` in a directory.
+
+    Returns list of (input_csv, uint64_count, output_rows, skipped_tail).
+    """
+    csv_files = discover_input_csvs(input_path)
+    output_dir = ""
+
+    if output_csv:
+        abs_out = os.path.abspath(output_csv)
+        if len(csv_files) > 1:
+            if abs_out.lower().endswith(".csv") and not os.path.isdir(abs_out):
+                raise ValueError(
+                    f"Input directory has {len(csv_files)} .csv file(s); "
+                    f"--output must be a directory, not a single .csv file: {output_csv!r}"
+                )
+            output_dir = abs_out
+            os.makedirs(output_dir, exist_ok=True)
+        elif os.path.isdir(abs_out):
+            output_dir = abs_out
+            output_csv = ""
+
+    results: List[Tuple[str, int, int, int]] = []
+    total_files = len(csv_files)
+
+    if total_files > 1:
+        print(f"Found {total_files} input .csv file(s) under {os.path.abspath(input_path)}")
+
+    for idx, csv_path in enumerate(csv_files, start=1):
+        if total_files > 1:
+            print(f"\n=== [{idx}/{total_files}] {os.path.basename(csv_path)} ===")
+
+        out_csv = resolve_output_csv_for_input(
+            csv_path,
+            output_csv,
+            output_dir=output_dir,
+            merge_iq=merge_iq,
+        )
+        n64, n_rows, skipped = parse_48bit_dump_iq(
+            csv_path,
+            out_csv,
+            merge_iq=merge_iq,
+            keep_dump_data=keep_dump_data,
+        )
+        results.append((csv_path, n64, n_rows, skipped))
+
+    if total_files > 1:
+        print(
+            f"\n[OK] Batch done: {total_files} file(s), "
+            f"{sum(r[1] for r in results)} total 64-bit word(s), "
+            f"{sum(r[2] for r in results)} total output row(s)"
+        )
+
+    return results
+
+
 def build_parser() -> argparse.ArgumentParser:
     p = argparse.ArgumentParser(
         description=(
@@ -307,8 +423,21 @@ def build_parser() -> argparse.ArgumentParser:
             "3x I/Q (8-bit) per 48-bit word."
         )
     )
-    p.add_argument("input_csv", nargs="?", default=INPUT_CSV, help="64-bit #dump_data CSV")
-    p.add_argument("-o", "--output", default=OUTPUT_CSV, help="Output CSV path")
+    p.add_argument(
+        "input_csv",
+        nargs="?",
+        default=INPUT_CSV,
+        help="64-bit #dump_data CSV, or directory to process all input .csv files (non-recursive)",
+    )
+    p.add_argument(
+        "-o",
+        "--output",
+        default=OUTPUT_CSV,
+        help=(
+            "Output CSV for single input, or output directory when input is a folder "
+            "with multiple .csv files (default: <each_stem>_48bit_parse.csv or _iq_merged.csv)"
+        ),
+    )
     p.add_argument(
         "--merge-iq",
         action="store_true",
@@ -327,7 +456,7 @@ def build_parser() -> argparse.ArgumentParser:
 def main(argv: Optional[Sequence[str]] = None) -> int:
     args = build_parser().parse_args(argv)
     try:
-        parse_48bit_dump_iq(
+        parse_48bit_dump_inputs(
             args.input_csv,
             args.output,
             merge_iq=args.merge_iq,

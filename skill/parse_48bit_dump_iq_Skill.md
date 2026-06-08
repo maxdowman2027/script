@@ -6,9 +6,12 @@
 
 适用于 E22 **160M AXI dump** 等场景：硬件以 48-bit 容器打包 IQ，存储/传输时按 64-bit word 对齐。
 
+**输入可以是单个 CSV 文件，也可以是目录**：目录模式下会**非递归**扫描该文件夹下所有 `.csv`（按文件名排序），自动跳过本脚本已生成的 `*_48bit_parse.csv` / `*_iq_merged.csv`，逐个解析。
+
 典型输入：
 
-`D:\test_data\E22_M2\260605\axi_dump_160M_data_parse\espwifi_modem_dump.20260605-065335-001_data.csv`
+- 单文件：`...\espwifi_modem_dump.20260605-065335-001_data.csv`
+- 目录批量：`D:\test_data\E22_M2\260605\axi_dump_160M_data_parse\`
 
 ---
 
@@ -92,8 +95,8 @@ espwifi_modem_dump .bin
 
 | 变量 | 含义 |
 |------|------|
-| `INPUT_CSV` | 默认输入 `*_data.csv` |
-| `OUTPUT_CSV` | 输出路径；空 → 按模式自动命名 |
+| `INPUT_CSV` | 默认输入：单个 CSV **或** 含多个 CSV 的目录 |
+| `OUTPUT_CSV` | 单文件时为输出路径；目录批量时为输出目录（空 → 各 CSV 旁自动命名） |
 | `MERGE_IQ` | 默认 False；True 等同 `--merge-iq` |
 | `KEEP_DUMP_DATA` | 保留源 64-bit `#dump_data` 列 |
 | `DUMP_DATA_48_COL` | 固定为 `dump_data_48`，两种输出模式均写入 |
@@ -108,14 +111,20 @@ python parse_48bit_dump_iq.py
 
 python parse_48bit_dump_iq.py D:\test_data\E22_M2\260605\axi_dump_160M_data_parse\espwifi_modem_dump.20260605-065335-001_data.csv
 
+# 目录：处理文件夹内全部输入 .csv
+python parse_48bit_dump_iq.py D:\test_data\E22_M2\260605\axi_dump_160M_data_parse
+
+# 目录 + 指定输出目录
+python parse_48bit_dump_iq.py D:\path\to\csv_folder -o D:\path\to\out
+
 # 展平 I/Q 连续流（每 48-bit 拆 3 行，dump_data_48 三行相同）
 python parse_48bit_dump_iq.py input_data.csv --merge-iq -o output_iq_merged.csv
 ```
 
 | 参数 | 说明 |
 |------|------|
-| `input_csv` | 64-bit `#dump_data` CSV |
-| `-o`, `--output` | 输出 CSV 路径 |
+| `input_csv` | 64-bit `#dump_data` CSV 或目录 |
+| `-o`, `--output` | 单文件：输出 CSV；目录批量：**输出目录**（不可为单个 `.csv`） |
 | `--merge-iq` | 输出 `dump_data_48` + `sample_i` / `sample_q` 连续流 |
 | `--keep-dump-data` | 附带源 64-bit `#dump_data` 列 |
 
@@ -126,17 +135,22 @@ python parse_48bit_dump_iq.py input_data.csv --merge-iq -o output_iq_merged.csv
 ```python
 from parse_48bit_dump_iq import (
     parse_48bit_dump_iq,
+    parse_48bit_dump_inputs,
+    discover_input_csvs,
     read_uint64_words,
     iter_48bit_from_uint64,
     decode_48bit_iq,
     unpack_group_to_48bit,
 )
 
-# 完整流程
+# 单文件
 n64, n_rows, skipped = parse_48bit_dump_iq(
     r"D:\path\to\input_data.csv",
     merge_iq=True,
 )
+
+# 目录批量
+results = parse_48bit_dump_inputs(r"D:\path\to\csv_folder", merge_iq=True)
 
 # 低级：手动拆一组
 w0, w1, w2 = 0x..., 0x..., 0x...
