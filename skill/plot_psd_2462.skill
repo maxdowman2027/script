@@ -1,0 +1,22 @@
+# plot_psd_2462.py
+
+## 功能
+- 输入：含 `sample_i` / `sample_q` 的 I/Q CSV（`*_iq_merged.csv`、`*_iq8.csv` 等）
+- 输出 PDF（默认 `<input_stem>_spec.pdf`）两页：
+  - **页 1**：Ch0 / Ch1 I、Q 时域波形（时间轴 us）
+  - **页 2**：Ch0 / Ch1 Welch PSD（频率 MHz）
+- 大文件：默认只读前 `MAX_ROWS` 行（65536）；时域默认最多画 4096 点
+
+## 运行
+```bash
+python plot_psd_2462.py input_iq.csv
+python plot_psd_2462.py input_iq.csv -o custom_spec.pdf
+python plot_psd_2462.py input_iq.csv --max-rows 131072 --time-samples 8192
+python plot_psd_2462.py input_iq.csv --bit-width 10
+```
+
+## 上游
+`parse_48bit_dump_iq.py --merge-iq` / `dump_64bit_to_iq8.py` / `modem_dump_pipeline.py`
+
+## 文档
+`skill/plot_psd_2462_Skill.md`
