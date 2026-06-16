@@ -1,0 +1,21 @@
+# dump_64bit_to_iq8.py
+
+## 功能
+- 64-bit `#dump_data` CSV → 8-bit 有符号 I/Q
+- **single**：`sample_q` / `sample_i`（每 16-bit 一对，默认每 word 4 行）
+- **2ant**：`ch0/ch1_sample_q/i`（每 32-bit：ch0_q,i → ch1_q,i，默认每 word 2 行）
+- 默认输出 `dump_data`（源 64-bit）+ `dump_data_16`/`dump_data_32`（本行原始块）便于校验
+
+## 运行
+```bash
+python dump_64bit_to_iq8.py input_data.csv
+python dump_64bit_to_iq8.py input_data.csv --mode 2ant
+python dump_64bit_to_iq8.py input_data.csv --mode single --pairs 4
+python dump_64bit_to_iq8.py csv_folder -o out_dir
+```
+
+## 下游
+`plot_psd_2462.py`（2ant 用 `--mode 2ant --bit-width 8`；2抽1 数据加 `--upsample 2`）
+
+## 文档
+`skill/dump_64bit_to_iq8_Skill.md`

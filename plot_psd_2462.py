@@ -17,33 +17,34 @@ import argparse
 import os
 import sys
 from dataclasses import dataclass
-from typing import Optional, Sequence
+from typing import Optional, Sequence, Tuple
 
 import pandas as pd
 import numpy as np
 import matplotlib
 matplotlib.use("Agg")
 import matplotlib.pyplot as plt
-from scipy.signal import welch
+from scipy.signal import resample_poly, welch
 import matplotlib.gridspec as gridspec
 from matplotlib.backends.backend_pdf import PdfPages
 
 # =============================================================================
 # 配置区
 # =============================================================================
-CSV_FILE = r"D:\test_data\E22_M2\260611\phy_mode20_2ant\hesu_20m_mcs0_data_2ant_iq.csv"
+CSV_FILE = r"D:\test_data\E22_M2\260616\phymode20_2ant\2\phymode20_2ant_0.csv"
 OUTPUT_PDF = ""  # 空 → <input_stem>_spec.pdf
 MAX_ROWS = 65536  # 大文件只读前 N 行；0 = 读全文件（可能内存不足）
 TIME_PLOT_SAMPLES = 65535  # 时域图最多绘制的采样点数（0 = 与读取行数相同）
-IQ_BIT_WIDTH = 10  # 归一化除数 2**IQ_BIT_WIDTH
-IQ_MODE = "auto"  # auto | single | 2ant
+IQ_BIT_WIDTH = 8  # 归一化除数 2**IQ_BIT_WIDTH
+IQ_MODE = "2ant"  # auto | single | 2ant
 OUTPUT_SUFFIX = "_spec"
+UPSAMPLE_FACTOR = 2  # 输入为 2抽1 数据时上采样倍率；1 = 不上采样
+UPSAMPLE_METHOD = "poly"  # poly | linear | repeat
 
 fs = 80e6
 fs_downsampled = fs
 
 IQMode = str  # "auto" | "single" | "2ant"
-
 SINGLE_IQ_COLS = ("sample_i", "sample_q")
 TWO_ANT_IQ_COLS = (
     "ch0_sample_q",
@@ -155,6 +156,40 @@ def normalize_data(data, *, bit_width: int = IQ_BIT_WIDTH):
     return data / (2**bit_width)
 
 
+def upsample_real(x: np.ndarray, factor: int, *, method: str = UPSAMPLE_METHOD) -> np.ndarray:
+    """Upsample 1-D real sequence by integer factor."""
+    if factor <= 1:
+        return x
+    if method == "repeat":
+        return np.repeat(x, factor)
+    if method == "linear":
+        old_n = len(x)
+        if old_n < 2:
+            return np.repeat(x, factor)
+        new_n = old_n * factor
+        old_t = np.arange(old_n, dtype=float)
+        new_t = np.linspace(0.0, old_n - 1.0, new_n, endpoint=True)
+        return np.interp(new_t, old_t, x.astype(float))
+    # poly: bandlimited-style upsample via scipy resample_poly
+    return resample_poly(x.astype(float), factor, 1)
+
+
+def upsample_iq(
+    i_data: np.ndarray,
+    q_data: np.ndarray,
+    factor: int,
+    *,
+    method: str = UPSAMPLE_METHOD,
+) -> Tuple[np.ndarray, np.ndarray]:
+    """Upsample I/Q after 2:1 (or N:1) decimation; restores sample rate for PSD."""
+    if factor <= 1:
+        return i_data, q_data
+    i_up = upsample_real(i_data, factor, method=method)
+    q_up = upsample_real(q_data, factor, method=method)
+    n = min(len(i_up), len(q_up))
+    return i_up[:n], q_up[:n]
+
+
 def plot_time_waveform(
     i_data,
     q_data,
@@ -182,7 +217,7 @@ def plot_time_waveform(
 def plot_psd(data_complex, fs_mhz: float, title: str, ax, color: str):
     """绘制功率谱密度 (PSD) 图。"""
     n = len(data_complex)
-    nfft = min(65536, n)
+    nfft = min(16384, n)
     if nfft < 8:
         ax.set_title(f"{title} (too few samples)")
         return ax
@@ -255,7 +290,30 @@ def build_parser() -> argparse.ArgumentParser:
         "--bit-width",
         type=int,
         default=IQ_BIT_WIDTH,
-        help="ADC bit width for normalization divisor (default 10)",
+        help="ADC bit width for normalization divisor (default 8)",
+    )
+    p.add_argument(
+        "--fs",
+        type=float,
+        default=fs,
+        help="Sample rate Hz after upsampling (original ADC rate, default from config)",
+    )
+    p.add_argument(
+        "--upsample",
+        type=int,
+        default=UPSAMPLE_FACTOR,
+        help="Upsample factor for 2:1-decimated input (default 2; use 1 to disable)",
+    )
+    p.add_argument(
+        "--upsample-method",
+        choices=("poly", "linear", "repeat"),
+        default=UPSAMPLE_METHOD,
+        help="Upsample method: poly (default), linear, or repeat (zero-order hold)",
+    )
+    p.add_argument(
+        "--no-upsample",
+        action="store_true",
+        help="Disable upsampling (same as --upsample 1)",
     )
     return p
 
@@ -275,18 +333,32 @@ def main(argv=None):
     ch1_i = normalize_data(iq.ch1_i, bit_width=args.bit_width)
     ch1_q = normalize_data(iq.ch1_q, bit_width=args.bit_width)
 
+    upsample_factor = 1 if args.no_upsample else max(1, int(args.upsample))
+    if upsample_factor > 1:
+        ch0_i, ch0_q = upsample_iq(
+            ch0_i, ch0_q, upsample_factor, method=args.upsample_method
+        )
+        ch1_i, ch1_q = upsample_iq(
+            ch1_i, ch1_q, upsample_factor, method=args.upsample_method
+        )
+        print(
+            f"上采样 x{upsample_factor} ({args.upsample_method})："
+            f"{len(iq.ch0_i)} -> {len(ch0_i)} 点/通道"
+        )
+
     ch0_signal = ch0_i + 1j * ch0_q
     ch1_signal = ch1_i + 1j * ch1_q
 
-    fs_hz = fs_downsampled
+    fs_hz = args.fs
     fs_mhz = fs_hz / 1e6
     time_n = args.time_samples if args.time_samples > 0 else len(ch0_i)
     mode_label = "双天线" if iq.mode == "2ant" else "单路"
+    upsample_note = f", 上采样 x{upsample_factor}" if upsample_factor > 1 else ""
 
     with PdfPages(output_pdf) as pdf:
         fig_t = plt.figure(figsize=(15, 8), tight_layout=True)
         fig_t.suptitle(
-            f"I/Q 时域波形 ({mode_label}, 采样率: {fs_mhz:.0f} MHz, "
+            f"I/Q 时域波形 ({mode_label}, 采样率: {fs_mhz:.0f} MHz{upsample_note}, "
             f"显示前 {min(time_n, len(ch0_i))} 点)",
             fontsize=14,
             y=0.98,
@@ -313,7 +385,7 @@ def main(argv=None):
 
         fig_f = plt.figure(figsize=(15, 8), tight_layout=True)
         fig_f.suptitle(
-            f"I/Q 功率谱密度 ({mode_label}, 采样率: {fs_mhz:.0f} MHz)",
+            f"I/Q 功率谱密度 ({mode_label}, 采样率: {fs_mhz:.0f} MHz{upsample_note})",
             fontsize=14,
             y=0.98,
         )

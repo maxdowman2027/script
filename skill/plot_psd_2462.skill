@@ -3,18 +3,19 @@
 ## 功能
 - 输入 I/Q CSV，输出两页 PDF（时域 + Welch PSD），默认 `<input_stem>_spec.pdf`
 - **single**：`sample_i` / `sample_q`（单路；Ch0/Ch1 子图相同）
-- **2ant**：`ch0_sample_q/i`、`ch1_sample_q/i`（双天线，来自 `parse_60bit_40bit_2ant_iq.py`）
+- **2ant**：`ch0_sample_q/i`、`ch1_sample_q/i`（双天线）
 - **auto**（默认）：按列名自动选择 single / 2ant
+- **上采样**：默认 x2，用于硬件 **2抽1** 后的 CSV；`--fs` 填原始 ADC 采样率
 
 ## 运行
 ```bash
-python plot_psd_2462.py input_2ant_iq.csv
-python plot_psd_2462.py input_2ant_iq.csv --mode 2ant --bit-width 10
-python plot_psd_2462.py input_iq_merged.csv --mode single --bit-width 8
+python plot_psd_2462.py input_2ant_iq.csv --mode 2ant --bit-width 10 --fs 320e6
+python plot_psd_2462.py input_iq8.csv --mode 2ant --bit-width 8 --fs 80e6 --upsample 2
+python plot_psd_2462.py input_iq8.csv --no-upsample --fs 40e6
 ```
 
 ## 上游
-`*_iq_merged.csv` / `*_iq8.csv` / `*_2ant_iq.csv` / `modem_dump_pipeline.py`
+`*_2ant_iq.csv` / `*_iq8.csv` / `*_iq_merged.csv` / `parse_60bit_40bit_2ant_iq.py` / `dump_64bit_to_iq8.py`
 
 ## 文档
 `skill/plot_psd_2462_Skill.md`

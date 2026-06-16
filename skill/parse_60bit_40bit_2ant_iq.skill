@@ -1,0 +1,20 @@
+# parse_60bit_40bit_2ant_iq.py
+
+## 功能
+- 64-bit `#dump_data` → 去 [63:60] 得 60-bit → **2 word / 120-bit → 3×40-bit** 双天线 10-bit I/Q
+- 输出列：`dump_data_40`, `ch0_sample_q/i`, `ch1_sample_q/i`
+- 跨行拼接：上一行在低位 `{w1[19:0], w0[59:40]}`
+- 流式读写，接口风格同 `dump_64bit_to_iq8.py`
+
+## 运行
+```bash
+python parse_60bit_40bit_2ant_iq.py input_data.csv
+python parse_60bit_40bit_2ant_iq.py input_data.csv --verify
+python parse_60bit_40bit_2ant_iq.py csv_folder -o out_dir
+```
+
+## 下游
+`plot_psd_2462.py --mode 2ant --bit-width 10 --fs <ADC_Hz> [--upsample 2]`
+
+## 文档
+`skill/parse_60bit_40bit_2ant_iq_Skill.md`

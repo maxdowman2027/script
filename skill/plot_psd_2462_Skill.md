@@ -9,10 +9,12 @@
 
 支持两种输入布局（`--mode auto|single|2ant`，默认 **auto** 按列名检测）：
 
-| 模式 | 输入列 | 说明 |
-|------|--------|------|
-| **single** | `sample_i`, `sample_q` | 单路连续 I/Q；Ch0/Ch1 子图相同 |
-| **2ant** | `ch0_sample_q`, `ch0_sample_i`, `ch1_sample_q`, `ch1_sample_i` | 双天线 10-bit I/Q（`parse_60bit_40bit_2ant_iq.py` 输出） |
+| 模式 | 输入列 | 典型上游 |
+|------|--------|----------|
+| **single** | `sample_i`, `sample_q` | `*_iq_merged.csv`, 48-bit merge |
+| **2ant** | `ch0_sample_q/i`, `ch1_sample_q/i` | `parse_60bit_40bit_2ant_iq.py`, `dump_64bit_to_iq8.py --mode 2ant` |
+
+支持 **2抽1 上采样**：输入为抽取后低速率样本时，默认 `--upsample 2` 恢复点数，`--fs` 设为 **原始 ADC 采样率**。
 
 ---
 
@@ -22,13 +24,6 @@
 |----|------|
 | 默认输出 | **`<input_stem>_spec.pdf`** |
 | `-o` | 显式指定 PDF 路径 |
-
-示例：
-
-```text
-hesu_20m_mcs0_data_2ant_iq.csv  →  hesu_20m_mcs0_data_2ant_iq_spec.pdf
-data_iq_merged.csv              →  data_iq_merged_spec.pdf
-```
 
 ---
 
@@ -40,9 +35,11 @@ data_iq_merged.csv              →  data_iq_merged_spec.pdf
 | `OUTPUT_PDF` | `""` | 空 → `<stem>_spec.pdf` |
 | `MAX_ROWS` | 65536 | 读取行数上限；0 = 全文件 |
 | `TIME_PLOT_SAMPLES` | 65535 | 时域最多绘制点数；0 = 与读取行数相同 |
-| `IQ_BIT_WIDTH` | 10 | 归一化 `2**N`（8-bit→8，10-bit→10） |
-| `IQ_MODE` | `auto` | `auto` / `single` / `2ant` |
-| `fs` | 80e6 | 采样率 Hz |
+| `IQ_BIT_WIDTH` | 8 | 归一化 `2**N`（8-bit→8，10-bit→10） |
+| `IQ_MODE` | `2ant` | `auto` / `single` / `2ant` |
+| `UPSAMPLE_FACTOR` | 2 | 2抽1 数据默认上采样倍率；1 = 关闭 |
+| `UPSAMPLE_METHOD` | `poly` | `poly` / `linear` / `repeat` |
+| `fs` | 80e6 | 上采样后用于绘图的采样率 Hz |
 
 ---
 
@@ -51,11 +48,14 @@ data_iq_merged.csv              →  data_iq_merged_spec.pdf
 ```bash
 python plot_psd_2462.py
 
-python plot_psd_2462.py D:\path\to\hesu_20m_mcs0_data_2ant_iq.csv
+# 10-bit 双天线（80M 常用 fs=320MHz）
+python plot_psd_2462.py data_2ant_iq.csv --mode 2ant --bit-width 10 --fs 320e6
 
-python plot_psd_2462.py data_2ant_iq.csv --mode 2ant --bit-width 10
+# 8-bit 双天线 + 2抽1 上采样
+python plot_psd_2462.py data_iq8.csv --mode 2ant --bit-width 8 --fs 80e6 --upsample 2
 
-python plot_psd_2462.py data_iq8.csv --mode single --bit-width 8
+# 未抽取数据，关闭上采样
+python plot_psd_2462.py data.csv --no-upsample --fs 80e6
 
 python plot_psd_2462.py data.csv -o out.pdf --max-rows 131072 --time-samples 8192
 ```
@@ -67,7 +67,20 @@ python plot_psd_2462.py data.csv -o out.pdf --max-rows 131072 --time-samples 819
 | `--mode` | `auto` / `single` / `2ant` |
 | `--max-rows` | 读取行数上限 |
 | `--time-samples` | 时域显示点数 |
-| `--bit-width` | ADC 位宽（归一化） |
+| `--bit-width` | ADC 位宽（归一化除数） |
+| `--fs` | 采样率 Hz（上采样后的等效速率） |
+| `--upsample` | 上采样倍率（默认 2） |
+| `--upsample-method` | `poly`（默认）/ `linear` / `repeat` |
+| `--no-upsample` | 关闭上采样 |
+
+### 2抽1 说明
+
+硬件对 IQ 做 **2:1 抽取** 后写入 CSV 时：
+
+- CSV 内样本间隔对应 **Fs/2**
+- 绘图前默认 **×2 上采样** 恢复时间轴点数
+- `--fs` 仍填 **完整 ADC 速率**（如 80M→80e6 或 320e6，依芯片配置）
+- PDF 标题会标注 `上采样 x2`
 
 ---
 
@@ -75,12 +88,12 @@ python plot_psd_2462.py data.csv -o out.pdf --max-rows 131072 --time-samples 819
 
 ### 页 1 — 时域
 
-- 左：**Ch0** I/Q；右：**Ch1** I/Q（2ant 模式下为真实双天线数据）
+- 左：**Ch0** I/Q；右：**Ch1** I/Q（2ant 为真实双天线）
 - 横轴：时间 µs；纵轴：归一化幅度
 
 ### 页 2 — PSD
 
-- Welch，`NFFT ≤ 65536`，Hanning，50% overlap
+- Welch，`NFFT ≤ 16384`，Hanning，50% overlap
 - 左 Ch0 / 右 Ch1 独立频谱
 
 ---
@@ -88,8 +101,10 @@ python plot_psd_2462.py data.csv -o out.pdf --max-rows 131072 --time-samples 819
 ## 数据流
 
 ```text
-parse_60bit_40bit_2ant_iq.py  →  *_2ant_iq.csv  ─┐
-parse_48bit / dump_64bit_to_iq8 / merge_iq      ─┼→ plot_psd_2462.py → *_spec.pdf
+bin_to_64bit_csv → *_data.csv
+  ├→ parse_60bit_40bit_2ant_iq.py → *_2ant_iq.csv ─┐
+  └→ dump_64bit_to_iq8.py (--mode 2ant) → *_iq8.csv ┼→ plot_psd_2462.py → *_spec.pdf
+parse_48bit_dump_iq → *_iq_merged.csv ─────────────┘
 ```
 
 ---
@@ -103,4 +118,4 @@ parse_48bit / dump_64bit_to_iq8 / merge_iq      ─┼→ plot_psd_2462.py → *
 ## 元数据
 
 - **脚本**: `plot_psd_2462.py`
-- **标签**: psd, welch, iq, 2ant, dual_antenna, time_domain, ch0, ch1
+- **标签**: psd, welch, iq, 2ant, upsample, decimation, time_domain, ch0, ch1
