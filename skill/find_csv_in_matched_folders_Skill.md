@@ -56,9 +56,10 @@
 
 2. **雷达图**（`RUN_SENSITIVITY_RADAR=True`，默认）：`plot_sensitivity_mld_diff_radar`（基于宽表）  
    - **角度轴**：`cur_degree`（°），0° 正北、顺时针  
-   - **径向**：`plot_r = r0 + diff`（`r0` 为 diff=0；最内可见半径 = 实测 min diff）；**点与圆环同一坐标** `_mld_diff_plot_radius`  
-   - **圈外**（diff &gt; 0）绿 / **圈内**（diff &lt; 0）红；0 dB 虚线圆在 `r0`（可见时）  
-   - **参考圆环**：实测 min / median / max diff（+ 可见时 0 dB）；`rticks` 标签贴在圆环线上  
+   - **零圈 `r0`**：`diff = 0`（mld_en0 − mld_en1）虚线参考圆  
+   - **径向**：**`log1p(|diff|)`**；**diff &gt; 0** 在 `r0` **外**（绿色底色）；**diff &lt; 0** 在 `r0` **内**（红色底色）  
+   - **点标注**：每个角度标注 **带符号 diff**（如 `+2.3` / `-1.5` dB）  
+   - **参考圆环**：|diff|=0 及 min / median / max |diff|（内外对称 log 刻度）；`rticks` 为 `|diff|=X dB`  
    - **分组**：每个 `(band, phymode, bandwidth, coding, wifi_format, rx_chan, rate)` 一张 PNG；文件名 `radar_mld_diff_...png`  
    - **输出目录**：`<csv_stem>_radar/`（`SENSITIVITY_RADAR_DIR` / `--radar-dir`）
 
@@ -131,8 +132,33 @@ import wifi_rx_sensitivity as wrs
 mld, deg = wrs.parse_testcase_folder_params("wifi_txrx_test_RXSens_x_mld_en1_cur_degree90")
 rows = wrs.sensitivity_rows_for_session(session_dir, path_config_dict)
 wrs.write_sensitivity_csv(rows, out_csv)
+# mld-diff 雷达（默认由 find_csv 调用 plot_sensitivity_mld_diff_radar）
+wrs.plot_sensitivity_mld_diff_radar(wide_df, radar_dir)
+# 旧版：长表叠加 mld_en0/1 曲线
 wrs.plot_sensitivity_radar(rows, r"D:\out\radar")
 ```
+
+---
+
+## wifi_rx_sensitivity 雷达 API（mld-diff）
+
+| 函数 | 说明 |
+|------|------|
+| `plot_sensitivity_mld_diff_radar` | 宽表 `sensitivity_dbm_mld_diff` vs `cur_degree`；**log1p(\|diff\|)** 径向；diff=0 虚线圈 `r0` |
+| `_mld_diff_signed_log_polar_layout` | 计算 r0、内外 log 半径（diff≥0 外扩，diff&lt;0 内收） |
+| `plot_sensitivity_radar` | 旧版长表雷达（半径=−sensitivity_dbm），find_csv 默认不调用 |
+
+径向刻度标签为 `\|diff\|=X dB`；每个采样点标注 **带符号** diff（如 `+2.3` / `−1.5`）。
+
+---
+
+## 版本历史
+
+| 版本 | 日期 | 说明 |
+|------|------|------|
+| 1.2 | 2026-05-27 | mld-diff 雷达：`log1p(\|diff\|)` 对称内外径向；点标注 signed diff；参考环 min/med/max \|diff\| |
+| 1.1 | 2026-05 | 宽表 mld_en0/1、线性 `r0+diff` 雷达、find_csv 集成 |
+| 1.0 | — | RX CSV 检索、灵敏度长表、cur_degree 解析 |
 
 ---
 

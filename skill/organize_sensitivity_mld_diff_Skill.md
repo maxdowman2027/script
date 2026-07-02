@@ -14,7 +14,7 @@
 find_csv_in_matched_folders.py
   → sensitivity_summary_*.csv（长表，含 mld_en）
   → <同 stem>_mld_wide.csv/.xlsx（宽表，自动）
-  → <同 stem>_radar/（mld_diff 雷达图，角度=cur_degree，半径=r0+diff，diff 刻度 + 点标注；恶化 zoom）
+  → <同 stem>_radar/（mld_diff 雷达图：r0=diff0，log1p(|diff|) 外绿/内红，点标注 signed diff）
 
 organize_sensitivity_mld_diff.py（离线）
   → 对已存在的 *_result.csv 做宽表；核心 API 在 wifi_rx_sensitivity.py
@@ -171,5 +171,5 @@ write_mld_wide_outputs(
 
 ---
 
-**文档版本**：1.0  
-**更新日期**：2026-05-27
+**文档版本**：1.1  
+**更新日期**：2026-05-27（雷达图说明与 find_csv 对齐：log1p 径向）

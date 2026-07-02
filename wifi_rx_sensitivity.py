@@ -454,67 +454,162 @@ def _radar_diff_point_color(diff_dbm: float) -> str:
     return "#2ca02c" if float(diff_dbm) >= 0 else "#d62728"
 
 
-def _format_diff_tick_label(diff_db: float) -> str:
-    """Format diff (dB) for radial reference labels."""
-    if abs(diff_db) < 1e-9:
-        return "0 dB"
-    if diff_db < 0:
-        return f"{diff_db:.1f} dB"
-    return f"+{diff_db:.1f} dB"
+def _format_abs_diff_tick_label(abs_diff_db: float) -> str:
+    """Format |diff| (dB) for log-scaled radial reference labels."""
+    if abs(abs_diff_db) < 1e-9:
+        return "|diff|=0"
+    return f"|diff|={abs_diff_db:.1f} dB"
 
 
-def _mld_diff_radial_summary_ticks(
+def _format_point_diff_label(diff_db: float) -> str:
+    """Signed diff label at each polar sample."""
+    if abs(float(diff_db)) < 1e-9:
+        return "0"
+    return f"{float(diff_db):+.1f}"
+
+
+def _mld_diff_log1p(abs_diff_db: float) -> float:
+    return math.log1p(max(0.0, float(abs_diff_db)))
+
+
+def _mld_diff_g_offset(
+    abs_diff_db: float,
+    log_min: float,
+    log_span: float,
+    g_pad: float,
+) -> float:
+    """Log-scaled distance from the diff=0 ring."""
+    if abs_diff_db < 1e-9:
+        return 0.0
+    if log_span < 1e-12:
+        return g_pad
+    return g_pad + (_mld_diff_log1p(abs_diff_db) - log_min) / log_span * g_pad
+
+
+def _mld_diff_signed_log_radius(
+    diff_db: float,
+    r0: float,
+    log_min: float,
+    log_span: float,
+    g_pad: float,
+) -> float:
+    """diff>=0 outside r0; diff<0 inside r0 (inward); magnitude = log1p(|diff|)."""
+    g = _mld_diff_g_offset(abs(float(diff_db)), log_min, log_span, g_pad)
+    if float(diff_db) >= 0.0:
+        return r0 + g
+    return r0 - g
+
+
+def _mld_diff_signed_log_polar_layout(
+    diffs: Sequence[float],
+    *,
+    margin: float = 0.08,
+    min_data_span: float = 0.15,
+) -> Tuple[float, float, float, List[float], float, float, float]:
+    """
+    Signed log polar layout around r0 (diff=0).
+
+    Returns (r_lo, r_hi, r0, radii, log_min, log_span, g_pad).
+    """
+    log_d = [_mld_diff_log1p(abs(float(d))) for d in diffs]
+    log_min = min(log_d)
+    log_max = max(log_d)
+    log_span = log_max - log_min
+    g_pad = margin if log_span < 1e-12 else max(margin, 0.12 * log_span)
+
+    g_pos = max(
+        (
+            _mld_diff_g_offset(abs(float(d)), log_min, log_span, g_pad)
+            for d in diffs
+            if float(d) >= 0.0
+        ),
+        default=0.0,
+    )
+    g_neg = max(
+        (
+            _mld_diff_g_offset(abs(float(d)), log_min, log_span, g_pad)
+            for d in diffs
+            if float(d) < 0.0
+        ),
+        default=0.0,
+    )
+
+    r_lo = margin * 0.5
+    r0 = r_lo + g_neg + g_pad
+    r_hi = r0 + g_pos + g_pad
+
+    radii = [
+        _mld_diff_signed_log_radius(d, r0, log_min, log_span, g_pad) for d in diffs
+    ]
+
+    if r_hi - r_lo < min_data_span:
+        mid = 0.5 * (r_lo + r_hi)
+        r_lo = max(0.0, mid - min_data_span / 2.0)
+        r_hi = mid + min_data_span / 2.0
+
+    return r_lo, r_hi, r0, radii, log_min, log_span, g_pad
+
+
+def _mld_diff_signed_log_radial_summary_ticks(
     diffs: Sequence[float],
     r0: float,
+    log_min: float,
+    log_span: float,
+    g_pad: float,
     r_lo: float,
     r_hi: float,
     *,
     merge_tol_db: float = 0.15,
+    radius_merge_tol: float = 0.02,
 ) -> List[Tuple[float, str]]:
-    """
-    Key diff reference circles in [r_lo, r_hi].
-
-    plot radius = r0 + diff: diff<0 inside zero ring (closer to center = more negative).
-    Labels only min / median / max of measured diffs, plus 0 dB when the zero ring is visible.
-    """
-    d_sorted = sorted(float(d) for d in diffs)
-    d_min, d_max = d_sorted[0], d_sorted[-1]
-    n = len(d_sorted)
+    """Reference rings at r0 (|diff|=0) and log-spaced |diff| on inner/outer sides."""
+    abs_sorted = sorted(abs(float(d)) for d in diffs)
+    n = len(abs_sorted)
+    a_min, a_max = abs_sorted[0], abs_sorted[-1]
     if n % 2:
-        d_med = d_sorted[n // 2]
+        a_med = abs_sorted[n // 2]
     else:
-        d_med = 0.5 * (d_sorted[n // 2 - 1] + d_sorted[n // 2])
+        a_med = 0.5 * (abs_sorted[n // 2 - 1] + abs_sorted[n // 2])
 
-    candidates: List[float] = []
-    if r_lo <= r0 <= r_hi:
-        candidates.append(0.0)
-    for d in (d_min, d_med, d_max):
-        if r_lo <= _mld_diff_plot_radius(r0, d) <= r_hi:
-            candidates.append(d)
-
-    picked: List[float] = []
-    for d in sorted(candidates, key=lambda x: x):
-        if any(abs(d - p) < merge_tol_db for p in picked):
+    abs_candidates: List[float] = [0.0]
+    for a in (a_min, a_med, a_max):
+        if any(abs(a - p) < merge_tol_db for p in abs_candidates):
             continue
-        picked.append(d)
+        abs_candidates.append(a)
 
-    return [(d, _format_diff_tick_label(d)) for d in picked]
+    entries: List[Tuple[float, str]] = []
+    for a in sorted(abs_candidates):
+        label = _format_abs_diff_tick_label(a)
+        if a < 1e-9:
+            if r_lo <= r0 <= r_hi:
+                entries.append((r0, label))
+            continue
+        g = _mld_diff_g_offset(a, log_min, log_span, g_pad)
+        for r_tick in (r0 + g, r0 - g):
+            if r_lo <= r_tick <= r_hi:
+                entries.append((r_tick, label))
+
+    entries.sort(key=lambda x: x[0])
+    picked: List[Tuple[float, str]] = []
+    for r_tick, label in entries:
+        if any(abs(r_tick - p) < radius_merge_tol for p, _ in picked):
+            continue
+        picked.append((r_tick, label))
+    return picked
 
 
-def _apply_mld_diff_radial_ticks(
+def _apply_mld_diff_signed_radial_ticks(
     ax,
-    r0: float,
-    tick_diffs: Sequence[float],
+    tick_entries: Sequence[Tuple[float, str]],
     *,
     label_position_deg: float = 40.0,
 ) -> None:
-    """Set polar radial grid at r0+diff; labels show diff (dB) on the ring."""
-    rticks = [_mld_diff_plot_radius(r0, d) for d in tick_diffs]
-    if not rticks:
+    if not tick_entries:
         return
+    rticks = [r for r, _ in tick_entries]
     ax.set_rticks(rticks)
     ax.set_rlabel_position(label_position_deg)
-    ax.set_yticklabels([_format_diff_tick_label(d) for d in tick_diffs], fontsize=7)
+    ax.set_yticklabels([lbl for _, lbl in tick_entries], fontsize=7)
     ax.yaxis.grid(
         True,
         which="major",
@@ -525,8 +620,21 @@ def _apply_mld_diff_radial_ticks(
     )
 
 
+def _mld_diff_log_polar_layout(
+    diffs: Sequence[float],
+    *,
+    margin: float = 0.08,
+    min_data_span: float = 0.15,
+) -> Tuple[float, float, List[float], float, float, float]:
+    """Backward-compatible wrapper; prefer _mld_diff_signed_log_polar_layout."""
+    r_lo, r_hi, r0, radii, log_min, log_span, g_pad = _mld_diff_signed_log_polar_layout(
+        diffs, margin=margin, min_data_span=min_data_span
+    )
+    return r_lo, r_hi, radii, log_min, r0, g_pad
+
+
 def _mld_diff_plot_radius(r0: float, diff: float) -> float:
-    """Polar radius for diff (mld_en0 − mld_en1); diff=0 at r0."""
+    """Legacy linear map (plot_r = r0 + diff); kept for API compatibility."""
     return r0 + float(diff)
 
 
@@ -536,13 +644,7 @@ def _mld_diff_polar_layout(
     margin_db: float = 0.5,
     min_data_span_db: float = 0.5,
 ) -> Tuple[float, float, float, List[float]]:
-    """
-    Linear map: plot_r = r0 + diff, with r0 = -d_min + pad.
-
-    Innermost measured diff (d_min) sits at radius ``pad``; diff=0 at r0.
-    Same formula for all-negative / all-positive / mixed data so points and
-    reference rings share one coordinate system.
-    """
+    """Legacy linear polar layout; prefer _mld_diff_log_polar_layout for mld-diff radar."""
     d_list = [float(d) for d in diffs]
     d_min = min(d_list)
     d_max = max(d_list)
@@ -569,11 +671,10 @@ def plot_sensitivity_mld_diff_radar(
     diff_col: str = SENS_MLD_DIFF_COL,
 ) -> List[str]:
     """
-    Polar charts: angle = cur_degree (°), signed radius = r0 + sensitivity_dbm_mld_diff.
+    Polar charts: angle = cur_degree (°).
 
-    Dashed ring at r0 is diff=0 (mld_en0 − mld_en1). diff>0 outside (green, 优化);
-    diff<0 inside (red, 恶化; smaller radius = more negative diff). Reference circles
-    at measured min/median/max diffs (and 0 dB when visible) only.
+    diff=0 at dashed ring r0. diff>0: log1p(|diff|) outward (green zone);
+    diff<0: log1p(|diff|) inward from r0 (red zone). Points labeled with signed diff.
     """
     import matplotlib.pyplot as plt
     from matplotlib.lines import Line2D
@@ -625,31 +726,31 @@ def plot_sensitivity_mld_diff_radar(
 
         degrees = [p[0] for p in pts]
         diffs = [p[1] for p in pts]
-        d_min = min(diffs)
-        d_max = max(diffs)
         theta = np.deg2rad(degrees)
-        r0, r_lo, r_hi, radius = _mld_diff_polar_layout(diffs)
+        r_lo, r_hi, r0, radius, log_min, log_span, g_pad = _mld_diff_signed_log_polar_layout(
+            diffs
+        )
         colors = [_radar_diff_point_color(d) for d in diffs]
-        tick_diffs = [d for d, _lbl in _mld_diff_radial_summary_ticks(diffs, r0, r_lo, r_hi)]
-        tick_radii = [_mld_diff_plot_radius(r0, d) for d in tick_diffs]
+        tick_entries = _mld_diff_signed_log_radial_summary_ticks(
+            diffs, r0, log_min, log_span, g_pad, r_lo, r_hi
+        )
 
         fig, ax = plt.subplots(figsize=(9, 9), subplot_kw={"projection": "polar"})
         theta_bg = np.linspace(0, 2 * np.pi, 360)
 
-        red_hi = min(r0, r_hi)
-        if red_hi > r_lo:
+        if r0 > r_lo:
             ax.fill_between(
                 theta_bg,
                 r_lo,
-                np.full_like(theta_bg, red_hi),
+                np.full_like(theta_bg, r0),
                 color="#ffcccc",
                 alpha=0.35,
                 zorder=0,
             )
-        if r_hi > max(r0, r_lo):
+        if r_hi > r0:
             ax.fill_between(
                 theta_bg,
-                max(r0, r_lo),
+                r0,
                 np.full_like(theta_bg, r_hi),
                 color="#ccffcc",
                 alpha=0.28,
@@ -678,7 +779,20 @@ def plot_sensitivity_mld_diff_radar(
             linewidths=0.45,
         )
 
-        ax.set_ylim(r_lo, r_hi * 1.02 if r_hi > r_lo else r_lo + 0.1)
+        for t, r, d in zip(theta, radius, diffs):
+            ax.annotate(
+                _format_point_diff_label(d),
+                xy=(t, r),
+                xytext=(5, 5),
+                textcoords="offset points",
+                fontsize=7,
+                ha="left",
+                va="bottom",
+                bbox=dict(boxstyle="round,pad=0.2", fc="white", alpha=0.8, ec="none"),
+                zorder=5,
+            )
+
+        ax.set_ylim(r_lo, r_hi * 1.06 if r_hi > r_lo else r_lo + 0.1)
 
         if r_lo <= r0 <= r_hi:
             ax.plot(
@@ -690,11 +804,10 @@ def plot_sensitivity_mld_diff_radar(
                 zorder=3,
             )
 
-        for tick_diff, r_tick in zip(tick_diffs, tick_radii):
-            if not (r_lo <= r_tick <= r_hi):
+        for r_tick, label in tick_entries:
+            if abs(r_tick - r0) < 1e-6:
                 continue
-            is_zero = abs(tick_diff) < 1e-9
-            if is_zero:
+            if not (r_lo <= r_tick <= r_hi):
                 continue
             ax.plot(
                 theta_bg,
@@ -706,20 +819,8 @@ def plot_sensitivity_mld_diff_radar(
                 zorder=1,
             )
 
-        _apply_mld_diff_radial_ticks(ax, r0, tick_diffs)
+        _apply_mld_diff_signed_radial_ticks(ax, tick_entries)
 
-        if r0 > r_hi + 1e-9 and d_max <= 0.0:
-            ax.text(
-                np.deg2rad(0.0),
-                r_hi * 0.96,
-                f"0 dB ref ↑  (worst {d_min:.1f} dB at center)",
-                fontsize=7,
-                color="#333333",
-                ha="center",
-                va="top",
-                zorder=5,
-                clip_on=False,
-            )
         ax.set_theta_zero_location("N")
         ax.set_theta_direction(-1)
         ax.set_thetagrids(degrees, labels=[f"{int(d)}°" for d in degrees])
@@ -727,21 +828,46 @@ def plot_sensitivity_mld_diff_radar(
             "RX sensitivity mld diff vs angle\n"
             f"{band} {phymode} {bandwidth} {coding} {wifi_format} | "
             f"ch={rx_chan} rate={rate}\n"
-            f"(plot radius = r0 + diff; r0 = diff 0; rings = min/med/max diff)",
+            f"(r0 = diff 0; log1p(|diff|) out=green / in=red; labels = signed dB)",
             pad=20,
             fontsize=10,
         )
 
         ax.legend(
             handles=[
-                Line2D([0], [0], color="#333333", linestyle="--", linewidth=2, label="diff = 0 dB"),
+                Line2D(
+                    [0],
+                    [0],
+                    color="#333333",
+                    linestyle="--",
+                    linewidth=2,
+                    label="diff = 0 dB (zero ring)",
+                ),
+                Line2D(
+                    [0],
+                    [0],
+                    marker="s",
+                    color="w",
+                    markerfacecolor="#ccffcc",
+                    markersize=10,
+                    label="outside r0: diff > 0 (green)",
+                ),
+                Line2D(
+                    [0],
+                    [0],
+                    marker="s",
+                    color="w",
+                    markerfacecolor="#ffcccc",
+                    markersize=10,
+                    label="inside r0: diff < 0 (red)",
+                ),
                 Line2D(
                     [0],
                     [0],
                     marker="o",
                     color="w",
                     markerfacecolor="#2ca02c",
-                    label="outside ring (diff > 0, better)",
+                    label="point diff ≥ 0",
                 ),
                 Line2D(
                     [0],
@@ -749,7 +875,7 @@ def plot_sensitivity_mld_diff_radar(
                     marker="o",
                     color="w",
                     markerfacecolor="#d62728",
-                    label="inside ring (diff < 0, worse)",
+                    label="point diff < 0",
                 ),
             ],
             loc="upper right",
