@@ -8,19 +8,19 @@ os.system('cls' if os.name == 'nt' else 'clear')
 ru_alloc_list = [26, 52, 106, 242, 484, 996, 1992]
 
 # %% Input argv here
-ul_bw = 3
+ul_bw = 0
 ru_allocation = 26
-ru_allocation_index = 16
-apep_len = 21
-last_mpdu_len = 17 
-ul_mcs = 0
+ru_allocation_index = 0
+apep_len = 204
+last_mpdu_len = 200 
+ul_mcs = 7
 ul_nss = 1
 ul_coding = 1
 ul_gi_ltf = 1
-ul_num_ltf = 1 #0/1/2/3/4 represents for 1/2/4/6/8 HE-LTFs
+ul_num_ltf = 2 #0/1/2/3/4 represents for 1/2/4/6/8 HE-LTFs
 ul_dcm = 0
 ul_stbc = 0
-nominal_packet_padding = 16
+nominal_packet_padding = 0
 bss_color = 32
 txop = 127
 
@@ -120,24 +120,59 @@ l_ldpc_code = 0
 temp_val = n_pld + 912 * (12 - r_x12[ul_mcs]) / 12
 
 print(f"n_avbits:{n_avbits},temp_val:{temp_val} ,n_pld :{n_pld},(12 - r_x12[ul_mcs]) / 12:{(12 - r_x12[ul_mcs]) / 12}")
-if temp_val > n_avbits and temp_val <= 648:
-    l_ldpc = 648
-    l_ldpc_code = 0
-elif temp_val <= n_avbits and n_avbits <= 648:
-    l_ldpc = 1296
-    l_ldpc_code = 1
-elif n_avbits > 648 and n_avbits < (n_pld + 1464 * (12 - r_x12[ul_mcs]) / 12):
-    l_ldpc = 1296
-    l_ldpc_code = 1
-elif (n_pld + 1464 * (12 - r_x12[ul_mcs]) / 12) <= n_avbits and n_avbits <= 1944:
+# if temp_val > n_avbits and temp_val <= 648:
+#     l_ldpc = 648
+#     l_ldpc_code = 0
+# elif temp_val <= n_avbits and n_avbits <= 648:
+#     l_ldpc = 1296
+#     l_ldpc_code = 1
+# elif n_avbits > 648 and n_avbits < (n_pld + 1464 * (12 - r_x12[ul_mcs]) / 12):
+#     l_ldpc = 1296
+#     l_ldpc_code = 1
+# elif (n_pld + 1464 * (12 - r_x12[ul_mcs]) / 12) <= n_avbits and n_avbits <= 1944:
+#     l_ldpc = 1944
+#     l_ldpc_code = 2
+# elif n_avbits > 1944 and n_avbits < (n_pld + 2916 * (12 - r_x12[ul_mcs]) / 12):
+#     l_ldpc = 1296
+#     l_ldpc_code = 1
+# elif n_avbits >= (n_pld + 2916 * (12 - r_x12[ul_mcs]) / 12):
+#     l_ldpc = 1944
+#     l_ldpc_code = 2
+
+r = r_x12[ul_mcs] 
+
+if n_avbits <= 648:
+    if n_avbits >= n_pld + 912 * (12 - r) / 12:
+        l_ldpc = 1296
+        l_ldpc_code = 1
+    else:
+        l_ldpc = 648
+        l_ldpc_code = 0
+
+elif n_avbits <= 1296:
+    if n_avbits >= n_pld + 1464 * (12 - r) / 12:
+        l_ldpc = 1944
+        l_ldpc_code = 2
+    else:
+        l_ldpc = 1296
+        l_ldpc_code = 1
+
+elif n_avbits <= 1944:
     l_ldpc = 1944
     l_ldpc_code = 2
-elif n_avbits > 1944 and n_avbits < (n_pld + 2916 * (12 - r_x12[ul_mcs]) / 12):
-    l_ldpc = 1296
-    l_ldpc_code = 1
-elif n_avbits >= (n_pld + 2916 * (12 - r_x12[ul_mcs]) / 12):
+
+elif n_avbits <= 2592:
+    if n_avbits >= n_pld + 2916 * (12 - r) / 12:
+        l_ldpc = 1944
+        l_ldpc_code = 2
+    else:
+        l_ldpc = 1296
+        l_ldpc_code = 1
+
+else:
     l_ldpc = 1944
     l_ldpc_code = 2
+
 print(f"l_ldpc:{l_ldpc} ,l_ldpc_code:{l_ldpc_code}")
 n_short = max(0, n_cw * l_ldpc * r_x12[ul_mcs] / 12 - n_pld)
 n_punc = max(0, n_cw * l_ldpc - n_avbits - n_short)
@@ -247,7 +282,7 @@ reg_24a8 = (ul_stbc << 31) | (t_pe << 26) | (ul_bw << 24) | \
            (bss_color << 1)
 print(f'0xc30224a8=0x{reg_24a8:08x}')
 
-reg_24ac = (a_factor << 23) | (l_ldpc_code << 21) | (pe_disambiguity << 20) | \
+reg_24ac = ((a_factor%4) << 23) | (l_ldpc_code << 21) | (pe_disambiguity << 20) | \
            (ul_mcs << 16) | (0 << 15) | (3 << 13) | (ul_dcm << 12) | int(l_len)
 print(f'0xc30224ac=0x{reg_24ac:08x}')
 
