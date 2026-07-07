@@ -12,6 +12,7 @@
 - **智能重命名**：按照原始 ILA 文件名自动重命名提取的 CSV 文件
 - **列筛选**：提取后可只保留指定列
 - **列重命名**：提取后可按映射关系重命名列名
+- **位域有符号提取**：从指定列的 `[high:low]` 位域提取数据，转为有符号十进制
 - **批量处理**：支持同时处理多个 ILA 文件
 - **进度显示**：提供详细的处理进度和状态信息
 - **容错处理**：完善的错误处理和容错机制
@@ -22,7 +23,8 @@
 3. 解压缩 ILA 文件
 4. 提取 `waveform.csv` 文件
 5. 按照原始文件名重命名 CSV 文件
-6. 保存到指定输出目录
+6. 可选：保留列 → 位域有符号提取 → 列重命名
+7. 保存到指定输出目录
 
 ## 🛠️ 使用方法
 
@@ -62,6 +64,19 @@ KEEP_COLUMNS = None
 #    - [("old1","new1"), ("old2","new2")]
 #    - ["new1","new2"]  # 当KEEP_COLUMNS存在且等长时，按顺序映射
 RENAME_COLUMNS = None
+
+# 指定位域 → 有符号十进制（在 keep 之后、rename 之前对源列名操作）
+# True：列名含 [high:low] 时自动按该位宽做有符号转换（如 adc_q_ch0[11:0]）
+AUTO_SIGNED_BIT_FIELDS = True
+
+# 显式位域提取；每项 dict: column, bits(可选), output(可选)
+# bits 省略时从 column 名 [high:low] 解析；同一列可拆多个位域
+# SIGNED_BIT_FIELDS = [
+#     {"column": "adc_q_ch0[11:0]", "output": "adc_q_ch0"},
+#     {"column": "wide_bus", "bits": "[23:12]", "output": "wide_hi"},
+#     {"column": "wide_bus", "bits": "[11:0]", "output": "wide_lo"},
+# ]
+SIGNED_BIT_FIELDS = None
 ```
 
 ### 2. 命令行方式
@@ -89,6 +104,8 @@ python process_ila_files.py [输入目录] [选项]
 - `-d, --delete`：处理后删除原始ILA文件
 - `--keep_columns`：提取后仅保留指定列（逗号分隔）
 - `--rename_columns`：提取后重命名列（`old:new`，逗号分隔多个）
+- `--auto-signed`：列名含 `[high:low]` 时自动提取该位域并转为有符号十进制
+- `--signed-bit-fields`：显式位域提取，格式 `col:[hi:lo]:out` 或 `col::out`（位域从列名解析），逗号分隔多个
 
 #### 使用示例
 
@@ -125,6 +142,68 @@ RENAME_COLUMNS = ["dac_i_ch0", "dac_q_ch0"]
 上述配置会按顺序映射为：
 `dac_i_ch0[11:0] -> dac_i_ch0`，`dac_q_ch0[11:0] -> dac_q_ch0`
 
+#### 位域有符号提取
+
+ILA `waveform.csv` 中信号列常为 `信号名[high:low]`，单元格为无符号十六进制或十进制。脚本可提取指定位域并按二补码转为有符号十进制。
+
+**自动模式**（`AUTO_SIGNED_BIT_FIELDS = True` 或 `--auto-signed`）：
+- 对保留列中列名带 `[11:0]` 等后缀的列，按后缀位宽提取并转有符号数
+- 若同时配置了 `RENAME_COLUMNS`，输出列名使用重命名映射（源列在提取后删除）
+
+**显式模式**（`SIGNED_BIT_FIELDS` 或 `--signed-bit-fields`）：
+- 适用于列名无位域后缀的总线列（如 `wide_bus`），或需从同一列拆出多个子域
+- 同一源列可配置多条规则（如 `[23:12]` 与 `[11:0]`）；全部提取完成后再删除源列
+
+**自动 + 显式并用**：显式规则优先；未在 `SIGNED_BIT_FIELDS` 中声明的 `[high:low]` 列仍走自动模式。
+```python
+SIGNED_BIT_FIELDS = [
+    {"column": "adc_q_ch0[11:0]", "output": "adc_q_ch0"},
+    {"column": "wide_bus", "bits": "[23:12]", "output": "wide_hi"},
+    {"column": "wide_bus", "bits": "[11:0]", "output": "wide_lo"},
+]
+```
+
+命令行等价：
+```bash
+python process_ila_files.py "D:\path\to\ila_dir" \
+  --keep_columns "adc_q_ch0[11:0],adc_i_ch0[11:0]" \
+  --rename_columns "adc_q_ch0,adc_i_ch0" \
+  --auto-signed
+```
+
+或显式指定位域：
+```bash
+python process_ila_files.py "D:\path\to\ila_dir" \
+  --signed-bit-fields "wide_bus:[23:12]:hi,wide_bus:[11:0]:lo"
+```
+
+**数值解析规则**：
+- 含 `a-f` 或 `0x` 前缀 → 十六进制
+- 纯数字且长度 ≤ 位宽对应十六进制位数（如 12-bit 最多 3 位）→ 按十六进制解析（`800` → 0x800 → 有符号 −2048）
+- 否则按十进制解析
+
+**转换示例**（12-bit `[11:0]`）：
+| 单元格 | 有符号输出 |
+|--------|------------|
+| `fff`  | −1         |
+| `001`  | 1          |
+| `800`  | −2048      |
+
+**实现要点**：
+- 位域提取前以 `dtype=str` 读取 CSV，保留 `001800` 等前导零，避免被 pandas 当成十进制整数
+- 多段位域共享源列解析位宽（取各段 `high+1` 与列后缀位宽的最大值），保证宽总线十六进制字符串解析一致
+- 输出为有符号十进制整数列，源列（或已拆分的总线列）在生成新列后自动删除
+
+**典型 magtrk / ADC 配置**（脚本顶部默认值可参考）：
+```python
+KEEP_COLUMNS = [
+    "adc_q_ch0[11:0]", "adc_i_ch0[11:0]",
+    "rxgain_i_ch0[11:0]", "rxgain_q_ch0[11:0]",
+]
+RENAME_COLUMNS = ["adc_q_ch0", "adc_i_ch0", "rxgain_i_ch0", "rxgain_q_ch0"]
+AUTO_SIGNED_BIT_FIELDS = True
+```
+
 ## 📊 输出结果
 
 ### 处理过程输出
@@ -153,10 +232,11 @@ RENAME_COLUMNS = ["dac_i_ch0", "dac_q_ch0"]
 - Python 3.6 及以上版本
 - 需要安装的依赖包：
   - `tqdm`（用于进度显示）
+  - `pandas`（列筛选、位域提取）
 
 ### 安装依赖
 ```bash
-pip install tqdm
+pip install tqdm pandas
 ```
 
 ### 支持的文件格式
@@ -202,6 +282,15 @@ A: 检查原始 ILA 文件是否完整，或尝试重新导出 ILA 信号。
 **Q: 处理过程中出现权限错误**
 A: 确保脚本有足够的权限读取输入文件和写入输出目录。
 
+**Q: 位域转换结果不对（如 `800` 变成 800 而不是 −2048）**
+A: 确认已开启 `AUTO_SIGNED_BIT_FIELDS` 或 `--auto-signed`；检查列名是否含正确的 `[high:low]` 后缀。
+
+**Q: 宽总线拆成 hi/lo 后低位错误**
+A: 使用 `SIGNED_BIT_FIELDS` 显式声明所有子域；脚本会按最大位宽统一解析源单元格，勿只对单列配置部分位域。
+
+**Q: `001800` 被解析成十进制 1800**
+A: 位域模式已强制字符串读入；若仍异常，检查是否在脚本外手工用 `read_csv` 未指定 `dtype=str` 二次处理。
+
 ## 🔄 更新日志
 
 ### v1.0.0 (2024-04-30)
@@ -223,9 +312,17 @@ A: 确保脚本有足够的权限读取输入文件和写入输出目录。
 - 新增日志颜色输出：`[SUCCESS]` 绿色，`[ERROR]` 红色
 - 保持重定向场景兼容性（非TTY输出保持纯文本）
 
+### v1.3.0 (2026-07-07)
+- 新增指定位域有符号提取：`AUTO_SIGNED_BIT_FIELDS`、`SIGNED_BIT_FIELDS`
+- 支持 `--auto-signed`、`--signed-bit-fields` 命令行参数
+- ILA 单元格按位宽启发式解析十六进制（如 12-bit 的 `800` → −2048）
+- 处理顺序：保留列 → 位域提取 → 列重命名
+- 同一总线多段位域合并解析位宽；`dtype=str` 保留前导零
+- 自动与显式位域规则可并存（显式优先、其余列自动推断）
+
 ---
 
 **脚本作者**：WiFi Test Expert
 **创建时间**：2024-04-30
-**版本**：v1.0.0
+**版本**：v1.3.0
 **语言**：Python 3.x
