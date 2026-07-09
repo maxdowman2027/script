@@ -5,13 +5,19 @@
 - **single**：`sample_i` / `sample_q`（单路；Ch0/Ch1 子图相同）
 - **2ant**：`ch0_sample_q/i`、`ch1_sample_q/i`（双天线）
 - **auto**（默认）：按列名自动选择 single / 2ant
-- **上采样**：默认 x2，用于硬件 **2抽1** 后的 CSV；`--fs` 填原始 ADC 采样率
+- **2抽1 抽取**：`DECIMATE_FACTOR=2` / `--decimate 2`，对全速率数据 `[::2]` 后再绘图，`fs` 自动除以 2
+- **上采样**：`--upsample 2`，用于硬件 **已 2抽1** 的 CSV；`--fs` 填原始 ADC 采样率
 
 ## 运行
 ```bash
-python plot_psd_2462.py input_2ant_iq.csv --mode 2ant --bit-width 10 --fs 320e6
+# 全速率 CSV，软件 2抽1 后绘图（80MHz → 有效 40MHz）
+python plot_psd_2462.py input.csv --decimate 2 --no-upsample --fs 80e6
+
+# 硬件已 2抽1 的 CSV，上采样恢复点数
 python plot_psd_2462.py input_iq8.csv --mode 2ant --bit-width 8 --fs 80e6 --upsample 2
-python plot_psd_2462.py input_iq8.csv --no-upsample --fs 40e6
+
+python plot_psd_2462.py input_2ant_iq.csv --mode 2ant --bit-width 10 --fs 320e6
+python plot_psd_2462.py input_iq8.csv --no-upsample --no-decimate --fs 40e6
 ```
 
 ## 上游

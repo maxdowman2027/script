@@ -9,6 +9,10 @@ Supported input layouts:
 
 Large inputs: read only first MAX_ROWS rows. Output PDF defaults to
 <input_stem>_spec.pdf beside the input CSV.
+
+Optional rate processing (applied after normalize, before plot):
+  - DECIMATE_FACTOR / --decimate 2: 2抽1 (::2), effective fs /= 2
+  - UPSAMPLE_FACTOR / --upsample 2: restore points for hardware-decimated CSV
 """
 
 from __future__ import annotations
@@ -40,6 +44,7 @@ IQ_MODE = "2ant"  # auto | single | 2ant
 OUTPUT_SUFFIX = "_spec"
 UPSAMPLE_FACTOR = 2  # 输入为 2抽1 数据时上采样倍率；1 = 不上采样
 UPSAMPLE_METHOD = "poly"  # poly | linear | repeat
+DECIMATE_FACTOR = 1  # 对读取数据做抽取：2 = 2抽1（::2）；1 = 不抽取
 
 fs = 80e6
 fs_downsampled = fs
@@ -190,6 +195,20 @@ def upsample_iq(
     return i_up[:n], q_up[:n]
 
 
+def decimate_iq(
+    i_data: np.ndarray,
+    q_data: np.ndarray,
+    factor: int,
+) -> Tuple[np.ndarray, np.ndarray]:
+    """Decimate I/Q by keeping every Nth sample (factor=2 → 2抽1, [::2])."""
+    if factor <= 1:
+        return i_data, q_data
+    i_dec = i_data[::factor]
+    q_dec = q_data[::factor]
+    n = min(len(i_dec), len(q_dec))
+    return i_dec[:n], q_dec[:n]
+
+
 def plot_time_waveform(
     i_data,
     q_data,
@@ -315,6 +334,17 @@ def build_parser() -> argparse.ArgumentParser:
         action="store_true",
         help="Disable upsampling (same as --upsample 1)",
     )
+    p.add_argument(
+        "--decimate",
+        type=int,
+        default=DECIMATE_FACTOR,
+        help="Decimate input by keeping every Nth sample; 2 = 2抽1 (::2) (default from config)",
+    )
+    p.add_argument(
+        "--no-decimate",
+        action="store_true",
+        help="Disable decimation (same as --decimate 1)",
+    )
     return p
 
 
@@ -333,32 +363,52 @@ def main(argv=None):
     ch1_i = normalize_data(iq.ch1_i, bit_width=args.bit_width)
     ch1_q = normalize_data(iq.ch1_q, bit_width=args.bit_width)
 
+    fs_hz = args.fs
+    raw_n = len(ch0_i)
+
+    decimate_factor = 1 if args.no_decimate else max(1, int(args.decimate))
+    if decimate_factor > 1:
+        ch0_i, ch0_q = decimate_iq(ch0_i, ch0_q, decimate_factor)
+        ch1_i, ch1_q = decimate_iq(ch1_i, ch1_q, decimate_factor)
+        fs_hz = fs_hz / decimate_factor
+        print(
+            f"2抽1 抽取 x{decimate_factor}：{raw_n} -> {len(ch0_i)} 点/通道，"
+            f"有效采样率 {fs_hz / 1e6:.3f} MHz"
+        )
+
     upsample_factor = 1 if args.no_upsample else max(1, int(args.upsample))
     if upsample_factor > 1:
+        pre_up_n = len(ch0_i)
         ch0_i, ch0_q = upsample_iq(
             ch0_i, ch0_q, upsample_factor, method=args.upsample_method
         )
         ch1_i, ch1_q = upsample_iq(
             ch1_i, ch1_q, upsample_factor, method=args.upsample_method
         )
+        fs_hz = fs_hz * upsample_factor
         print(
             f"上采样 x{upsample_factor} ({args.upsample_method})："
-            f"{len(iq.ch0_i)} -> {len(ch0_i)} 点/通道"
+            f"{pre_up_n} -> {len(ch0_i)} 点/通道，"
+            f"有效采样率 {fs_hz / 1e6:.3f} MHz"
         )
 
     ch0_signal = ch0_i + 1j * ch0_q
     ch1_signal = ch1_i + 1j * ch1_q
 
-    fs_hz = args.fs
     fs_mhz = fs_hz / 1e6
     time_n = args.time_samples if args.time_samples > 0 else len(ch0_i)
     mode_label = "双天线" if iq.mode == "2ant" else "单路"
-    upsample_note = f", 上采样 x{upsample_factor}" if upsample_factor > 1 else ""
+    rate_notes = []
+    if decimate_factor > 1:
+        rate_notes.append(f"2抽1 x{decimate_factor}")
+    if upsample_factor > 1:
+        rate_notes.append(f"上采样 x{upsample_factor}")
+    rate_note = f", {', '.join(rate_notes)}" if rate_notes else ""
 
     with PdfPages(output_pdf) as pdf:
         fig_t = plt.figure(figsize=(15, 8), tight_layout=True)
         fig_t.suptitle(
-            f"I/Q 时域波形 ({mode_label}, 采样率: {fs_mhz:.0f} MHz{upsample_note}, "
+            f"I/Q 时域波形 ({mode_label}, 采样率: {fs_mhz:.0f} MHz{rate_note}, "
             f"显示前 {min(time_n, len(ch0_i))} 点)",
             fontsize=14,
             y=0.98,
@@ -385,7 +435,7 @@ def main(argv=None):
 
         fig_f = plt.figure(figsize=(15, 8), tight_layout=True)
         fig_f.suptitle(
-            f"I/Q 功率谱密度 ({mode_label}, 采样率: {fs_mhz:.0f} MHz{upsample_note})",
+            f"I/Q 功率谱密度 ({mode_label}, 采样率: {fs_mhz:.0f} MHz{rate_note})",
             fontsize=14,
             y=0.98,
         )

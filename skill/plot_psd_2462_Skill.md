@@ -14,7 +14,14 @@
 | **single** | `sample_i`, `sample_q` | `*_iq_merged.csv`, 48-bit merge |
 | **2ant** | `ch0_sample_q/i`, `ch1_sample_q/i` | `parse_60bit_40bit_2ant_iq.py`, `dump_64bit_to_iq8.py --mode 2ant` |
 
-支持 **2抽1 上采样**：输入为抽取后低速率样本时，默认 `--upsample 2` 恢复点数，`--fs` 设为 **原始 ADC 采样率**。
+支持两种与 **2抽1** 相关的速率处理（可独立或组合使用）：
+
+| 场景 | 配置 | 说明 |
+|------|------|------|
+| CSV 为 **全速率**，绘图前做软件 2抽1 | `--decimate 2 --no-upsample` | `I/Q[::2]`，有效 `fs = --fs / 2` |
+| CSV 为 **硬件已 2抽1** | `--upsample 2`（默认常开） | 插值恢复点数，`--fs` 填 **原始 ADC 速率** |
+
+处理顺序：**归一化 → 抽取（可选）→ 上采样（可选）→ 绘图**。
 
 ---
 
@@ -37,9 +44,10 @@
 | `TIME_PLOT_SAMPLES` | 65535 | 时域最多绘制点数；0 = 与读取行数相同 |
 | `IQ_BIT_WIDTH` | 8 | 归一化 `2**N`（8-bit→8，10-bit→10） |
 | `IQ_MODE` | `2ant` | `auto` / `single` / `2ant` |
-| `UPSAMPLE_FACTOR` | 2 | 2抽1 数据默认上采样倍率；1 = 关闭 |
+| `DECIMATE_FACTOR` | 1 | 2 = 2抽1（`[::2]`）；1 = 不抽取 |
+| `UPSAMPLE_FACTOR` | 2 | 对已抽取数据上采样倍率；1 = 关闭 |
 | `UPSAMPLE_METHOD` | `poly` | `poly` / `linear` / `repeat` |
-| `fs` | 80e6 | 上采样后用于绘图的采样率 Hz |
+| `fs` | 80e6 | **抽取前**原始采样率 Hz；抽取/上采样后自动调整有效速率 |
 
 ---
 
@@ -48,14 +56,17 @@
 ```bash
 python plot_psd_2462.py
 
-# 10-bit 双天线（80M 常用 fs=320MHz）
+# 全速率数据，软件 2抽1 后绘图（80MHz → 40MHz）
+python plot_psd_2462.py data.csv --decimate 2 --no-upsample --fs 80e6 --bit-width 12
+
+# 10-bit 双天线（320MHz 原始速率）
 python plot_psd_2462.py data_2ant_iq.csv --mode 2ant --bit-width 10 --fs 320e6
 
-# 8-bit 双天线 + 2抽1 上采样
+# 8-bit 双天线 + 硬件 2抽1 CSV 上采样
 python plot_psd_2462.py data_iq8.csv --mode 2ant --bit-width 8 --fs 80e6 --upsample 2
 
-# 未抽取数据，关闭上采样
-python plot_psd_2462.py data.csv --no-upsample --fs 80e6
+# 已是抽取后速率的数据，不做抽取/上采样
+python plot_psd_2462.py data.csv --no-upsample --no-decimate --fs 40e6
 
 python plot_psd_2462.py data.csv -o out.pdf --max-rows 131072 --time-samples 8192
 ```
@@ -68,18 +79,29 @@ python plot_psd_2462.py data.csv -o out.pdf --max-rows 131072 --time-samples 819
 | `--max-rows` | 读取行数上限 |
 | `--time-samples` | 时域显示点数 |
 | `--bit-width` | ADC 位宽（归一化除数） |
-| `--fs` | 采样率 Hz（上采样后的等效速率） |
-| `--upsample` | 上采样倍率（默认 2） |
+| `--fs` | 原始采样率 Hz（抽取前）；有效速率随抽取/上采样自动更新 |
+| `--decimate` | 抽取倍率；`2` = 2抽1（`[::2]`） |
+| `--no-decimate` | 关闭抽取（等同 `--decimate 1`） |
+| `--upsample` | 上采样倍率 |
 | `--upsample-method` | `poly`（默认）/ `linear` / `repeat` |
 | `--no-upsample` | 关闭上采样 |
 
-### 2抽1 说明
+### 2抽1 抽取（软件）
+
+对 **全速率** CSV 在绘图前做 2:1 抽取：
+
+- 对 I/Q 各取 `data[::2]`，样点数减半
+- `--fs` 填 **抽取前** ADC 速率（如 80e6）；脚本自动用 `fs/2` 画时域与 PSD
+- PDF 标题标注 `2抽1 x2`
+- 与 `--upsample` 互斥使用（一般二选一）
+
+### 2抽1 上采样（硬件已抽取）
 
 硬件对 IQ 做 **2:1 抽取** 后写入 CSV 时：
 
 - CSV 内样本间隔对应 **Fs/2**
-- 绘图前默认 **×2 上采样** 恢复时间轴点数
-- `--fs` 仍填 **完整 ADC 速率**（如 80M→80e6 或 320e6，依芯片配置）
+- 绘图前可用 **×2 上采样** 恢复时间轴点数
+- `--fs` 仍填 **完整 ADC 速率**（如 80e6 或 320e6）
 - PDF 标题会标注 `上采样 x2`
 
 ---
@@ -118,4 +140,4 @@ parse_48bit_dump_iq → *_iq_merged.csv ─────────────�
 ## 元数据
 
 - **脚本**: `plot_psd_2462.py`
-- **标签**: psd, welch, iq, 2ant, upsample, decimation, time_domain, ch0, ch1
+- **标签**: psd, welch, iq, 2ant, upsample, decimate, 2抽1, time_domain, ch0, ch1
