@@ -44,10 +44,26 @@
 | `TIME_PLOT_SAMPLES` | 65535 | 时域最多绘制点数；0 = 与读取行数相同 |
 | `IQ_BIT_WIDTH` | 8 | 归一化 `2**N`（8-bit→8，10-bit→10） |
 | `IQ_MODE` | `2ant` | `auto` / `single` / `2ant` |
-| `DECIMATE_FACTOR` | 1 | 2 = 2抽1（`[::2]`）；1 = 不抽取 |
+| `DECIMATE_FACTOR` | 1 | 2 = 2抽1（`[::2]`）；1 = 不抽取（默认，同 `psd_plot.py`） |
 | `UPSAMPLE_FACTOR` | 2 | 对已抽取数据上采样倍率；1 = 关闭 |
 | `UPSAMPLE_METHOD` | `poly` | `poly` / `linear` / `repeat` |
 | `fs` | 80e6 | **抽取前**原始采样率 Hz；抽取/上采样后自动调整有效速率 |
+| `PSD_NFFT_STEP_MHZ` | 0.1 | Welch `NFFT = Fs_MHz / step`（与 `psd_plot.py` 一致） |
+
+---
+
+## Welch PSD（与 psd_plot.py 对齐）
+
+`plot_psd_2462.py` 通过 `compute_welch_psd_mhz()` 复用 `psd_plot.py` 约定：
+
+| 项 | 约定 |
+|----|------|
+| `welch` 的 fs | **MHz 数值**（CLI `--fs 160e6` → 160） |
+| NFFT | `int(Fs_MHz / 0.1)`，上限为样点数 |
+| 窗 | `np.hanning(NFFT)` |
+| overlap | 50% |
+| 谱类型 | `return_onesided=False`（双边） |
+| 纵轴 | `20*log10(abs(P))` |
 
 ---
 
@@ -55,6 +71,9 @@
 
 ```bash
 python plot_psd_2462.py
+
+# 160MHz ADC 全速率
+python plot_psd_2462.py data.csv --no-decimate --no-upsample --fs 160e6 --bit-width 12
 
 # 全速率数据，软件 2抽1 后绘图（80MHz → 40MHz）
 python plot_psd_2462.py data.csv --decimate 2 --no-upsample --fs 80e6 --bit-width 12
@@ -104,6 +123,32 @@ python plot_psd_2462.py data.csv -o out.pdf --max-rows 131072 --time-samples 819
 - `--fs` 仍填 **完整 ADC 速率**（如 80e6 或 320e6）
 - PDF 标题会标注 `上采样 x2`
 
+### 频谱只有一半宽度（常见误配）
+
+**现象**：20MHz 信号/频轴在图上只剩约 10MHz（或 Nyquist 从 ±40MHz 变成 ±20MHz）。
+
+| 原因 | 正确做法 |
+|------|----------|
+| 默认/误开 `--decimate 2`（数据已是全速率） | `--no-decimate` |
+| `--fs 160e6` 但 CSV 实际为 80MHz | 改为 `--fs 80e6` |
+| CSV 已是硬件 2抽1，又软件 `decimate 2` | `--no-decimate`；`--fs` 填原始 ADC 速率 |
+
+**20MHz 带宽 @ 80MHz ADC 推荐**：
+
+```bash
+python plot_psd_2462.py waveform_signed10.csv --no-decimate --no-upsample --fs 80e6 --bit-width 10
+```
+
+频谱横轴应为 **±40MHz**（Nyquist）；20MHz 信道应占预期带宽比例。
+
+**160MHz ADC 全速率**：
+
+```bash
+python plot_psd_2462.py data.csv --no-decimate --fs 160e6 --bit-width 12
+```
+
+频谱横轴 **±80MHz**。
+
 ---
 
 ## PDF 内容
@@ -115,7 +160,11 @@ python plot_psd_2462.py data.csv -o out.pdf --max-rows 131072 --time-samples 819
 
 ### 页 2 — PSD
 
-- Welch，`NFFT ≤ 16384`，Hanning，50% overlap
+- 与 **`psd_plot.py` 同款 Welch 逻辑**：
+  - `Fs` 以 **MHz** 传入 `welch`（`--fs 160e6` → 160 MHz）
+  - `NFFT = Fs_MHz / 0.1`（80MHz → 800，160MHz → 1600）
+  - Hanning 窗、50% overlap、`return_onesided=False`
+  - 显示：`20*log10(abs(P))`（与 `psd_plot.py` 一致，非 `10*log10` PSD）
 - 左 Ch0 / 右 Ch1 独立频谱
 
 ---
@@ -134,6 +183,18 @@ parse_48bit_dump_iq → *_iq_merged.csv ─────────────�
 ## 依赖
 
 `pandas`、`numpy`、`matplotlib`、`scipy`
+
+---
+
+## 更新日志
+
+### v1.4.0 (2026-07-13)
+- Welch PSD 与 `psd_plot.py` 对齐：`compute_welch_psd_mhz()`、Fs MHz、`NFFT=Fs/0.1`、`20*log10`
+- 修复频谱带宽显示减半：默认不抽取；补充 `--fs`/decimate 误配说明
+- 日志打印有效采样率与 Nyquist；抽取/上采样告警增强
+
+### v1.3.0 (2026-07-09)
+- 新增可配置 2抽1 抽取（`--decimate` / `DECIMATE_FACTOR`）
 
 ---
 

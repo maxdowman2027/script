@@ -44,10 +44,10 @@ IQ_MODE = "2ant"  # auto | single | 2ant
 OUTPUT_SUFFIX = "_spec"
 UPSAMPLE_FACTOR = 2  # 输入为 2抽1 数据时上采样倍率；1 = 不上采样
 UPSAMPLE_METHOD = "poly"  # poly | linear | repeat
-DECIMATE_FACTOR = 1  # 对读取数据做抽取：2 = 2抽1（::2）；1 = 不抽取
+DECIMATE_FACTOR = 1  # 2 = 2抽1（::2）；1 = 不抽取（默认与 psd_plot.py 一致）
 
-fs = 80e6
-fs_downsampled = fs
+fs = 80e6  # 输入 CSV 采样率 Hz（抽取/上采样前）；psd_plot.py 中 Fs=80 表示 80MHz
+PSD_NFFT_STEP_MHZ = 0.1  # NFFT = Fs_MHz / PSD_NFFT_STEP_MHZ，与 psd_plot.py 一致
 
 IQMode = str  # "auto" | "single" | "2ant"
 SINGLE_IQ_COLS = ("sample_i", "sample_q")
@@ -233,37 +233,54 @@ def plot_time_waveform(
     return ax
 
 
-def plot_psd(data_complex, fs_mhz: float, title: str, ax, color: str):
-    """绘制功率谱密度 (PSD) 图。"""
+def compute_welch_psd_mhz(
+    data_complex: np.ndarray,
+    fs_hz: float,
+    *,
+    nfft_step_mhz: float = PSD_NFFT_STEP_MHZ,
+) -> Tuple[np.ndarray, np.ndarray]:
+    """
+    Welch PSD aligned with psd_plot.py:
+      Fs in MHz, NFFT = Fs / 0.1, Hanning, 50% overlap, two-sided.
+    """
+    fs_mhz = fs_hz / 1e6
     n = len(data_complex)
-    nfft = min(16384, n)
+    nfft = int(fs_mhz / nfft_step_mhz)
+    nfft = min(max(nfft, 8), n)
     if nfft < 8:
-        ax.set_title(f"{title} (too few samples)")
-        return ax
+        raise ValueError(f"too few samples for PSD: n={n}, nfft={nfft}")
 
     overlap = nfft // 2
     win = np.hanning(nfft)
-
-    freq_hz, pxx = welch(
+    freq_mhz, pxx = welch(
         data_complex,
-        fs_mhz * 1e6,
+        fs_mhz,
         win,
         noverlap=overlap,
         nfft=nfft,
         return_onesided=False,
         detrend=False,
     )
+    return np.fft.fftshift(freq_mhz), np.fft.fftshift(pxx)
 
-    freq_mhz = np.fft.fftshift(freq_hz) / 1e6
-    psd = np.fft.fftshift(pxx)
-    psd_db = 10 * np.log10(np.maximum(np.abs(psd), 1e-30))
+
+def plot_psd(data_complex, fs_hz: float, title: str, ax, color: str):
+    """绘制功率谱密度 (PSD) 图（逻辑与 psd_plot.py 一致）。"""
+    try:
+        freq_mhz, pxx = compute_welch_psd_mhz(data_complex, fs_hz)
+    except ValueError:
+        ax.set_title(f"{title} (too few samples)")
+        return ax
+
+    psd_db = 20 * np.log10(np.maximum(np.abs(pxx), 1e-30))
 
     ax.plot(freq_mhz, psd_db, color=color, linewidth=0.8)
     ax.set_title(title, fontsize=10)
     ax.set_xlabel("频率 (MHz)", fontsize=8)
     ax.set_ylabel("功率密度 (dB)", fontsize=8)
     ax.grid(True, which="both", axis="both", alpha=0.3)
-    ax.set_xlim([-fs_mhz / 2, fs_mhz / 2])
+    nyquist_mhz = fs_hz / 2e6
+    ax.set_xlim([-nyquist_mhz, nyquist_mhz])
     ax.set_ylim([np.min(psd_db) - 10, np.max(psd_db) + 10])
     return ax
 
@@ -315,7 +332,7 @@ def build_parser() -> argparse.ArgumentParser:
         "--fs",
         type=float,
         default=fs,
-        help="Sample rate Hz after upsampling (original ADC rate, default from config)",
+        help="Input CSV sample rate Hz (before --decimate/--upsample); effective fs auto-adjusted",
     )
     p.add_argument(
         "--upsample",
@@ -365,6 +382,7 @@ def main(argv=None):
 
     fs_hz = args.fs
     raw_n = len(ch0_i)
+    input_fs_hz = fs_hz
 
     decimate_factor = 1 if args.no_decimate else max(1, int(args.decimate))
     if decimate_factor > 1:
@@ -373,7 +391,12 @@ def main(argv=None):
         fs_hz = fs_hz / decimate_factor
         print(
             f"2抽1 抽取 x{decimate_factor}：{raw_n} -> {len(ch0_i)} 点/通道，"
-            f"有效采样率 {fs_hz / 1e6:.3f} MHz"
+            f"有效采样率 {fs_hz / 1e6:.3f} MHz（Nyquist ±{fs_hz / 2e6:.3f} MHz）"
+        )
+        print(
+            "[WARNING] 软件 2抽1 会使 Nyquist 减半；"
+            "仅当 CSV 采样率为输入 --fs 的全速率时才可抽取。"
+            "若数据已是硬件 2抽1，请 --no-decimate（必要时 --upsample 2）。"
         )
 
     upsample_factor = 1 if args.no_upsample else max(1, int(args.upsample))
@@ -389,7 +412,18 @@ def main(argv=None):
         print(
             f"上采样 x{upsample_factor} ({args.upsample_method})："
             f"{pre_up_n} -> {len(ch0_i)} 点/通道，"
-            f"有效采样率 {fs_hz / 1e6:.3f} MHz"
+            f"有效采样率 {fs_hz / 1e6:.3f} MHz（Nyquist ±{fs_hz / 2e6:.3f} MHz）"
+        )
+
+    if decimate_factor > 1 and upsample_factor > 1:
+        print(
+            "[WARNING] 同时启用抽取与上采样；"
+            f"输入 fs={input_fs_hz/1e6:.3f} MHz，有效 fs={fs_hz/1e6:.3f} MHz。"
+        )
+    elif decimate_factor == 1 and upsample_factor == 1:
+        print(
+            f"绘图采样率 {fs_hz / 1e6:.3f} MHz（Nyquist ±{fs_hz / 2e6:.3f} MHz）；"
+            "全速率 20MHz 带宽信号请确认 --fs 与 CSV 实际采样率一致。"
         )
 
     ch0_signal = ch0_i + 1j * ch0_q
@@ -440,8 +474,8 @@ def main(argv=None):
             y=0.98,
         )
         gs_f = gridspec.GridSpec(1, 2, figure=fig_f)
-        plot_psd(ch0_signal, fs_mhz, "Ch0 - I/Q PSD", fig_f.add_subplot(gs_f[0, 0]), "blue")
-        plot_psd(ch1_signal, fs_mhz, "Ch1 - I/Q PSD", fig_f.add_subplot(gs_f[0, 1]), "orange")
+        plot_psd(ch0_signal, fs_hz, "Ch0 - I/Q PSD", fig_f.add_subplot(gs_f[0, 0]), "blue")
+        plot_psd(ch1_signal, fs_hz, "Ch1 - I/Q PSD", fig_f.add_subplot(gs_f[0, 1]), "orange")
         pdf.savefig(fig_f)
         plt.close(fig_f)
 
