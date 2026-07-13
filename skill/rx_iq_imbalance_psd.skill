@@ -1,34 +1,37 @@
 # rx_iq_imbalance_psd.py
 
 ## 功能
-- 从 dump I/Q CSV 计算 **RX IQ 抑制**（镜像抑制功率差，dB）
-- 算法对齐 Xian `myplot.psd_plot_rx_cal`：Welch PSD → 主音/镜像音 bin → `main - mirror`
-- **测试参数在脚本顶部配置**：`BW_MHZ` / `CH_FREQ_MHZ` / `FREQCW_MHZ`（不从文件名解析）
-- 支持 **single**（`sample_i/q`）与 **2ant**（`ch0/ch1_sample_i/q`）
-- 输出汇总 CSV + 可选每文件 PSD 标注 PDF（`*_iq_cal.pdf`）
+- **1:1** 移植 Xian `myplot.psd_plot_rx_cal`
+- 差异：bw/chan/freqcw 用配置变量；I/Q 从指定 CSV 读取（含 adc_dump `/2**11`）
 
-## 配置区（必改）
+## 配置
 ```python
 INPUT_CSV = r"D:\path\to\dump.csv"
-BW_MHZ = 20          # phymd 带宽
-CH_FREQ_MHZ = 5180   # 信道中心 MHz
-FREQCW_MHZ = 5140    # CW 单音 MHz
+BW_MHZ = 20
+CH_FREQ_MHZ = 2462
+FREQCW_MHZ = 2467
+ADC_BIT_WIDTH = 12   # 12-bit 有符号 ILA [11:0]
+SAMPLE_FREQ_MHZ = 160  # 名义 ADC 采样率；Welch 用 有效 Fs = 本值 / DECIMATE_FACTOR
+DECIMATE_FACTOR = 2    # 2 抽 1（数据重复时 [::2]）
 ```
 
 ## 运行
 ```bash
-# 直接跑（用配置区 INPUT_CSV + BW/CHAN/FREQCW）
 python rx_iq_imbalance_psd.py
-
-# 批量目录（同一组测试参数）
-python rx_iq_imbalance_psd.py "D:\path\to\dumps" -g "*.csv"
-
-# CLI 覆盖配置
-python rx_iq_imbalance_psd.py data.csv --bw 40 --chan 5210 --freqcw 5250 --bit-width 12
+python rx_iq_imbalance_psd.py data.csv --bw 20 --chan 2462 --freqcw 2467
 ```
 
-## 输出列
-`ori_tone_pwr_db`, `mir_tone_pwr_db`, `iq_suppression_db`, `sig_pwr_db`, 主/镜像频率与 bin 索引
+## 输出
+- `<stem>.pdf`：PSD + 主/镜像竖线；标题与页脚标注 **main pwr / mirror pwr / Δ(main−mirror)**
+- `<stem>_iq_cal_result.csv`
+- 返回值：`[ori_tone_pwr, mir_tone_pwr, sig_pwr]`
+
+## API
+```python
+from rx_iq_imbalance_psd import load_real_image_from_csv, psd_plot_rx_cal, run_from_csv
+real, imag = load_real_image_from_csv("data.csv")
+out = psd_plot_rx_cal(real, imag, 20, 2462, 2467, "out_stem")
+```
 
 ## 文档
 `skill/rx_iq_imbalance_psd_Skill.md`
