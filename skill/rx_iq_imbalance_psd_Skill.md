@@ -73,11 +73,25 @@ CSV (signed I/Q columns)
 
 ### `psd_plot_rx_cal(...)` / `run_from_csv(...)` / `load_real_image_from_csv(...)`
 
-`load_real_image_from_csv` / `run_from_csv` 支持 `col_i` / `col_q`（及 2ant 列名）与 `norm_mode`（`adc`|`peak`）。
+`load_real_image_from_csv` / `run_from_csv` / `psd_plot_rx_cal` 支持 `col_i` / `col_q`（及 2ant 列名）与 `norm_mode`（`adc`|`peak`）。
 
 ### `collect_csv_inputs(input_path, recursive=False)`
 
 将文件或目录解析为待处理 CSV 列表。
+
+---
+
+## 归一化（NORM_MODE / `--norm-mode`）
+
+| 模式 | 时域 | 频谱图 | `sig_pwr` |
+|------|------|--------|-----------|
+| `adc` | I/Q ÷ `2**(ADC_BIT_WIDTH-1)` | Welch 原始 `10*log10(P)`（与 myplot 一致） | 按 ADC 满幅折算（同 myplot） |
+| `peak` | 在 **decimate + 2^n 截断之后**，I/Q ÷ `max(|I+jQ|)` | `PSD_dB − max(PSD_dB)`，峰值 = **0 dB** | 时域 RMS 相对峰值 1.0：`20*log10(rms)` |
+
+要点：
+- `peak` 的除数是复数幅度最大值，不是 `max(|I|,|Q|)`。
+- 归一化必须在截断后的样点上做，保证与进 Welch / 画图的数据一致。
+- IQ 镜像抑制度 **Δ(main−mirror)** 与纵轴绝对参考无关；`peak` 主要方便对比不同幅度 dump。
 
 ---
 
