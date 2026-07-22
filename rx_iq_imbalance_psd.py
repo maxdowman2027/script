@@ -7,6 +7,7 @@ Diff vs original myplot.py:
   - bw / ch_freq / freqcw from config (not parsed from fname regex)
   - real_data / image_data loaded from specified CSV (12-bit signed → float normalize)
   - CLI input may be a single CSV or a directory of CSVs (batch)
+  - I/Q column names configurable via COL_I/COL_Q (or --col-i/--col-q)
 
 12-bit signed input:
   - normalize: code / 2**(ADC_BIT_WIDTH-1)  (12-bit → /2048)
@@ -29,12 +30,10 @@ import pandas as pd
 from matplotlib.backends.backend_pdf import PdfPages
 from scipy.signal import welch
 
-from plot_psd_2462 import read_iq_data
-
 # =============================================================================
 # Config（替代 myplot 从 fname 正则提取的 bw / chan / freqcw）
 # =============================================================================
-INPUT_CSV = r"D:\test_data\rls4\260722_dpd\tone\dump_chan1_FPGA752_0x_20260722_144652adcdata.csv"
+INPUT_CSV = r"D:\chip_test\dev\xian_test\Xian-Esp-Test-Scripts\rftest_data\dump_adc_0x200_raw\FPGA752_0x_20260722\result"
 OUTPUT_PDF = ""  # 空 → <INPUT_CSV stem>.pdf（同 myplot: fname + '.pdf'）
 
 BW_MHZ = 20  # phymd
@@ -54,6 +53,15 @@ USE_CH = 0
 
 # 输入为 12-bit 有符号 ADC 码（如 ILA [11:0]）；归一化除数 2**(N-1)=2048
 ADC_BIT_WIDTH = 12
+
+# I/Q 列名（可按 CSV 实际表头改；匹配时忽略大小写与首尾空格）
+COL_I = "sample_i"
+COL_Q = "sample_q"
+# 2ant 布局列名（mode=2ant / auto 检测到双天线时使用）
+COL_CH0_I = "ch0_sample_i"
+COL_CH0_Q = "ch0_sample_q"
+COL_CH1_I = "ch1_sample_i"
+COL_CH1_Q = "ch1_sample_q"
 
 
 def signed_adc_scale(adc_bit_width: int = ADC_BIT_WIDTH) -> int:
@@ -108,6 +116,19 @@ def effective_sample_freq_mhz(
     return fs
 
 
+def _col_map(columns: Sequence[str]) -> dict:
+    return {str(c).strip().lower(): str(c).strip() for c in columns}
+
+
+def _resolve_col(lower: dict, name: str, *, kind: str) -> str:
+    key = str(name).strip().lower()
+    if key not in lower:
+        raise ValueError(
+            f"missing {kind} column {name!r}; available={sorted(lower.values())}"
+        )
+    return lower[key]
+
+
 def load_real_image_from_csv(
     csv_file: Union[str, Path],
     *,
@@ -116,25 +137,80 @@ def load_real_image_from_csv(
     use_ch: int = USE_CH,
     adc_bit_width: int = ADC_BIT_WIDTH,
     decimate_factor: int = DECIMATE_FACTOR,
+    col_i: str = COL_I,
+    col_q: str = COL_Q,
+    col_ch0_i: str = COL_CH0_I,
+    col_ch0_q: str = COL_CH0_Q,
+    col_ch1_i: str = COL_CH1_I,
+    col_ch1_q: str = COL_CH1_Q,
 ) -> Tuple[np.ndarray, np.ndarray]:
     """
-    Read 12-bit signed I/Q CSV and normalize for psd_plot_rx_cal:
-      real_data = sample_i / 2**(ADC_BIT_WIDTH-1)
-      image_data = sample_q / 2**(ADC_BIT_WIDTH-1)
+    Read signed I/Q CSV and normalize for psd_plot_rx_cal:
+      real_data = I / 2**(ADC_BIT_WIDTH-1)
+      image_data = Q / 2**(ADC_BIT_WIDTH-1)
       optional 2:1 decimate [::2] when data has duplicates
       truncate to 2**floor(log2(N)) samples (adc_dump ll = 2**int(log2(data_ll)))
-    """
-    iq = read_iq_data(str(csv_file), max_rows=max_rows if max_rows > 0 else 0, mode=mode)
-    if iq is None:
-        raise ValueError(f"failed to read IQ from {csv_file}")
 
-    if iq.mode == "2ant":
-        if use_ch == 1:
-            i_raw, q_raw = iq.ch1_i, iq.ch1_q
+    Column names are configurable (COL_I / COL_Q or CLI --col-i / --col-q).
+    """
+    csv_path = Path(csv_file)
+    head = pd.read_csv(csv_path, nrows=0)
+    lower = _col_map(list(head.columns))
+
+    # Prefer explicit single-stream columns when present / mode=single
+    has_single = (
+        str(col_i).strip().lower() in lower and str(col_q).strip().lower() in lower
+    )
+    has_2ant = all(
+        str(n).strip().lower() in lower
+        for n in (col_ch0_i, col_ch0_q, col_ch1_i, col_ch1_q)
+    )
+
+    layout = str(mode).lower()
+    if layout == "auto":
+        if has_2ant and not has_single:
+            layout = "2ant"
+        elif has_single:
+            layout = "single"
+        elif has_2ant:
+            layout = "2ant"
         else:
-            i_raw, q_raw = iq.ch0_i, iq.ch0_q
+            raise ValueError(
+                f"cannot find I/Q columns in {csv_path.name}: "
+                f"need {col_i!r}/{col_q!r} or "
+                f"{col_ch0_i!r}/{col_ch0_q!r}/{col_ch1_i!r}/{col_ch1_q!r}; "
+                f"available={sorted(lower.values())}"
+            )
+
+    if layout == "single":
+        ci = _resolve_col(lower, col_i, kind="I")
+        cq = _resolve_col(lower, col_q, kind="Q")
+        usecols = [ci, cq]
+        read_kwargs = {"usecols": usecols}
+        if max_rows and max_rows > 0:
+            read_kwargs["nrows"] = int(max_rows)
+        df = pd.read_csv(csv_path, **read_kwargs)
+        i_raw = df[ci].to_numpy()
+        q_raw = df[cq].to_numpy()
+        print(f"[COLS] single I={ci!r} Q={cq!r} N={len(i_raw)}")
+    elif layout == "2ant":
+        c0i = _resolve_col(lower, col_ch0_i, kind="ch0_i")
+        c0q = _resolve_col(lower, col_ch0_q, kind="ch0_q")
+        c1i = _resolve_col(lower, col_ch1_i, kind="ch1_i")
+        c1q = _resolve_col(lower, col_ch1_q, kind="ch1_q")
+        usecols = [c0i, c0q, c1i, c1q]
+        read_kwargs = {"usecols": usecols}
+        if max_rows and max_rows > 0:
+            read_kwargs["nrows"] = int(max_rows)
+        df = pd.read_csv(csv_path, **read_kwargs)
+        if use_ch == 1:
+            i_raw, q_raw = df[c1i].to_numpy(), df[c1q].to_numpy()
+            print(f"[COLS] 2ant ch1 I={c1i!r} Q={c1q!r} N={len(i_raw)}")
+        else:
+            i_raw, q_raw = df[c0i].to_numpy(), df[c0q].to_numpy()
+            print(f"[COLS] 2ant ch0 I={c0i!r} Q={c0q!r} N={len(i_raw)}")
     else:
-        i_raw, q_raw = iq.ch0_i, iq.ch0_q
+        raise ValueError(f"unsupported mode={mode!r}")
 
     divisor = float(signed_adc_scale(adc_bit_width))
     real_data = i_raw.astype(float) / divisor
@@ -328,8 +404,14 @@ def run_from_csv(
     adc_bit_width: int = ADC_BIT_WIDTH,
     sample_freq_mhz: float = SAMPLE_FREQ_MHZ,
     decimate_factor: int = DECIMATE_FACTOR,
+    col_i: str = COL_I,
+    col_q: str = COL_Q,
+    col_ch0_i: str = COL_CH0_I,
+    col_ch0_q: str = COL_CH0_Q,
+    col_ch1_i: str = COL_CH1_I,
+    col_ch1_q: str = COL_CH1_Q,
 ) -> List[float]:
-    """Load 12-bit signed CSV → normalize → decimate → psd_plot_rx_cal."""
+    """Load signed CSV → normalize → decimate → psd_plot_rx_cal."""
     csv_path = Path(csv_file)
     if not fname:
         fname = str(csv_path.with_suffix(""))
@@ -341,6 +423,12 @@ def run_from_csv(
         use_ch=use_ch,
         adc_bit_width=adc_bit_width,
         decimate_factor=decimate_factor,
+        col_i=col_i,
+        col_q=col_q,
+        col_ch0_i=col_ch0_i,
+        col_ch0_q=col_ch0_q,
+        col_ch1_i=col_ch1_i,
+        col_ch1_q=col_ch1_q,
     )
     return psd_plot_rx_cal(
         real_data,
@@ -403,6 +491,12 @@ def process_one_csv(
         adc_bit_width=args.bit_width,
         sample_freq_mhz=args.sample_freq_mhz,
         decimate_factor=decimate,
+        col_i=args.col_i,
+        col_q=args.col_q,
+        col_ch0_i=args.col_ch0_i,
+        col_ch0_q=args.col_ch0_q,
+        col_ch1_i=args.col_ch1_i,
+        col_ch1_q=args.col_ch1_q,
     )
     ori_tone_pwr, mir_tone_pwr, sig_pwr = result
     fs_used = effective_sample_freq_mhz(args.bw, args.sample_freq_mhz, decimate)
@@ -465,6 +559,20 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("--max-rows", type=int, default=MAX_ROWS)
     p.add_argument("--mode", choices=("auto", "single", "2ant"), default=IQ_MODE)
     p.add_argument("--ch", type=int, default=USE_CH, choices=(0, 1))
+    p.add_argument(
+        "--col-i",
+        default=COL_I,
+        help=f"I column name for single-stream CSV (default: {COL_I})",
+    )
+    p.add_argument(
+        "--col-q",
+        default=COL_Q,
+        help=f"Q column name for single-stream CSV (default: {COL_Q})",
+    )
+    p.add_argument("--col-ch0-i", default=COL_CH0_I, help="2ant ch0 I column")
+    p.add_argument("--col-ch0-q", default=COL_CH0_Q, help="2ant ch0 Q column")
+    p.add_argument("--col-ch1-i", default=COL_CH1_I, help="2ant ch1 I column")
+    p.add_argument("--col-ch1-q", default=COL_CH1_Q, help="2ant ch1 Q column")
     p.add_argument(
         "--sample-freq-mhz",
         type=float,

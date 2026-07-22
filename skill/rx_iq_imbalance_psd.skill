@@ -3,7 +3,8 @@
 ## 功能
 - **1:1** 移植 Xian `myplot.psd_plot_rx_cal`
 - 差异：bw/chan/freqcw 用配置变量；I/Q 从指定 CSV 读取（含 adc_dump `/2**11`）
-- **目录批量**：`input` 可为目录，自动检索 `*.csv` 逐个出 PSD（跳过 `*_iq_cal_result.csv`）
+- **目录批量**：`input` 可为目录，自动检索 `*.csv`
+- **列名可配**：`COL_I`/`COL_Q` 或 `--col-i`/`--col-q`（2ant 另有 `COL_CH*` / `--col-ch*`）
 
 ## 配置
 ```python
@@ -11,31 +12,37 @@ INPUT_CSV = r"D:\path\to\dump.csv"   # 或目录
 BW_MHZ = 20
 CH_FREQ_MHZ = 2462
 FREQCW_MHZ = 2467
-ADC_BIT_WIDTH = 12   # 12-bit 有符号 ILA [11:0]
-SAMPLE_FREQ_MHZ = 160  # 名义 ADC 采样率；Welch 用 有效 Fs = 本值 / DECIMATE_FACTOR
-DECIMATE_FACTOR = 2    # 2 抽 1（数据重复时 [::2]）
+ADC_BIT_WIDTH = 12
+SAMPLE_FREQ_MHZ = 160
+DECIMATE_FACTOR = 2
+COL_I = "sample_i"       # 改成实际 I 列名，如 "feedback_i"
+COL_Q = "sample_q"       # 改成实际 Q 列名，如 "feedback_q"
 ```
 
-## 运行
+## 运行示例
 ```bash
-python rx_iq_imbalance_psd.py
+# 默认 sample_i / sample_q
 python rx_iq_imbalance_psd.py data.csv --bw 20 --chan 2462 --freqcw 2467
-python rx_iq_imbalance_psd.py "D:\path\to\dump_dir" --bw 20 --chan 2412 --freqcw 2417
+
+# 指定列名
+python rx_iq_imbalance_psd.py data.csv --col-i feedback_i --col-q feedback_q --bw 20 --chan 2412 --freqcw 2417
+python rx_iq_imbalance_psd.py data.csv --col-i ref_i --col-q ref_q --sample-freq-mhz 80
+
+# 目录批量
+python rx_iq_imbalance_psd.py "D:\path\to\dump_dir" --col-i sample_i --col-q sample_q --bw 20 --chan 2412 --freqcw 2417
 python rx_iq_imbalance_psd.py "D:\path\to\dump_dir" -r -o "D:\path\to\out"
 ```
 
 ## 输出
-- `<stem>.pdf`：PSD + 主/镜像竖线；标题与页脚标注 **main pwr / mirror pwr / Δ(main−mirror)**
+- `<stem>.pdf`：PSD + 主/镜像竖线；**main / mirror / Δ(main−mirror)**
 - `<stem>_iq_cal_result.csv`
 - 目录模式：`iq_cal_batch_summary.csv`
-- 返回值：`[ori_tone_pwr, mir_tone_pwr, sig_pwr]`
 
 ## API
 ```python
-from rx_iq_imbalance_psd import load_real_image_from_csv, psd_plot_rx_cal, run_from_csv, collect_csv_inputs
-csvs = collect_csv_inputs(r"D:\path\to\dir")
-real, imag = load_real_image_from_csv(csvs[0])
-out = psd_plot_rx_cal(real, imag, 20, 2462, 2467, "out_stem")
+from rx_iq_imbalance_psd import load_real_image_from_csv, run_from_csv
+real, imag = load_real_image_from_csv("data.csv", col_i="feedback_i", col_q="feedback_q")
+out = run_from_csv("data.csv", 20, 2412, 2417, col_i="feedback_i", col_q="feedback_q")
 ```
 
 ## 文档
