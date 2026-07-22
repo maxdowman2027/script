@@ -2,10 +2,11 @@
 
 ## 概述
 
-本脚本将 Xian 测试库 `myplot.psd_plot_rx_cal` **原样移植**，仅两处改动：
+本脚本将 Xian 测试库 `myplot.psd_plot_rx_cal` **原样移植**，改动点：
 
 1. **参数**：`bw` / `ch_freq` / `freqcw` 由脚本配置区或 CLI 传入（不再从 `fname` 正则解析）
 2. **数据**：从指定 CSV 读取 `sample_i`/`sample_q`，并按 `adc_dump.py` 做 `÷ 2**11` 与 `2**floor(log2(N))` 截断
+3. **批量**：`input` 可为**单文件**或**目录**；目录模式下自动检索 `*.csv` 逐个跑 PSD
 
 参考路径：
 `D:\chip_test\dev\xian_test\Xian-Esp-Test-Scripts\rx_script\baselib\plot\myplot.py`
@@ -16,14 +17,14 @@
 
 | 变量 | 含义 |
 |------|------|
-| `INPUT_CSV` | 输入 I/Q CSV |
-| `OUTPUT_PDF` | PDF 路径 stem（无 `.pdf`）；空 → 输入文件 stem |
+| `INPUT_CSV` | 输入 I/Q CSV **或目录** |
+| `OUTPUT_PDF` | 单文件：PDF stem（无 `.pdf`）；空 → 输入文件 stem。目录模式：可选输出目录 |
 | `BW_MHZ` | phymd 带宽 |
 | `CH_FREQ_MHZ` | chan 信道中心 MHz |
 | `FREQCW_MHZ` | freqcw 单音 MHz |
 | `ADC_BIT_WIDTH` | 有符号 ADC 位宽（默认 **12**） |
 | `SAMPLE_FREQ_MHZ` | 名义 ADC 采样率 MHz；**有效 Welch Fs = 本值 / DECIMATE_FACTOR** |
-| `DECIMATE_FACTOR` | 抽取倍率（默认 **2** = 2抽1 `[::2]`，去重复样点） |
+| `DECIMATE_FACTOR` | 抽取倍率（默认 **1**；`2` = 2抽1 `[::2]`） |
 | `MAX_ROWS` | 最大读取行数；0=全文件 |
 | `IQ_MODE` | auto / single / 2ant |
 
@@ -34,9 +35,9 @@
 ```text
 CSV (12-bit signed sample_i/q)
   → ÷ 2**(ADC_BIT_WIDTH-1)
-  → 2抽1 [::2]（DECIMATE_FACTOR=2）
+  → 可选 2抽1 [::2]（DECIMATE_FACTOR=2）
   → 截断 2^n 样点
-  → Welch(Fs = SAMPLE_FREQ_MHZ / DECIMATE_FACTOR)   # 例：160/2=80MHz
+  → Welch(Fs = SAMPLE_FREQ_MHZ / DECIMATE_FACTOR)
   → tone bin: diff_freq / Fs * pwr_len
   → [ori_tone_pwr, mir_tone_pwr, sig_pwr] + PDF（±tone 竖线，标注 main/mirror pwr 及差值）
 ```
@@ -44,6 +45,19 @@ CSV (12-bit signed sample_i/q)
 **频谱错位说明**：myplot 假设 RX dump 已按 bw 降到 Fs=40(20M)。ILA 全速率 dump 若仍用 40MHz，5MHz tone 会显示在 ~1.2MHz。请设 `SAMPLE_FREQ_MHZ=160`（或实测采样率）。
 
 `sample_i` → `real_data`，`sample_q` → `image_data`（与 adc_dump 中 r_data/i_data 一致）。
+
+---
+
+## 目录批量
+
+| 行为 | 说明 |
+|------|------|
+| 输入为目录 | 检索该目录下 `*.csv`（默认**非递归**） |
+| `--recursive` / `-r` | 递归子目录 `**/*.csv` |
+| 跳过产物 | 自动跳过 `*_iq_cal_result.csv`，避免二次处理 |
+| 单文件产物 | 每个 CSV 旁写 `<stem>.pdf`、`<stem>_iq_cal_result.csv` |
+| `-o <dir>`（目录模式） | PDF/结果写到指定输出目录 |
+| 批汇总 | 目录模式额外写 `iq_cal_batch_summary.csv` |
 
 ---
 
@@ -61,14 +75,23 @@ CSV (12-bit signed sample_i/q)
 
 一键：读文件 + 调用 `psd_plot_rx_cal`。
 
+### `collect_csv_inputs(input_path, recursive=False)`
+
+将文件或目录解析为待处理 CSV 列表。
+
 ---
 
 ## 命令行
 
 ```bash
+# 单文件
 python rx_iq_imbalance_psd.py
 python rx_iq_imbalance_psd.py data.csv --bw 20 --chan 2462 --freqcw 2467
 python rx_iq_imbalance_psd.py data.csv -o D:\out\myplot_stem
+
+# 目录：检索该目录下全部 CSV
+python rx_iq_imbalance_psd.py "D:\test_data\rls4\260722_dpd\tone" --bw 20 --chan 2412 --freqcw 2417
+python rx_iq_imbalance_psd.py "D:\path\to\dump_dir" -r -o "D:\path\to\out_pdfs"
 ```
 
 ---
@@ -78,7 +101,8 @@ python rx_iq_imbalance_psd.py data.csv -o D:\out\myplot_stem
 | 文件 | 说明 |
 |------|------|
 | `<fname>.pdf` | Welch PSD；标题含 main/mirror pwr 及 **Δ(main−mirror)**；图例含 tone 频率与功率 |
-| `<csv_stem>_iq_cal_result.csv` | ori/mir/iq_suppression/sig_pwr 汇总 |
+| `<csv_stem>_iq_cal_result.csv` | 单文件 ori/mir/iq_suppression/sig_pwr 汇总 |
+| `iq_cal_batch_summary.csv` | **仅目录模式**：批内全部 CSV 汇总表 |
 
 ---
 
