@@ -8,10 +8,14 @@ Diff vs original myplot.py:
   - real_data / image_data loaded from specified CSV (12-bit signed → float normalize)
   - CLI input may be a single CSV or a directory of CSVs (batch)
   - I/Q column names configurable via COL_I/COL_Q (or --col-i/--col-q)
+  - Optional peak normalization: divide by max(|I|,|Q|) instead of ADC full-scale
 
-12-bit signed input:
+12-bit signed input (NORM_MODE=adc):
   - normalize: code / 2**(ADC_BIT_WIDTH-1)  (12-bit → /2048)
   - sig_pwr: int(norm * 2**(N-1))**2 averaged, / 2**N  (same as myplot 2**11 & 4096)
+
+NORM_MODE=peak:
+  - normalize: code / max(|I|, |Q|) of the selected stream (floor 1e-12)
 """
 
 from __future__ import annotations
@@ -55,13 +59,18 @@ USE_CH = 0
 ADC_BIT_WIDTH = 12
 
 # I/Q 列名（可按 CSV 实际表头改；匹配时忽略大小写与首尾空格）
-COL_I = "sample_i"
-COL_Q = "sample_q"
+COL_I = "sample_i_ch0"
+COL_Q = "sample_q_ch0"
 # 2ant 布局列名（mode=2ant / auto 检测到双天线时使用）
-COL_CH0_I = "ch0_sample_i"
-COL_CH0_Q = "ch0_sample_q"
-COL_CH1_I = "ch1_sample_i"
-COL_CH1_Q = "ch1_sample_q"
+COL_CH0_I = "sample_i_ch0"
+COL_CH0_Q = "sample_q_ch0"
+COL_CH1_I = "sample_i_ch1"
+COL_CH1_Q = "sample_q_ch1"
+
+# 归一化方式：
+#   "adc"  — I/Q ÷ 2**(ADC_BIT_WIDTH-1)（默认，对齐 myplot / adc_dump）
+#   "peak" — I/Q ÷ max(|I|,|Q|)（用本段数据峰值拉到约 ±1）
+NORM_MODE = "adc"
 
 
 def signed_adc_scale(adc_bit_width: int = ADC_BIT_WIDTH) -> int:
@@ -143,15 +152,16 @@ def load_real_image_from_csv(
     col_ch0_q: str = COL_CH0_Q,
     col_ch1_i: str = COL_CH1_I,
     col_ch1_q: str = COL_CH1_Q,
+    norm_mode: str = NORM_MODE,
 ) -> Tuple[np.ndarray, np.ndarray]:
     """
-    Read signed I/Q CSV and normalize for psd_plot_rx_cal:
-      real_data = I / 2**(ADC_BIT_WIDTH-1)
-      image_data = Q / 2**(ADC_BIT_WIDTH-1)
-      optional 2:1 decimate [::2] when data has duplicates
-      truncate to 2**floor(log2(N)) samples (adc_dump ll = 2**int(log2(data_ll)))
+    Read signed I/Q CSV and normalize for psd_plot_rx_cal.
 
-    Column names are configurable (COL_I / COL_Q or CLI --col-i / --col-q).
+    norm_mode:
+      - "adc":  I/Q / 2**(adc_bit_width-1)  (myplot / adc_dump)
+      - "peak": I/Q / max(|I|,|Q|) of this stream
+
+    Then optional decimate [::k] and truncate to 2**floor(log2(N)).
     """
     csv_path = Path(csv_file)
     head = pd.read_csv(csv_path, nrows=0)
@@ -212,9 +222,21 @@ def load_real_image_from_csv(
     else:
         raise ValueError(f"unsupported mode={mode!r}")
 
-    divisor = float(signed_adc_scale(adc_bit_width))
-    real_data = i_raw.astype(float) / divisor
-    image_data = q_raw.astype(float) / divisor
+    i_f = i_raw.astype(float)
+    q_f = q_raw.astype(float)
+    nm = str(norm_mode).strip().lower()
+    if nm in ("peak", "max", "data_max"):
+        peak = float(max(np.max(np.abs(i_f)), np.max(np.abs(q_f)), 1e-12))
+        divisor = peak
+        print(f"[NORM] peak  divisor={divisor:.6g}  (max |I|,|Q|)")
+    elif nm in ("adc", "bit", "fs"):
+        divisor = float(signed_adc_scale(adc_bit_width))
+        print(f"[NORM] adc   divisor={divisor:g}  (2**({adc_bit_width}-1))")
+    else:
+        raise ValueError(f"unsupported norm_mode={norm_mode!r}; use 'adc' or 'peak'")
+
+    real_data = i_f / divisor
+    image_data = q_f / divisor
 
     if decimate_factor > 1:
         real_data, image_data = decimate_iq(real_data, image_data, decimate_factor)
@@ -410,6 +432,7 @@ def run_from_csv(
     col_ch0_q: str = COL_CH0_Q,
     col_ch1_i: str = COL_CH1_I,
     col_ch1_q: str = COL_CH1_Q,
+    norm_mode: str = NORM_MODE,
 ) -> List[float]:
     """Load signed CSV → normalize → decimate → psd_plot_rx_cal."""
     csv_path = Path(csv_file)
@@ -429,6 +452,7 @@ def run_from_csv(
         col_ch0_q=col_ch0_q,
         col_ch1_i=col_ch1_i,
         col_ch1_q=col_ch1_q,
+        norm_mode=norm_mode,
     )
     return psd_plot_rx_cal(
         real_data,
@@ -497,12 +521,13 @@ def process_one_csv(
         col_ch0_q=args.col_ch0_q,
         col_ch1_i=args.col_ch1_i,
         col_ch1_q=args.col_ch1_q,
+        norm_mode=args.norm_mode,
     )
     ori_tone_pwr, mir_tone_pwr, sig_pwr = result
     fs_used = effective_sample_freq_mhz(args.bw, args.sample_freq_mhz, decimate)
     print(
         f"[RESULT] {csv_path.name}  Fs={fs_used}MHz decimate={decimate} "
-        f"bit_width={args.bit_width} "
+        f"bit_width={args.bit_width} norm={args.norm_mode} "
         f"ori_tone_pwr={ori_tone_pwr:.6f} mir_tone_pwr={mir_tone_pwr:.6f} "
         f"diff={ori_tone_pwr - mir_tone_pwr:.6f} sig_pwr={sig_pwr:.6f}"
     )
@@ -515,6 +540,7 @@ def process_one_csv(
         "ch_freq_mhz": args.chan,
         "freqcw_mhz": args.freqcw,
         "adc_bit_width": args.bit_width,
+        "norm_mode": args.norm_mode,
         "sample_freq_mhz": fs_used,
         "decimate_factor": decimate,
         "nominal_sample_freq_mhz": resolve_sample_freq_mhz(args.bw, args.sample_freq_mhz),
@@ -590,7 +616,13 @@ def build_parser() -> argparse.ArgumentParser:
         "--bit-width",
         type=int,
         default=ADC_BIT_WIDTH,
-        help="signed ADC bit width (default 12: norm /2^11, sig_pwr /2^12)",
+        help="signed ADC bit width (default 12: norm /2^11 when --norm-mode adc)",
+    )
+    p.add_argument(
+        "--norm-mode",
+        choices=("adc", "peak"),
+        default=NORM_MODE if str(NORM_MODE).lower() in ("adc", "peak") else "adc",
+        help="I/Q normalize: adc=/2**(bit-1); peak=/max(|I|,|Q|) (default: %(default)s)",
     )
     return p
 

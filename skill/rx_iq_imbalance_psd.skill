@@ -2,9 +2,10 @@
 
 ## 功能
 - **1:1** 移植 Xian `myplot.psd_plot_rx_cal`
-- 差异：bw/chan/freqcw 用配置变量；I/Q 从指定 CSV 读取（含 adc_dump `/2**11`）
+- 差异：bw/chan/freqcw 用配置变量；I/Q 从指定 CSV 读取
 - **目录批量**：`input` 可为目录，自动检索 `*.csv`
-- **列名可配**：`COL_I`/`COL_Q` 或 `--col-i`/`--col-q`（2ant 另有 `COL_CH*` / `--col-ch*`）
+- **列名可配**：`COL_I`/`COL_Q` 或 `--col-i`/`--col-q`
+- **归一化可选**：`NORM_MODE` / `--norm-mode` = `adc`（÷ADC满幅）或 `peak`（÷max(|I|,|Q|)）
 
 ## 配置
 ```python
@@ -15,34 +16,36 @@ FREQCW_MHZ = 2467
 ADC_BIT_WIDTH = 12
 SAMPLE_FREQ_MHZ = 160
 DECIMATE_FACTOR = 2
-COL_I = "sample_i"       # 改成实际 I 列名，如 "feedback_i"
-COL_Q = "sample_q"       # 改成实际 Q 列名，如 "feedback_q"
+COL_I = "sample_i"
+COL_Q = "sample_q"
+NORM_MODE = "adc"   # 或 "peak"
 ```
 
 ## 运行示例
 ```bash
-# 默认 sample_i / sample_q
-python rx_iq_imbalance_psd.py data.csv --bw 20 --chan 2462 --freqcw 2467
+# ADC 满幅归一化（默认）
+python rx_iq_imbalance_psd.py data.csv --bw 20 --chan 2462 --freqcw 2467 --norm-mode adc
+
+# 按数据峰值归一化
+python rx_iq_imbalance_psd.py data.csv --norm-mode peak --col-i sample_i_ch0 --col-q sample_q_ch0
 
 # 指定列名
 python rx_iq_imbalance_psd.py data.csv --col-i feedback_i --col-q feedback_q --bw 20 --chan 2412 --freqcw 2417
-python rx_iq_imbalance_psd.py data.csv --col-i ref_i --col-q ref_q --sample-freq-mhz 80
 
 # 目录批量
-python rx_iq_imbalance_psd.py "D:\path\to\dump_dir" --col-i sample_i --col-q sample_q --bw 20 --chan 2412 --freqcw 2417
-python rx_iq_imbalance_psd.py "D:\path\to\dump_dir" -r -o "D:\path\to\out"
+python rx_iq_imbalance_psd.py "D:\path\to\dump_dir" --norm-mode peak -r -o "D:\path\to\out"
 ```
 
 ## 输出
 - `<stem>.pdf`：PSD + 主/镜像竖线；**main / mirror / Δ(main−mirror)**
-- `<stem>_iq_cal_result.csv`
+- `<stem>_iq_cal_result.csv`（含 `norm_mode` 列）
 - 目录模式：`iq_cal_batch_summary.csv`
 
 ## API
 ```python
 from rx_iq_imbalance_psd import load_real_image_from_csv, run_from_csv
-real, imag = load_real_image_from_csv("data.csv", col_i="feedback_i", col_q="feedback_q")
-out = run_from_csv("data.csv", 20, 2412, 2417, col_i="feedback_i", col_q="feedback_q")
+real, imag = load_real_image_from_csv("data.csv", norm_mode="peak")
+out = run_from_csv("data.csv", 20, 2412, 2417, norm_mode="peak")
 ```
 
 ## 文档
