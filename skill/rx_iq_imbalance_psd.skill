@@ -5,7 +5,7 @@
 - 差异：bw/chan/freqcw 用配置变量；I/Q 从指定 CSV 读取
 - **目录批量**：`input` 可为目录，自动检索 `*.csv`
 - **列名可配**：`COL_I`/`COL_Q` 或 `--col-i`/`--col-q`
-- **归一化可选**：`NORM_MODE` / `--norm-mode` = `adc`（÷ADC满幅）或 `peak`（÷max(|I|,|Q|)）
+- **归一化可选**：`NORM_MODE` / `--norm-mode` = `adc`（÷ADC满幅）或 `peak`（÷`max(|I+jQ|)`，PSD 峰值归 0 dB）
 
 ## 配置
 ```python
@@ -18,7 +18,7 @@ SAMPLE_FREQ_MHZ = 160
 DECIMATE_FACTOR = 2
 COL_I = "sample_i"
 COL_Q = "sample_q"
-NORM_MODE = "adc"   # 或 "peak"
+NORM_MODE = "adc"   # 或 "peak"：时域÷max(|I+jQ|)，频谱峰值=0dB
 ```
 
 ## 运行示例
@@ -26,7 +26,7 @@ NORM_MODE = "adc"   # 或 "peak"
 # ADC 满幅归一化（默认）
 python rx_iq_imbalance_psd.py data.csv --bw 20 --chan 2462 --freqcw 2467 --norm-mode adc
 
-# 按数据峰值归一化
+# 按数据复数幅度峰值归一化（PSD 峰值 0 dB）
 python rx_iq_imbalance_psd.py data.csv --norm-mode peak --col-i sample_i_ch0 --col-q sample_q_ch0
 
 # 指定列名
@@ -37,9 +37,16 @@ python rx_iq_imbalance_psd.py "D:\path\to\dump_dir" --norm-mode peak -r -o "D:\p
 ```
 
 ## 输出
-- `<stem>.pdf`：PSD + 主/镜像竖线；**main / mirror / Δ(main−mirror)**
+- `<stem>.pdf`：PSD + 主/镜像竖线；**main / mirror / Δ(main−mirror)**；`peak` 时纵轴峰值=0 dB
 - `<stem>_iq_cal_result.csv`（含 `norm_mode` 列）
 - 目录模式：`iq_cal_batch_summary.csv`
+
+## peak vs adc
+| | adc | peak |
+|--|-----|------|
+| 时域 | ÷`2**(bit-1)` | ÷`max(|I+jQ|)`（截断后样点） |
+| PSD | 原始 dB | 减峰值 → 0 dB |
+| 用途 | 对齐 myplot / 满幅参考 | 非满幅 dump 对比镜像抑制度 |
 
 ## API
 ```python

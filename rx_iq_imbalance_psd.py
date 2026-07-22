@@ -8,14 +8,15 @@ Diff vs original myplot.py:
   - real_data / image_data loaded from specified CSV (12-bit signed → float normalize)
   - CLI input may be a single CSV or a directory of CSVs (batch)
   - I/Q column names configurable via COL_I/COL_Q (or --col-i/--col-q)
-  - Optional peak normalization: divide by max(|I|,|Q|) instead of ADC full-scale
+  - Optional peak normalization: divide by max(|I+jQ|) of the plotted samples
 
 12-bit signed input (NORM_MODE=adc):
   - normalize: code / 2**(ADC_BIT_WIDTH-1)  (12-bit → /2048)
   - sig_pwr: int(norm * 2**(N-1))**2 averaged, / 2**N  (same as myplot 2**11 & 4096)
 
 NORM_MODE=peak:
-  - normalize: code / max(|I|, |Q|) of the selected stream (floor 1e-12)
+  - time: code / max(|I+jQ|) after decimate+2^n truncate (floor 1e-12)
+  - PSD: 10*log10(P) − max(10*log10(P)) so spectrum peak sits at 0 dB
 """
 
 from __future__ import annotations
@@ -37,7 +38,7 @@ from scipy.signal import welch
 # =============================================================================
 # Config（替代 myplot 从 fname 正则提取的 bw / chan / freqcw）
 # =============================================================================
-INPUT_CSV = r"D:\chip_test\dev\xian_test\Xian-Esp-Test-Scripts\rftest_data\dump_adc_0x200_raw\FPGA752_0x_20260722\result"
+INPUT_CSV = r"D:\chip_test\dev\xian_test\Xian-Esp-Test-Scripts\rftest_data\dump_adc_0x200_raw\FPGA752_0x_20260722\2.4G\result"
 OUTPUT_PDF = ""  # 空 → <INPUT_CSV stem>.pdf（同 myplot: fname + '.pdf'）
 
 BW_MHZ = 20  # phymd
@@ -69,8 +70,8 @@ COL_CH1_Q = "sample_q_ch1"
 
 # 归一化方式：
 #   "adc"  — I/Q ÷ 2**(ADC_BIT_WIDTH-1)（默认，对齐 myplot / adc_dump）
-#   "peak" — I/Q ÷ max(|I|,|Q|)（用本段数据峰值拉到约 ±1）
-NORM_MODE = "adc"
+#   "peak" — I/Q ÷ max(|I+jQ|)（本段复数幅度峰值），PSD 峰值归 0 dB
+NORM_MODE = "peak"
 
 
 def signed_adc_scale(adc_bit_width: int = ADC_BIT_WIDTH) -> int:
@@ -157,11 +158,12 @@ def load_real_image_from_csv(
     """
     Read signed I/Q CSV and normalize for psd_plot_rx_cal.
 
+    Order: load → optional decimate → truncate to 2**floor(log2(N)) → normalize
+    so peak uses the same samples that go into Welch.
+
     norm_mode:
       - "adc":  I/Q / 2**(adc_bit_width-1)  (myplot / adc_dump)
-      - "peak": I/Q / max(|I|,|Q|) of this stream
-
-    Then optional decimate [::k] and truncate to 2**floor(log2(N)).
+      - "peak": I/Q / max(|I+jQ|) of the truncated stream
     """
     csv_path = Path(csv_file)
     head = pd.read_csv(csv_path, nrows=0)
@@ -222,21 +224,8 @@ def load_real_image_from_csv(
     else:
         raise ValueError(f"unsupported mode={mode!r}")
 
-    i_f = i_raw.astype(float)
-    q_f = q_raw.astype(float)
-    nm = str(norm_mode).strip().lower()
-    if nm in ("peak", "max", "data_max"):
-        peak = float(max(np.max(np.abs(i_f)), np.max(np.abs(q_f)), 1e-12))
-        divisor = peak
-        print(f"[NORM] peak  divisor={divisor:.6g}  (max |I|,|Q|)")
-    elif nm in ("adc", "bit", "fs"):
-        divisor = float(signed_adc_scale(adc_bit_width))
-        print(f"[NORM] adc   divisor={divisor:g}  (2**({adc_bit_width}-1))")
-    else:
-        raise ValueError(f"unsupported norm_mode={norm_mode!r}; use 'adc' or 'peak'")
-
-    real_data = i_f / divisor
-    image_data = q_f / divisor
+    real_data = i_raw.astype(float)
+    image_data = q_raw.astype(float)
 
     if decimate_factor > 1:
         real_data, image_data = decimate_iq(real_data, image_data, decimate_factor)
@@ -246,7 +235,22 @@ def load_real_image_from_csv(
     if data_ll == 0:
         raise ValueError("empty I/Q data")
     ll = 2 ** int(np.log2(data_ll))
-    return real_data[0:ll], image_data[0:ll]
+    real_data = real_data[0:ll]
+    image_data = image_data[0:ll]
+
+    nm = str(norm_mode).strip().lower()
+    if nm in ("peak", "max", "data_max"):
+        # max |I+jQ| on the exact samples used for Welch / PDF
+        peak = float(np.max(np.abs(real_data + 1j * image_data)))
+        divisor = max(peak, 1e-12)
+        print(f"[NORM] peak  divisor={divisor:.6g}  (max |I+jQ| on N={ll})")
+    elif nm in ("adc", "bit", "fs"):
+        divisor = float(signed_adc_scale(adc_bit_width))
+        print(f"[NORM] adc   divisor={divisor:g}  (2**({adc_bit_width}-1))")
+    else:
+        raise ValueError(f"unsupported norm_mode={norm_mode!r}; use 'adc' or 'peak'")
+
+    return real_data / divisor, image_data / divisor
 
 
 def psd_plot_rx_cal(
@@ -259,16 +263,20 @@ def psd_plot_rx_cal(
     adc_bit_width: int = ADC_BIT_WIDTH,
     sample_freq_mhz: float = 0,
     decimate_factor: int = DECIMATE_FACTOR,
+    norm_mode: str = NORM_MODE,
 ):
     """
     myplot.psd_plot_rx_cal with explicit bw/ch_freq/freqcw.
     sample_freq_mhz: nominal Welch Fs before decimate; 0 → myplot bw mapping.
     Effective Welch Fs = sample_freq_mhz / decimate_factor.
+    norm_mode=peak: PSD Y-axis peak-referenced to 0 dB (after time-domain |I+jQ| norm).
     Returns [ori_tone_pwr, mir_tone_pwr, sig_pwr].
     """
     ch_freq = int(ch_freq)
     freqcw = int(freqcw)
     bw = int(bw)
+    nm = str(norm_mode).strip().lower()
+    peak_psd = nm in ("peak", "max", "data_max")
 
     sample_freq_mhz = effective_sample_freq_mhz(bw, sample_freq_mhz, decimate_factor)
     all_freq = sample_freq_mhz
@@ -282,18 +290,34 @@ def psd_plot_rx_cal(
     print(f"Welch Fs={sample_freq_mhz} MHz, all_freq={all_freq} MHz, diff_freq={diff_freq} MHz")
 
     pp = PdfPages(fname + ".pdf")
-    cv_data = [real_data[i] + image_data[i] * 1j for i in range(0, len(real_data))]
-    code_scale = signed_adc_scale(adc_bit_width)
-    full_scale = float(signed_adc_full_scale(adc_bit_width))
-    squared_read = [int(num * code_scale) ** 2 for num in real_data]
-    squared_imag = [int(num * code_scale) ** 2 for num in image_data]
-    mean_squared_real = sum(squared_read) / len(squared_read)
-    mean_squared_imag = sum(squared_imag) / len(squared_imag)
-    sig_pwr = 20 * math.log10(math.sqrt(mean_squared_real + mean_squared_imag) / full_scale)
-    print(
-        f"mean_squared_real is {mean_squared_real}, mean_squared_imag is {mean_squared_imag}, "
-        f"sig_pwr is {sig_pwr}"
-    )
+    real_arr = np.asarray(real_data, dtype=float)
+    imag_arr = np.asarray(image_data, dtype=float)
+    cv_data = real_arr + 1j * imag_arr
+
+    if peak_psd:
+        peak_abs = float(np.max(np.abs(cv_data)))
+        if peak_abs > 0:
+            cv_data = cv_data / peak_abs
+        rms = float(np.sqrt(np.mean(np.abs(cv_data) ** 2)))
+        sig_pwr = 20 * math.log10(max(rms, 1e-12))
+        print(
+            f"[NORM] peak PSD ref: max|I+jQ|={peak_abs:.6g}  rms={rms:.6g}  "
+            f"sig_pwr={sig_pwr:.3f} dB"
+        )
+    else:
+        code_scale = signed_adc_scale(adc_bit_width)
+        full_scale = float(signed_adc_full_scale(adc_bit_width))
+        squared_read = [int(num * code_scale) ** 2 for num in real_arr]
+        squared_imag = [int(num * code_scale) ** 2 for num in imag_arr]
+        mean_squared_real = sum(squared_read) / len(squared_read)
+        mean_squared_imag = sum(squared_imag) / len(squared_imag)
+        sig_pwr = 20 * math.log10(
+            math.sqrt(mean_squared_real + mean_squared_imag) / full_scale
+        )
+        print(
+            f"mean_squared_real is {mean_squared_real}, mean_squared_imag is {mean_squared_imag}, "
+            f"sig_pwr is {sig_pwr}"
+        )
 
     NFFT = sample_freq_mhz / 0.1
     overlap = NFFT / 2
@@ -308,7 +332,11 @@ def psd_plot_rx_cal(
         return_onesided=False,
         detrend=False,
     )
-    pwr = 10 * np.log10(np.abs(np.fft.fftshift(P)))
+    pwr = 10 * np.log10(np.maximum(np.abs(np.fft.fftshift(P)), 1e-30))
+    if peak_psd:
+        pwr_peak = float(np.max(pwr))
+        pwr = pwr - pwr_peak
+        print(f"[NORM] peak PSD: subtract {pwr_peak:.3f} dB → spectrum peak = 0 dB")
     pwr_len = len(pwr)
     print(
         f"================================diff_freq:{diff_freq} ,all_freq:{all_freq} "
@@ -371,8 +399,7 @@ def psd_plot_rx_cal(
     with plt.ioff():
         x2 = plt.figure()
         freq_axis = np.fft.fftshift(F)
-        psd_db = 10 * np.log10(np.abs(np.fft.fftshift(P)))
-        plt.plot(freq_axis, psd_db, "b-")
+        plt.plot(freq_axis, pwr, "b-")
         plt.axvline(
             frequency_ori,
             color="C2",
@@ -394,7 +421,8 @@ def psd_plot_rx_cal(
             fontsize=10,
         )
         plt.xlabel("Freq(MHz)")
-        plt.ylabel("power density (dB)")
+        ylab = "power density (dB, peak=0)" if peak_psd else "power density (dB)"
+        plt.ylabel(ylab)
         plt.legend(loc="best", fontsize=8)
         plt.grid()
         plt.figtext(
@@ -464,6 +492,7 @@ def run_from_csv(
         adc_bit_width=adc_bit_width,
         sample_freq_mhz=sample_freq_mhz,
         decimate_factor=decimate_factor,
+        norm_mode=norm_mode,
     )
 
 
@@ -622,7 +651,7 @@ def build_parser() -> argparse.ArgumentParser:
         "--norm-mode",
         choices=("adc", "peak"),
         default=NORM_MODE if str(NORM_MODE).lower() in ("adc", "peak") else "adc",
-        help="I/Q normalize: adc=/2**(bit-1); peak=/max(|I|,|Q|) (default: %(default)s)",
+        help="I/Q normalize: adc=/2**(bit-1); peak=/max(|I+jQ|) + PSD peak=0dB (default: %(default)s)",
     )
     return p
 

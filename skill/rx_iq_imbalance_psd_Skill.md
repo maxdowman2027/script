@@ -8,7 +8,7 @@
 2. **数据**：从指定 CSV 读取 I/Q 列（默认 `sample_i`/`sample_q`），并按 `adc_dump.py` 做 `÷ 2**11` 与 `2**floor(log2(N))` 截断
 3. **批量**：`input` 可为**单文件**或**目录**；目录模式下自动检索 `*.csv` 逐个跑 PSD
 4. **列名可配**：通过配置变量或 CLI 指定 I/Q（及 2ant）列名
-5. **归一化可选**：`adc`（÷ ADC 满幅）或 `peak`（÷ 本段数据 `max(|I|,|Q|)`）
+5. **归一化可选**：`adc`（÷ ADC 满幅）或 `peak`（时域 ÷ `max(|I+jQ|)`，PSD 峰值归 0 dB）
 
 参考路径：
 `D:\chip_test\dev\xian_test\Xian-Esp-Test-Scripts\rx_script\baselib\plot\myplot.py`
@@ -31,7 +31,7 @@
 | `IQ_MODE` | auto / single / 2ant |
 | `COL_I` / `COL_Q` | 单流 I/Q 列名（默认 `sample_i` / `sample_q`） |
 | `COL_CH0_I` / `COL_CH0_Q` / `COL_CH1_I` / `COL_CH1_Q` | 2ant 列名 |
-| `NORM_MODE` | `adc`（默认）或 `peak`（按数据峰值归一化） |
+| `NORM_MODE` | `adc`（默认）或 `peak`：时域 ÷`max(|I+jQ|)`，PSD 峰值归 0 dB |
 
 列名匹配**忽略大小写**与首尾空格。
 
@@ -41,12 +41,13 @@
 
 ```text
 CSV (signed I/Q columns)
-  → 归一化：
-       adc  → ÷ 2**(ADC_BIT_WIDTH-1)
-       peak → ÷ max(|I|,|Q|)
   → 可选 2抽1 [::2]（DECIMATE_FACTOR=2）
   → 截断 2^n 样点
+  → 归一化（在截断后的样点上）：
+       adc  → ÷ 2**(ADC_BIT_WIDTH-1)
+       peak → ÷ max(|I+jQ|)
   → Welch(Fs = SAMPLE_FREQ_MHZ / DECIMATE_FACTOR)
+  → peak 模式：PSD_dB − max(PSD_dB)（频谱峰值 = 0 dB）
   → tone bin: diff_freq / Fs * pwr_len
   → [ori_tone_pwr, mir_tone_pwr, sig_pwr] + PDF
 ```
@@ -102,7 +103,7 @@ python rx_iq_imbalance_psd.py "D:\path\to\dump_dir" -r -o "D:\path\to\out" --col
 # 2ant：指定双天线列并选通道
 python rx_iq_imbalance_psd.py dual.csv --mode 2ant --ch 0 --col-ch0-i ch0_sample_i --col-ch0-q ch0_sample_q
 
-# 归一化：默认 adc（÷2**(bit-1)）；可选 peak（÷本段 max(|I|,|Q|)）
+# 归一化：默认 adc（÷2**(bit-1)）；可选 peak（÷max(|I+jQ|)，PSD 峰值=0dB）
 python rx_iq_imbalance_psd.py data.csv --norm-mode adc --bit-width 12
 python rx_iq_imbalance_psd.py data.csv --norm-mode peak --col-i sample_i_ch0 --col-q sample_q_ch0
 # 配置区：NORM_MODE = "peak"
