@@ -413,6 +413,10 @@ python reg_query/reg_query.py 0xc3026cc0
 # 指定寄存器 CSV 目录
 python reg_query/reg_query.py -c "D:\fpga_test\imag\E22_4.0\260420\csv" reg_mcs10_ldpc_man
 
+# 指定项目基地址文件（默认即 reg_query/base_addr.txt）
+python reg_query/reg_query.py -b "D:\users\gxu\scripts\reg_query\base_addr.txt" 0xc3026cc0
+python reg_query/reg_query.py --list-base
+
 # 列出可用的 CSV 定义文件
 python reg_query/reg_query.py -l
 

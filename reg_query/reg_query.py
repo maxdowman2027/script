@@ -5,7 +5,8 @@ E22寄存器查询工具 - 增强版
 1. 通过寄存器名称查询寄存器详细信息
 2. 通过物理地址查询寄存器所在CSV文件和详细信息
 3. 支持指定CSV文件路径
-4. 支持查询寄存器地址或名称
+4. 支持选择 base_addr.txt（不同项目基地址不同）
+5. 支持查询寄存器地址或名称
 """
 
 import csv
@@ -14,29 +15,66 @@ import os
 import argparse
 import sys
 
+SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
+DEFAULT_BASE_ADDR_PATH = os.path.join(SCRIPT_DIR, 'base_addr.txt')
+DEFAULT_CSV_DIR = os.path.join(SCRIPT_DIR, 'csv_files')
 
-def read_base_addr(base_addr_path=None):
-    """读取基地址文件"""
+# 仅当 base_addr 文件缺失时使用的内置回退（与仓库默认 base_addr.txt 一致）
+_FALLBACK_BASE_ADDR = {
+    'phy_common': 0xc3026000,
+    'phy_txfreq': 0xc3026400,
+    'phy_txdfe_reg': 0xc3026800,
+    'phy_rxfreq': 0xc3026C00,
+    'phy_rxtime': 0xc3027000,
+    'phy_txbf': 0xc3027C00,
+    'phy_fft': 0xc3027e00,
+    'phy_rx11b': 0xc3027a00,
+}
+
+
+def default_base_addr_path():
+    """仓库默认基地址文件：reg_query/base_addr.txt"""
+    return DEFAULT_BASE_ADDR_PATH
+
+
+def read_base_addr(base_addr_path=None, *, allow_fallback=True):
+    """
+    读取模块基地址映射。
+
+    base_addr_path:
+      - None → 使用脚本目录下 base_addr.txt
+      - 显式路径 → 必须存在，否则抛出 FileNotFoundError
+    文件缺失且 allow_fallback=True 时回退到内置表（仅默认路径场景）。
+    支持空行与 # 注释行；格式: module,0xBASE
+    """
+    path = base_addr_path if base_addr_path is not None else DEFAULT_BASE_ADDR_PATH
+    path = os.path.abspath(path)
+
+    if not os.path.exists(path):
+        if base_addr_path is not None:
+            raise FileNotFoundError(f"基地址文件不存在: {path}")
+        if not allow_fallback:
+            raise FileNotFoundError(f"默认基地址文件不存在: {path}")
+        print(f"警告: 未找到 {path}，使用内置基地址表", file=sys.stderr)
+        return dict(_FALLBACK_BASE_ADDR)
+
     base_addr = {}
-    if base_addr_path and os.path.exists(base_addr_path):
-        with open(base_addr_path, 'r') as f:
-            for line in f:
-                line = line.strip()
-                if line:
-                    module, addr = line.split(',')
-                    base_addr[module.strip()] = int(addr.strip(), 16)
-    else:
-        # 默认基地址
-        base_addr = {
-            'phy_common': 0xc3026000,
-            'phy_txfreq': 0xc3026400,
-            'phy_txdfe_reg': 0xc3026800,
-            'phy_rxfreq': 0xc3026C00,
-            'phy_rxtime': 0xc3027000,
-            'phy_txbf': 0xc3027C00,
-            'phy_fft': 0xc3027e00,
-            'phy_rx11b': 0xc3027a00
-        }
+    with open(path, 'r', encoding='utf-8') as f:
+        for lineno, line in enumerate(f, 1):
+            line = line.strip()
+            if not line or line.startswith('#'):
+                continue
+            if ',' not in line:
+                raise ValueError(f"{path}:{lineno}: 需要 'module,0xADDR' 格式，得到: {line!r}")
+            module, addr = line.split(',', 1)
+            module = module.strip()
+            addr = addr.strip()
+            if not module or not addr:
+                raise ValueError(f"{path}:{lineno}: 模块名或地址为空")
+            base_addr[module] = int(addr, 16)
+
+    if not base_addr:
+        raise ValueError(f"基地址文件为空或无有效条目: {path}")
     return base_addr
 
 
@@ -98,12 +136,17 @@ def calculate_reg_default(rows, addr_row_idx):
     return default_hex, default_32bit, default_dec, bit_fields
 
 
-def find_register_info(reg_name, csv_dir=None):
+def find_register_info(reg_name, csv_dir=None, base_addr_path=None):
     """通过寄存器名称查找寄存器信息"""
     if csv_dir is None:
-        csv_dir = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'csv_files')
+        csv_dir = DEFAULT_CSV_DIR
 
-    base_addr = read_base_addr()
+    base_addr = read_base_addr(base_addr_path)
+    resolved_base_path = (
+        os.path.abspath(base_addr_path)
+        if base_addr_path is not None
+        else DEFAULT_BASE_ADDR_PATH
+    )
 
     if not os.path.exists(csv_dir):
         print(f"错误: CSV文件目录不存在: {csv_dir}")
@@ -114,7 +157,7 @@ def find_register_info(reg_name, csv_dir=None):
             module = filename.replace('.csv', '')
             csv_path = os.path.join(csv_dir, filename)
 
-            with open(csv_path, 'r') as f:
+            with open(csv_path, 'r', encoding='utf-8', errors='replace') as f:
                 reader = csv.reader(f, delimiter=';')
                 rows = list(reader)
 
@@ -139,6 +182,7 @@ def find_register_info(reg_name, csv_dir=None):
                                 'reg_name': reg_name,
                                 'module': module,
                                 'base_addr': f"0x{base:08X}",
+                                'base_addr_file': resolved_base_path,
                                 'offset': addr_row[0],
                                 'full_addr': f"0x{full_addr:08X}",
                                 'bit_pos': reg_row[7],
@@ -154,12 +198,17 @@ def find_register_info(reg_name, csv_dir=None):
     return None
 
 
-def find_register_by_address(search_addr, csv_dir=None):
+def find_register_by_address(search_addr, csv_dir=None, base_addr_path=None):
     """通过物理地址查找寄存器信息"""
     if csv_dir is None:
-        csv_dir = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'csv_files')
+        csv_dir = DEFAULT_CSV_DIR
 
-    base_addr = read_base_addr()
+    base_addr = read_base_addr(base_addr_path)
+    resolved_base_path = (
+        os.path.abspath(base_addr_path)
+        if base_addr_path is not None
+        else DEFAULT_BASE_ADDR_PATH
+    )
 
     try:
         if isinstance(search_addr, str):
@@ -190,7 +239,7 @@ def find_register_by_address(search_addr, csv_dir=None):
     if not os.path.exists(csv_path):
         return None
 
-    with open(csv_path, 'r') as f:
+    with open(csv_path, 'r', encoding='utf-8', errors='replace') as f:
         reader = csv.reader(f, delimiter=';')
         rows = list(reader)
 
@@ -207,6 +256,7 @@ def find_register_by_address(search_addr, csv_dir=None):
                             'reg_name': addr_row[1] if len(addr_row) > 1 else '',
                             'module': matched_module,
                             'base_addr': f"0x{base:08X}",
+                            'base_addr_file': resolved_base_path,
                             'offset': addr_row[0],
                             'full_addr': f"0x{target_addr:08X}",
                             'bit_pos': '',
@@ -237,6 +287,8 @@ def print_register_info(info, query_str, is_address=False):
     print(f"文件路径: {info['csv_path']}")
     print(f"所属模块: {info['module']}")
     print(f"模块基地址: {info['base_addr']}")
+    if info.get('base_addr_file'):
+        print(f"基地址文件: {info['base_addr_file']}")
     print(f"地址偏移: {info['offset']}")
     print(f"完整物理地址: {info['full_addr']}")
     if info.get('reg_name_full'):
@@ -252,36 +304,85 @@ def print_register_info(info, query_str, is_address=False):
     print(f"{'='*60}")
 
 
+def print_base_addr_table(base_addr_path=None):
+    """打印当前基地址映射表"""
+    path = base_addr_path if base_addr_path is not None else DEFAULT_BASE_ADDR_PATH
+    base_addr = read_base_addr(base_addr_path)
+    print(f"{'='*60}")
+    print(f"基地址文件: {os.path.abspath(path)}")
+    print(f"{'='*60}")
+    for module, base in sorted(base_addr.items(), key=lambda x: x[1]):
+        print(f"  {module:20s}  0x{base:08X}")
+    print(f"{'='*60}")
+
+
 def main():
-    parser = argparse.ArgumentParser(description='E22寄存器查询工具 - 支持名称和地址查询')
-    parser.add_argument('-c', '--csv-dir', help='CSV文件目录路径(默认使用当前目录下的csv_files)')
-    parser.add_argument('-l', '--list-csv', action='store_true', help='列出所有可用的CSV文件')
-    parser.add_argument('query', nargs='?', help='要查询的寄存器名称或物理地址(如0xc30270d8)')
+    parser = argparse.ArgumentParser(
+        description='E22寄存器查询工具 - 支持名称/地址查询，可切换项目基地址文件'
+    )
+    parser.add_argument(
+        '-c', '--csv-dir',
+        help='CSV文件目录路径(默认: 脚本目录下 csv_files)',
+    )
+    parser.add_argument(
+        '-b', '--base-addr',
+        dest='base_addr',
+        default=None,
+        help=f'模块基地址文件(默认: {DEFAULT_BASE_ADDR_PATH})',
+    )
+    parser.add_argument(
+        '-l', '--list-csv',
+        action='store_true',
+        help='列出所有可用的CSV文件',
+    )
+    parser.add_argument(
+        '--list-base',
+        action='store_true',
+        help='列出当前基地址文件中的模块映射',
+    )
+    parser.add_argument(
+        'query',
+        nargs='?',
+        help='要查询的寄存器名称或物理地址(如0xc30270d8)',
+    )
     args = parser.parse_args()
 
-    # 设置CSV目录
-    csv_dir = args.csv_dir
-    if csv_dir is None:
-        csv_dir = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'csv_files')
+    csv_dir = args.csv_dir if args.csv_dir is not None else DEFAULT_CSV_DIR
+    base_addr_path = args.base_addr  # None → 使用默认 base_addr.txt
 
-    # 列出可用CSV文件
+    if args.list_base:
+        try:
+            print_base_addr_table(base_addr_path)
+        except (OSError, ValueError) as e:
+            print(f"错误: {e}")
+            sys.exit(1)
+        if args.query is None and not args.list_csv:
+            return
+
     if args.list_csv:
         print(f"{'='*60}")
         print(f"可用的CSV文件列表: {csv_dir}")
         print(f"{'='*60}")
         if os.path.exists(csv_dir):
-            for filename in os.listdir(csv_dir):
+            for filename in sorted(os.listdir(csv_dir)):
                 if filename.endswith('.csv'):
                     print(f"  - {filename}")
         else:
             print(f"CSV文件目录不存在: {csv_dir}")
-        return
+        if args.query is None:
+            return
 
-    # 检查是否提供了查询参数
     if args.query is None:
         print("错误: 请提供要查询的寄存器名称或物理地址")
         print("使用 --help 参数查看使用说明")
         return
+
+    try:
+        # 预加载以尽早报错（显式错误路径）
+        read_base_addr(base_addr_path)
+    except (OSError, ValueError) as e:
+        print(f"错误: {e}")
+        sys.exit(1)
 
     query = args.query.strip()
 
@@ -291,12 +392,12 @@ def main():
 
     info = None
     if is_address:
-        info = find_register_by_address(query, csv_dir)
+        info = find_register_by_address(query, csv_dir, base_addr_path=base_addr_path)
         if not info:
-            info = find_register_info(query, csv_dir)
+            info = find_register_info(query, csv_dir, base_addr_path=base_addr_path)
             is_address = False
     else:
-        info = find_register_info(query, csv_dir)
+        info = find_register_info(query, csv_dir, base_addr_path=base_addr_path)
 
     if info:
         print_register_info(info, query, is_address=is_address)

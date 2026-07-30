@@ -5,9 +5,10 @@ E22寄存器查询工具 - GUI版本
 1. 输入目标寄存器名字，输出目标寄存器所在的32bit寄存器的地址
 2. 输入目标寄存器物理地址，输出寄存器详细信息和所在CSV文件
 3. 支持指定CSV文件路径
-4. 列出所有可用的寄存器定义CSV文件
-5. 将查询结果导出到文本文件
-6. 可选：输入整寄存器 32bit 读回值，按 CSV 位域解析各信号取值
+4. 支持选择 base_addr.txt（不同项目基地址不同）
+5. 列出所有可用的寄存器定义CSV文件
+6. 将查询结果导出到文本文件
+7. 可选：输入整寄存器 32bit 读回值，按 CSV 位域解析各信号取值
 """
 
 import tkinter as tk
@@ -23,30 +24,55 @@ import queue
 
 # 获取脚本所在目录的绝对路径
 SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
+DEFAULT_BASE_ADDR_PATH = os.path.join(SCRIPT_DIR, 'base_addr.txt')
+DEFAULT_CSV_DIR = os.path.join(SCRIPT_DIR, 'csv_files')
+
+_FALLBACK_BASE_ADDR = {
+    'phy_common': 0xc3026000,
+    'phy_txfreq': 0xc3026400,
+    'phy_txdfe_reg': 0xc3026800,
+    'phy_rxfreq': 0xc3026C00,
+    'phy_rxtime': 0xc3027000,
+    'phy_txbf': 0xc3027C00,
+    'phy_fft': 0xc3027e00,
+    'phy_rx11b': 0xc3027a00,
+}
 
 
-def read_base_addr(base_addr_path=None):
-    """读取基地址文件"""
+def read_base_addr(base_addr_path=None, *, allow_fallback=True):
+    """
+    读取模块基地址映射。
+
+    None → 脚本目录 base_addr.txt；显式路径必须存在。
+    支持空行与 # 注释；格式 module,0xBASE。
+    """
+    path = base_addr_path if base_addr_path is not None else DEFAULT_BASE_ADDR_PATH
+    path = os.path.abspath(path)
+
+    if not os.path.exists(path):
+        if base_addr_path is not None:
+            raise FileNotFoundError(f"基地址文件不存在: {path}")
+        if not allow_fallback:
+            raise FileNotFoundError(f"默认基地址文件不存在: {path}")
+        return dict(_FALLBACK_BASE_ADDR)
+
     base_addr = {}
-    if base_addr_path and os.path.exists(base_addr_path):
-        with open(base_addr_path, 'r') as f:
-            for line in f:
-                line = line.strip()
-                if line:
-                    module, addr = line.split(',')
-                    base_addr[module.strip()] = int(addr.strip(), 16)
-    else:
-        # 默认基地址
-        base_addr = {
-            'phy_common': 0xc3026000,
-            'phy_txfreq': 0xc3026400,
-            'phy_txdfe_reg': 0xc3026800,
-            'phy_rxfreq': 0xc3026C00,
-            'phy_rxtime': 0xc3027000,
-            'phy_txbf': 0xc3027C00,
-            'phy_fft': 0xc3027e00,
-            'phy_rx11b': 0xc3027a00
-        }
+    with open(path, 'r', encoding='utf-8') as f:
+        for lineno, line in enumerate(f, 1):
+            line = line.strip()
+            if not line or line.startswith('#'):
+                continue
+            if ',' not in line:
+                raise ValueError(f"{path}:{lineno}: 需要 'module,0xADDR' 格式，得到: {line!r}")
+            module, addr = line.split(',', 1)
+            module = module.strip()
+            addr = addr.strip()
+            if not module or not addr:
+                raise ValueError(f"{path}:{lineno}: 模块名或地址为空")
+            base_addr[module] = int(addr, 16)
+
+    if not base_addr:
+        raise ValueError(f"基地址文件为空或无有效条目: {path}")
     return base_addr
 
 
@@ -333,12 +359,21 @@ def generate_rw_commands(info, write_value_text=None):
     }
 
 
-def find_register_info(reg_name, csv_dir=None):
+def find_register_info(reg_name, csv_dir=None, base_addr_path=None):
     """通过寄存器名称查找寄存器信息"""
     if csv_dir is None:
-        csv_dir = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'csv_files')
+        csv_dir = DEFAULT_CSV_DIR
 
-    base_addr = read_base_addr()
+    try:
+        base_addr = read_base_addr(base_addr_path)
+    except (OSError, ValueError) as e:
+        return None, f"错误: {e}"
+
+    resolved_base_path = (
+        os.path.abspath(base_addr_path)
+        if base_addr_path is not None
+        else DEFAULT_BASE_ADDR_PATH
+    )
 
     if not os.path.exists(csv_dir):
         return None, f"错误: CSV文件目录不存在: {csv_dir}"
@@ -348,7 +383,7 @@ def find_register_info(reg_name, csv_dir=None):
             module = filename.replace('.csv', '')
             csv_path = os.path.join(csv_dir, filename)
 
-            with open(csv_path, 'r') as f:
+            with open(csv_path, 'r', encoding='utf-8', errors='replace') as f:
                 reader = csv.reader(f, delimiter=';')
                 rows = list(reader)
 
@@ -373,6 +408,7 @@ def find_register_info(reg_name, csv_dir=None):
                                 'reg_name': reg_name,
                                 'module': module,
                                 'base_addr': f"0x{base:08X}",
+                                'base_addr_file': resolved_base_path,
                                 'offset': addr_row[0],
                                 'full_addr': f"0x{full_addr:08X}",
                                 'bit_pos': reg_row[7],
@@ -388,12 +424,21 @@ def find_register_info(reg_name, csv_dir=None):
     return None, f"未找到寄存器: {reg_name}"
 
 
-def find_register_by_address(search_addr, csv_dir=None):
+def find_register_by_address(search_addr, csv_dir=None, base_addr_path=None):
     """通过物理地址查找寄存器信息"""
     if csv_dir is None:
-        csv_dir = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'csv_files')
+        csv_dir = DEFAULT_CSV_DIR
 
-    base_addr = read_base_addr()
+    try:
+        base_addr = read_base_addr(base_addr_path)
+    except (OSError, ValueError) as e:
+        return None, f"错误: {e}"
+
+    resolved_base_path = (
+        os.path.abspath(base_addr_path)
+        if base_addr_path is not None
+        else DEFAULT_BASE_ADDR_PATH
+    )
 
     try:
         if isinstance(search_addr, str):
@@ -424,7 +469,7 @@ def find_register_by_address(search_addr, csv_dir=None):
     if not os.path.exists(csv_path):
         return None, f"模块CSV文件不存在: {csv_path}"
 
-    with open(csv_path, 'r') as f:
+    with open(csv_path, 'r', encoding='utf-8', errors='replace') as f:
         reader = csv.reader(f, delimiter=';')
         rows = list(reader)
 
@@ -441,6 +486,7 @@ def find_register_by_address(search_addr, csv_dir=None):
                             'reg_name': addr_row[1] if len(addr_row) > 1 else '',
                             'module': matched_module,
                             'base_addr': f"0x{base:08X}",
+                            'base_addr_file': resolved_base_path,
                             'offset': addr_row[0],
                             'full_addr': f"0x{target_addr:08X}",
                             'bit_pos': '',
@@ -471,6 +517,8 @@ def format_register_info(
     lines.append(f"文件路径: {info['csv_path']}")
     lines.append(f"所属模块: {info['module']}")
     lines.append(f"模块基地址: {info['base_addr']}")
+    if info.get('base_addr_file'):
+        lines.append(f"基地址文件: {info['base_addr_file']}")
     lines.append(f"地址偏移: {info['offset']}")
     lines.append(f"完整物理地址: {info['full_addr']}")
     if info.get('reg_name_full'):
@@ -513,9 +561,10 @@ class RegQueryGUI:
     def __init__(self, root):
         self.root = root
         self.root.title("E22 寄存器查询工具")
-        self.root.geometry("920x820")
+        self.root.geometry("920x880")
 
-        self.csv_dir = os.path.join(SCRIPT_DIR, 'csv_files')
+        self.csv_dir = DEFAULT_CSV_DIR
+        self.base_addr_path = DEFAULT_BASE_ADDR_PATH
 
         self.setup_ui()
 
@@ -528,8 +577,8 @@ class RegQueryGUI:
         self.root.columnconfigure(0, weight=1)
         self.root.rowconfigure(0, weight=1)
         main_frame.columnconfigure(1, weight=1)
-        main_frame.rowconfigure(8, weight=1)
-        main_frame.rowconfigure(10, weight=1)
+        main_frame.rowconfigure(9, weight=1)
+        main_frame.rowconfigure(11, weight=1)
 
         # 查询方式选择
         self.query_type = tk.StringVar(value="name")
@@ -550,56 +599,75 @@ class RegQueryGUI:
         self.csv_dir_entry.insert(0, self.csv_dir)
         ttk.Button(main_frame, text="浏览", command=self.browse_csv_dir).grid(row=2, column=2, padx=(5, 0), pady=(0, 5))
 
+        # 基地址文件选择（不同项目映射不同）
+        ttk.Label(main_frame, text="基地址文件:").grid(row=3, column=0, sticky=tk.W, pady=(0, 5))
+        self.base_addr_entry = ttk.Entry(main_frame)
+        self.base_addr_entry.grid(row=3, column=1, sticky=(tk.W, tk.E), pady=(0, 5))
+        self.base_addr_entry.insert(0, self.base_addr_path)
+        ttk.Button(main_frame, text="浏览", command=self.browse_base_addr).grid(row=3, column=2, padx=(5, 0), pady=(0, 5))
+
         # 写寄存器值配置（可选，多项与查询按顺序一一对应）
-        ttk.Label(main_frame, text="写寄存器值(可选):").grid(row=3, column=0, sticky=(tk.N, tk.W), pady=(0, 5))
+        ttk.Label(main_frame, text="写寄存器值(可选):").grid(row=4, column=0, sticky=(tk.N, tk.W), pady=(0, 5))
         self.write_value_text = scrolledtext.ScrolledText(main_frame, height=4, wrap=tk.WORD)
-        self.write_value_text.grid(row=3, column=1, sticky=(tk.W, tk.E), pady=(0, 5))
+        self.write_value_text.grid(row=4, column=1, sticky=(tk.W, tk.E), pady=(0, 5))
         ttk.Label(
             main_frame,
             text="与查询顺序对应（逗号/换行）；仅填 1 个值且多条查询时作用于全部。\n"
                  "多项时用 ,, 占位跳过某一档。",
             justify=tk.LEFT,
-        ).grid(row=3, column=2, sticky=tk.W, padx=(5, 0), pady=(0, 5))
+        ).grid(row=4, column=2, sticky=tk.W, padx=(5, 0), pady=(0, 5))
 
         # 32bit 读回值（可选）：按位域拆成各信号取值；多项与查询顺序对应
-        ttk.Label(main_frame, text="32bit读回值(可选):").grid(row=4, column=0, sticky=(tk.N, tk.W), pady=(0, 5))
+        ttk.Label(main_frame, text="32bit读回值(可选):").grid(row=5, column=0, sticky=(tk.N, tk.W), pady=(0, 5))
         self.read32_value_text = scrolledtext.ScrolledText(main_frame, height=3, wrap=tk.WORD)
-        self.read32_value_text.grid(row=4, column=1, sticky=(tk.W, tk.E), pady=(0, 5))
+        self.read32_value_text.grid(row=5, column=1, sticky=(tk.W, tk.E), pady=(0, 5))
         ttk.Label(
             main_frame,
             text="整寄存器读回值，按 CSV 位域解析。\n"
                  "与查询顺序对应；仅 1 个值且多条查询时作用于全部。\n"
                  "示例: 0xC30270D8 或 3277468120",
             justify=tk.LEFT,
-        ).grid(row=4, column=2, sticky=tk.W, padx=(5, 0), pady=(0, 5))
+        ).grid(row=5, column=2, sticky=tk.W, padx=(5, 0), pady=(0, 5))
 
         # 查询按钮
-        ttk.Button(main_frame, text="查询", command=self.perform_query, style="Accent.TButton").grid(row=5, column=0, columnspan=3, pady=(10, 0))
+        ttk.Button(main_frame, text="查询", command=self.perform_query, style="Accent.TButton").grid(row=6, column=0, columnspan=3, pady=(10, 0))
 
-        # 列出可用CSV文件按钮
-        ttk.Button(main_frame, text="列出可用CSV文件", command=self.list_csv_files).grid(row=6, column=0, columnspan=3, pady=(5, 0))
+        # 列出可用CSV / 基地址
+        btn_row = ttk.Frame(main_frame)
+        btn_row.grid(row=7, column=0, columnspan=3, pady=(5, 0))
+        ttk.Button(btn_row, text="列出可用CSV文件", command=self.list_csv_files).pack(side=tk.LEFT, padx=(0, 8))
+        ttk.Button(btn_row, text="列出基地址映射", command=self.list_base_addr).pack(side=tk.LEFT)
 
         # 查询结果显示
-        ttk.Label(main_frame, text="查询结果:").grid(row=7, column=0, sticky=tk.W, pady=(10, 5))
-        self.result_text = scrolledtext.ScrolledText(main_frame, height=20)
-        self.result_text.grid(row=8, column=0, columnspan=3, sticky=(tk.W, tk.E, tk.N, tk.S), pady=(0, 10))
+        ttk.Label(main_frame, text="查询结果:").grid(row=8, column=0, sticky=tk.W, pady=(10, 5))
+        self.result_text = scrolledtext.ScrolledText(main_frame, height=18)
+        self.result_text.grid(row=9, column=0, columnspan=3, sticky=(tk.W, tk.E, tk.N, tk.S), pady=(0, 10))
 
         # 命令输出（每行纯命令，可直接复制执行）
-        ttk.Label(main_frame, text="命令输出(每行可直接执行):").grid(row=9, column=0, sticky=tk.W, pady=(0, 5))
+        ttk.Label(main_frame, text="命令输出(每行可直接执行):").grid(row=10, column=0, sticky=tk.W, pady=(0, 5))
         self.command_text = scrolledtext.ScrolledText(main_frame, height=10)
-        self.command_text.grid(row=10, column=0, columnspan=3, sticky=(tk.W, tk.E, tk.N, tk.S), pady=(0, 10))
+        self.command_text.grid(row=11, column=0, columnspan=3, sticky=(tk.W, tk.E, tk.N, tk.S), pady=(0, 10))
 
         # 导出按钮
-        ttk.Button(main_frame, text="导出结果到文件", command=self.export_result).grid(row=11, column=0, columnspan=3, pady=(0, 5))
+        ttk.Button(main_frame, text="导出结果到文件", command=self.export_result).grid(row=12, column=0, columnspan=3, pady=(0, 5))
 
         # 状态栏
         self.status_var = tk.StringVar(value="准备就绪")
-        ttk.Label(main_frame, textvariable=self.status_var, style="Status.TLabel").grid(row=12, column=0, columnspan=3, sticky=(tk.W, tk.E))
+        ttk.Label(main_frame, textvariable=self.status_var, style="Status.TLabel").grid(row=13, column=0, columnspan=3, sticky=(tk.W, tk.E))
 
         # 创建样式
         style = ttk.Style()
         style.configure("Accent.TButton", foreground="black", background="#4CAF50")
         style.configure("Status.TLabel", foreground="blue")
+
+    def sync_paths_from_ui(self):
+        """从输入框同步 CSV 目录与基地址文件路径"""
+        csv_text = self.csv_dir_entry.get().strip()
+        if csv_text:
+            self.csv_dir = csv_text
+        base_text = self.base_addr_entry.get().strip()
+        if base_text:
+            self.base_addr_path = base_text
 
     def browse_csv_dir(self):
         """浏览选择CSV文件目录"""
@@ -610,6 +678,23 @@ class RegQueryGUI:
             self.csv_dir_entry.insert(0, self.csv_dir)
             self.status_var.set(f"CSV目录已更新: {self.csv_dir}")
 
+    def browse_base_addr(self):
+        """浏览选择基地址文件（支持不同项目）"""
+        initial = os.path.dirname(self.base_addr_path) if self.base_addr_path else SCRIPT_DIR
+        path = filedialog.askopenfilename(
+            initialdir=initial,
+            title="选择基地址文件",
+            filetypes=[
+                ("Base addr text", "*.txt"),
+                ("All files", "*.*"),
+            ],
+        )
+        if path:
+            self.base_addr_path = path
+            self.base_addr_entry.delete(0, tk.END)
+            self.base_addr_entry.insert(0, self.base_addr_path)
+            self.status_var.set(f"基地址文件已更新: {self.base_addr_path}")
+
     def perform_query(self):
         """执行查询"""
         query_text = self.query_entry.get().strip()
@@ -617,20 +702,24 @@ class RegQueryGUI:
             messagebox.showwarning("警告", "请输入查询内容")
             return
 
+        self.sync_paths_from_ui()
         self.status_var.set("查询中...")
         self.result_text.delete(1.0, tk.END)
         self.command_text.delete(1.0, tk.END)
 
         write_raw = self.write_value_text.get(1.0, tk.END)
         read_raw = self.read32_value_text.get(1.0, tk.END)
+        csv_dir = self.csv_dir
+        base_addr_path = self.base_addr_path
         # 创建后台线程执行查询（写值/读值在主线程读取，避免 Tk 跨线程访问）
         thread = threading.Thread(
-            target=self.query_thread, args=(query_text, write_raw, read_raw)
+            target=self.query_thread,
+            args=(query_text, write_raw, read_raw, csv_dir, base_addr_path),
         )
         thread.daemon = True
         thread.start()
 
-    def query_thread(self, query_text, write_raw, read_raw):
+    def query_thread(self, query_text, write_raw, read_raw, csv_dir, base_addr_path):
         """查询线程"""
         try:
             queries = split_query_tokens(query_text)
@@ -696,9 +785,13 @@ class RegQueryGUI:
                         reg_read_32 = None
 
                 if self.query_type.get() == "name":
-                    info, error = find_register_info(query, self.csv_dir)
+                    info, error = find_register_info(
+                        query, csv_dir, base_addr_path=base_addr_path
+                    )
                 else:
-                    info, error = find_register_by_address(query, self.csv_dir)
+                    info, error = find_register_by_address(
+                        query, csv_dir, base_addr_path=base_addr_path
+                    )
 
                 if error:
                     errors.append(f"查询 '{query}' 时出错: {error}")
@@ -742,6 +835,7 @@ class RegQueryGUI:
 
     def list_csv_files(self):
         """列出可用的CSV文件"""
+        self.sync_paths_from_ui()
         if not os.path.exists(self.csv_dir):
             messagebox.showerror("错误", f"CSV目录不存在: {self.csv_dir}")
             return
@@ -754,8 +848,8 @@ class RegQueryGUI:
             if not csv_files:
                 self.result_text.insert(tk.END, "未找到CSV文件")
             else:
-                self.result_text.insert(tk.END, "可用的CSV文件列表:\n")
-                for filename in csv_files:
+                self.result_text.insert(tk.END, f"可用的CSV文件列表: {self.csv_dir}\n")
+                for filename in sorted(csv_files):
                     file_path = os.path.join(self.csv_dir, filename)
                     file_size = os.path.getsize(file_path)
                     self.result_text.insert(tk.END, f"  - {filename} ({file_size} 字节)\n")
@@ -763,6 +857,23 @@ class RegQueryGUI:
             self.result_text.insert(tk.END, f"获取CSV文件列表失败: {str(e)}")
 
         self.status_var.set("准备就绪")
+
+    def list_base_addr(self):
+        """列出当前基地址文件中的模块映射"""
+        self.sync_paths_from_ui()
+        self.status_var.set("正在读取基地址文件...")
+        self.result_text.delete(1.0, tk.END)
+        try:
+            mapping = read_base_addr(self.base_addr_path)
+            self.result_text.insert(tk.END, f"基地址文件: {os.path.abspath(self.base_addr_path)}\n")
+            self.result_text.insert(tk.END, "=" * 60 + "\n")
+            for module, base in sorted(mapping.items(), key=lambda x: x[1]):
+                self.result_text.insert(tk.END, f"  {module:20s}  0x{base:08X}\n")
+            self.result_text.insert(tk.END, "=" * 60 + "\n")
+            self.status_var.set(f"已加载 {len(mapping)} 个模块基地址")
+        except (OSError, ValueError) as e:
+            messagebox.showerror("错误", str(e))
+            self.status_var.set("读取基地址失败")
 
     def export_result(self):
         """导出查询结果到文件"""

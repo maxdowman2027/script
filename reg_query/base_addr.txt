@@ -1,3 +1,5 @@
+# 文件顶部增加注释说明：不同项目可复制 base_addr.txt 并改地址
+# phy_common,0xc3026000
 phy_common,0xc3026000
 phy_txfreq,0xc3026400
 phy_txdfe_reg,0xc3026800
