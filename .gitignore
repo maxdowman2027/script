@@ -26,6 +26,9 @@ __pycache__/
 # CSV files in reg_query directory (register definitions)
 !reg_query/csv_files/*.csv
 
+# Default Xian static DPD training sample (ILA dump)
+!dpd/gain168_test_data_3.csv
+
 # GUI program temporary files
 *.pyc
 __pycache__/
@@ -65,6 +68,8 @@ parsed_data.csv
 *.mat
 *.fig
 *.mex*
+# Default Xian static DPD iQxel short capture used by main
+!dpd/gain168_iqxel_short_data.mat
 
 # Bat and PowerShell files
 *.bat
