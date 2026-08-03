@@ -1,0 +1,9 @@
+# Generated / caches
+output/
+__pycache__/
+*.pyc
+*.asv
+
+# Large instrument captures (keep local; not for git)
+*_iqxel_data.txt
+wave_mid_out_*.txt

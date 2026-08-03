@@ -1,0 +1,33 @@
+# xian_static_dpd — Xian static DPD MATLAB→Python port
+
+## 功能
+将 `dpd/xian_static_DPD_main1.m` 及其同目录依赖完整移植为 Python：
+读 ILA CSV → 增益对齐 → CFO → DC → 分数时延 → `static_DPD_memory` LUT → AM-AM/AM-PM 图。
+
+## 入口
+```bash
+cd D:\users\gxu\scripts
+python dpd/xian_static_dpd_main1.py --rx csv
+python dpd/xian_static_dpd_main1.py --rx auto -o dpd/output/xian_static_dpd
+```
+
+## 模块对照
+| MATLAB | Python |
+|--------|--------|
+| `xian_static_DPD_main1.m` | `dpd/xian_static_dpd_main1.py` |
+| `read_data.m` / `importfile19.m` | `dpd/read_data.py` |
+| `gain_compensation.m` | `dpd/gain_compensation.py` |
+| `frequency_offset_estimation.m` | `dpd/frequency_offset_estimation.py` |
+| `dc_compensation.m` | `dpd/dc_compensation.py` |
+| `fractional_delay_estimation.m` | `dpd/fractional_delay_estimation.py` |
+| `static_DPD_memory.m` | `dpd/static_dpd_memory.py` |
+| `amamplot.m` | `dpd/amamplot.py` |
+
+## RX/PA 数据源（`--rx`）
+- `mat`：`gain168_iqxel_short_data.mat` 变量 `pa_data`（与 MATLAB 一致）
+- `txt`：`gain168_iqxel_data.txt`（I,Q），默认 stride=6
+- `csv`：使用 ILA CSV 的 feedback（无 mat 时便于跑通）
+- `auto`：mat → txt → csv
+
+## 文档
+`skill/xian_static_dpd_Skill.md`
