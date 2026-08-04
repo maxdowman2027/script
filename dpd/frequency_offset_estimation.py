@@ -13,7 +13,7 @@ def frequency_offset_estimation(
     tx_data_norm: np.ndarray,
     pa_data_norm: np.ndarray,
     *,
-    corr_len: int = 3500,
+    corr_len: int = 5000,
     plot: bool = True,
     axes: Optional[Tuple] = None,
 ) -> np.ndarray:

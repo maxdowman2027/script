@@ -13,13 +13,13 @@ def gain_compensation(
     tx_data: np.ndarray,
     rx_data: np.ndarray,
     *,
-    amp_thresh: float = 1000.0,
+    amp_thresh: float = 800.0,
 ) -> Tuple[np.ndarray, np.ndarray]:
     """
     Scale RX so its RMS matches TX RMS on samples with |TX| < amp_thresh.
 
-    MATLAB:
-        location = find(abs(tx) < 1000)
+    MATLAB (20260804_3_data):
+        location = find(abs(tx) < 800)
         rx_gain = rx * tx_rms / rx_rms
     """
     tx = np.asarray(tx_data, dtype=np.complex128).reshape(-1)

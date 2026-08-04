@@ -3,10 +3,13 @@
 """
 Xian static DPD training pipeline — Python port of xian_static_DPD_main1.m.
 
-Pipeline (1:1 with MATLAB):
-  read_data(CSV) → trim TX → load PA/RX (mat/txt/csv) → slice
-  → gain_compensation → [CFO → DC → fractional delay]
-  → static_dpd_memory → amamplot
+Aligned with ``dpd/20260804_3_data/xian_static_DPD_main1.m``:
+
+  read_data(CSV) → TX slice 313:313+7000 → load mat ``rx_data`` 1596:1596+7000
+  → both 1:5500 → gain_compensation(amp<800)
+  → [CFO(corr_len=5000) → DC → fractional delay]
+  → trim 1000:end → static_dpd_memory(numLUT=1, estDelay=0, order=3)
+  → amamplot
 
 All helper modules live in the same directory (dpd/).
 """
@@ -36,19 +39,24 @@ from static_dpd_memory import static_dpd_memory  # noqa: E402
 PathLike = Union[str, Path]
 
 # =============================================================================
-# Config (mirrors MATLAB script defaults)
+# Config (mirrors 20260804_3_data/xian_static_DPD_main1.m)
 # =============================================================================
-DATA_DIR = _THIS_DIR
-INPUT_CSV = DATA_DIR / "gain168_test_data_3.csv"
-# MATLAB loads gain168_iqxel_short_data.mat (pa_data). If missing, try txt / CSV feedback.
-RX_MAT = DATA_DIR / "gain168_iqxel_short_data.mat"
-RX_TXT = DATA_DIR / "gain168_iqxel_data.txt"
-RX_TXT_STRIDE = 6  # MATLAB comment: pa_data(1:6:16384*6,:)
+DATA_DIR = _THIS_DIR / "20260804_3_data"
+INPUT_CSV = DATA_DIR / "feedback_ref_gain1_168_gain2_127_iladata2.csv"
+# MATLAB: load(..._short.mat).rx_data
+RX_MAT = DATA_DIR / "iqxel_2412_gain1_168_gain2_127_short.mat"
+RX_TXT = DATA_DIR / "iqxel_2412_gain1_168_gain2_127.txt"
+RX_TXT_STRIDE = 1  # short txt already at sample rate; set 6 for long captures
 
-TX_TRIM_START = 89  # MATLAB tx_data(89:end) — 1-based
-SLICE_START = 231  # MATLAB 231:7000
-SLICE_END = 7000  # inclusive in MATLAB → Python end exclusive = 7000
+# MATLAB: tx_data(313:313+7000,:), rx_data(1596:1596+7000,:), then both (1:5500,:)
+TX_SLICE_START = 313  # 1-based
+RX_SLICE_START = 1596  # 1-based
+SLICE_LEN = 7001  # inclusive end = start + 7000 → length 7001
+ALIGN_LEN = 5500
+
 DPD_TRIM_START = 1000  # MATLAB (1000:end) 1-based → Python 999:
+AMP_THRESH = 800.0
+CFO_CORR_LEN = 5000
 
 MAX_TABLE_VALUE = 1023
 NUM_LUT = 1
@@ -56,11 +64,21 @@ EST_DELAY = 0
 ORDER = 3
 NITER = 1
 
-OUTPUT_DIR = DATA_DIR / "output" / "xian_static_dpd"
+OUTPUT_DIR = _THIS_DIR / "output" / "xian_static_dpd"
 
 
 def _as_col(z: np.ndarray) -> np.ndarray:
     return np.asarray(z, dtype=np.complex128).reshape(-1, 1)
+
+
+def _mat_rx_key(m: dict) -> str:
+    """Prefer rx_data (new captures); fall back to pa_data (older mats)."""
+    if "rx_data" in m:
+        return "rx_data"
+    if "pa_data" in m:
+        return "pa_data"
+    keys = [k for k in m if not k.startswith("__")]
+    raise KeyError(f"neither rx_data nor pa_data in mat; keys={keys}")
 
 
 def load_rx_pa(
@@ -71,41 +89,51 @@ def load_rx_pa(
     txt_stride: int = RX_TXT_STRIDE,
     csv_rx: Optional[np.ndarray] = None,
     prefer: str = "auto",
+    rx_slice_start: Optional[int] = None,
+    slice_len: Optional[int] = None,
 ) -> np.ndarray:
     """
-    Load PA/RX complex samples aligned to TX length.
+    Load PA/RX complex samples.
 
     prefer: auto | mat | txt | csv
       auto: mat → txt → csv feedback
+
+    If ``rx_slice_start`` (1-based) and ``slice_len`` are set, apply that
+    window on the full capture before truncating to ``n_tx``.
     """
     mat_path = Path(mat_path) if mat_path else RX_MAT
     txt_path = Path(txt_path) if txt_path else RX_TXT
     mode = prefer.lower()
 
+    def _window(iq: np.ndarray) -> np.ndarray:
+        z = np.asarray(iq, dtype=np.complex128).reshape(-1)
+        if rx_slice_start is not None and slice_len is not None:
+            i0 = int(rx_slice_start) - 1
+            z = z[i0 : i0 + int(slice_len)]
+        return _as_col(z[:n_tx])
+
     def from_mat() -> np.ndarray:
         from scipy.io import loadmat
 
         m = loadmat(str(mat_path))
-        if "pa_data" not in m:
-            keys = [k for k in m if not k.startswith("__")]
-            raise KeyError(f"pa_data not in {mat_path}; keys={keys}")
-        pa = np.asarray(m["pa_data"]).reshape(-1)
-        return _as_col(pa[:n_tx])
+        key = _mat_rx_key(m)
+        pa = np.asarray(m[key]).reshape(-1)
+        print(f"[RX] mat key={key}")
+        return _window(pa)
 
     def from_txt() -> np.ndarray:
-        # Two columns I,Q; optional stride (MATLAB 1:6:...)
         data = np.loadtxt(str(txt_path), delimiter=",")
         if data.ndim == 1:
             raise ValueError(f"unexpected 1-D data in {txt_path}")
         iq = data[:, 0] + 1j * data[:, 1]
         if txt_stride > 1:
             iq = iq[::txt_stride]
-        return _as_col(iq[:n_tx])
+        return _window(iq)
 
     def from_csv() -> np.ndarray:
         if csv_rx is None:
             raise FileNotFoundError("no CSV feedback provided")
-        return _as_col(np.asarray(csv_rx).reshape(-1)[:n_tx])
+        return _window(np.asarray(csv_rx).reshape(-1))
 
     order = {
         "auto": ["mat", "txt", "csv"],
@@ -161,6 +189,13 @@ def run_pipeline(
     num_lut: int = NUM_LUT,
     est_delay: int = EST_DELAY,
     order: int = ORDER,
+    amp_thresh: float = AMP_THRESH,
+    cfo_corr_len: int = CFO_CORR_LEN,
+    enable_cfo: bool = True,
+    tx_slice_start: int = TX_SLICE_START,
+    rx_slice_start: int = RX_SLICE_START,
+    slice_len: int = SLICE_LEN,
+    align_len: int = ALIGN_LEN,
 ) -> dict:
     """
     Execute the MATLAB main flow; return dict with LUT and intermediate arrays.
@@ -177,44 +212,56 @@ def run_pipeline(
     # --- load CSV (ILA) ---
     tx_data, rx_csv, adc_data = read_data(csv_path)
     print(f"[CSV] {Path(csv_path).name}  tx={tx_data.size} (after 2:1)")
+    _ = adc_data  # available for debug; MATLAB importfile20 skips adc
 
-    # MATLAB: tx_data = tx_data(89:end,:)
-    tx_data = tx_data[TX_TRIM_START - 1 :, :]
+    # MATLAB: tx_data = tx_data(313:313+7000,:)
+    t0 = int(tx_slice_start) - 1
+    tx_data = tx_data[t0 : t0 + int(slice_len), :]
+    print(f"[TX] slice {tx_slice_start}:{tx_slice_start}+{slice_len - 1} → N={tx_data.size}")
 
-    # MATLAB: replace rx with iQxel / PA capture
-    rx_data = load_rx_pa(
-        tx_data.size,
-        mat_path=mat_path,
-        txt_path=txt_path,
-        txt_stride=txt_stride,
-        csv_rx=rx_csv,
-        prefer=rx_prefer,
-    )
+    # MATLAB: rx_data = load(...).rx_data; rx_data(1596:1596+7000,:)
+    # CSV feedback fallback uses the same TX window on ILA feedback.
+    use_csv_window = rx_prefer == "csv"
+    mat_resolved = Path(mat_path) if mat_path else RX_MAT
+    if rx_prefer == "auto" and not mat_resolved.is_file():
+        txt_resolved = Path(txt_path) if txt_path else RX_TXT
+        use_csv_window = not txt_resolved.is_file()
 
-    # Align lengths after load
-    n = min(tx_data.size, rx_data.size)
+    if use_csv_window:
+        rx_data = _as_col(np.asarray(rx_csv).reshape(-1)[t0 : t0 + int(slice_len)])
+        print(f"[RX] CSV feedback same TX window → N={rx_data.size}")
+    else:
+        rx_data = load_rx_pa(
+            int(slice_len),
+            mat_path=mat_path,
+            txt_path=txt_path,
+            txt_stride=txt_stride,
+            csv_rx=rx_csv,
+            prefer=rx_prefer,
+            rx_slice_start=int(rx_slice_start),
+            slice_len=int(slice_len),
+        )
+
+    n = min(tx_data.size, rx_data.size, int(align_len))
     tx_data = tx_data[:n, :]
     rx_data = rx_data[:n, :]
-
-    # MATLAB: tx/rx = (231:7000,:)  — 1-based inclusive end 7000
-    i0 = SLICE_START - 1
-    i1 = SLICE_END  # Python exclusive; MATLAB inclusive 7000 → slice to index 7000
-    tx_data = tx_data[i0:i1, :]
-    rx_data = rx_data[i0:i1, :]
-    print(f"[SLICE] 231:7000 → N={tx_data.size}")
-
+    print(f"[ALIGN] 1:{align_len} → N={tx_data.size}")
     # --- gain ---
-    tx_gain, rx_gain = gain_compensation(tx_data, rx_data)
+    tx_gain, rx_gain = gain_compensation(tx_data, rx_data, amp_thresh=amp_thresh)
 
     rx_after_frac = rx_gain
     for it in range(int(niter)):
         print(f"[ITER] {it + 1}/{niter}")
-        # CFO on gain-matched pair
-        pa_cfo = frequency_offset_estimation(tx_gain, rx_gain, plot=plot)
-        if plot and not show:
-            for i, num in enumerate(plt.get_fignums()[-2:], 1):
-                plt.figure(num).savefig(out_dir / f"cfo_iter{it + 1}_{i}.pdf")
-                plt.close(num)
+        if enable_cfo:
+            pa_cfo = frequency_offset_estimation(
+                tx_gain, rx_gain, corr_len=cfo_corr_len, plot=plot
+            )
+            if plot and not show:
+                for i, num in enumerate(plt.get_fignums()[-2:], 1):
+                    plt.figure(num).savefig(out_dir / f"cfo_iter{it + 1}_{i}.pdf")
+                    plt.close(num)
+        else:
+            pa_cfo = rx_gain
 
         # DC: raw sliced TX + CFO-compensated PA (MATLAB quirk)
         tx_dc, rx_dc = dc_compensation(tx_data, pa_cfo)
@@ -229,9 +276,9 @@ def run_pipeline(
         rx_gain = rx_after_frac
 
     # DPD trim (1000:end) 1-based
-    t0 = DPD_TRIM_START - 1
-    tx_dpd = tx_gain[t0:, :]
-    rx_dpd = rx_after_frac[t0:, :]
+    t_dpd = DPD_TRIM_START - 1
+    tx_dpd = tx_gain[t_dpd:, :]
+    rx_dpd = rx_after_frac[t_dpd:, :]
     print(f"[DPD] trim 1000:end → N={tx_dpd.size}")
 
     table_x, table_y = static_dpd_memory(
@@ -284,9 +331,13 @@ def build_parser() -> argparse.ArgumentParser:
         "--rx",
         choices=("auto", "mat", "txt", "csv"),
         default="auto",
-        help="PA/RX source: mat (iqxel short), txt (stride), or CSV feedback",
+        help="PA/RX source: mat (iqxel short), txt, or CSV feedback",
     )
-    p.add_argument("--mat", default=str(RX_MAT), help="path to *.mat with pa_data")
+    p.add_argument(
+        "--mat",
+        default=str(RX_MAT),
+        help="path to *.mat with rx_data (or pa_data)",
+    )
     p.add_argument("--txt", default=str(RX_TXT), help="path to I,Q txt")
     p.add_argument("--txt-stride", type=int, default=RX_TXT_STRIDE)
     p.add_argument("-o", "--output-dir", default=str(OUTPUT_DIR))
@@ -297,6 +348,13 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("--num-lut", type=int, default=NUM_LUT)
     p.add_argument("--est-delay", type=int, default=EST_DELAY)
     p.add_argument("--max-table", type=float, default=MAX_TABLE_VALUE)
+    p.add_argument("--amp-thresh", type=float, default=AMP_THRESH)
+    p.add_argument("--cfo-corr-len", type=int, default=CFO_CORR_LEN)
+    p.add_argument(
+        "--no-cfo",
+        action="store_true",
+        help="skip CFO (as in draft .m~ with CFO commented out)",
+    )
     return p
 
 
@@ -316,6 +374,9 @@ def main(argv=None) -> int:
         num_lut=args.num_lut,
         est_delay=args.est_delay,
         order=args.order,
+        amp_thresh=args.amp_thresh,
+        cfo_corr_len=args.cfo_corr_len,
+        enable_cfo=not args.no_cfo,
     )
     return 0
 

@@ -3,12 +3,15 @@
 """
 Read ILA dump CSV for static DPD training.
 
-Port of read_data.m + importfile19.m.
+Port of read_data.m + importfile20.m (20260804_3_data).
 
 CSV columns (header skipped):
   adc_i, adc_q, feedback_q, feedback_i, ref_i, ref_q
 
-Returns complex TX/RX/ADC after 2:1 decimate (::2), matching MATLAB (1:2:end).
+importfile20 skips the first two (adc) columns via ``%*s%*s``; this loader
+still returns adc when present, and tolerates hex cells (e.g. Vivado ``3fc``).
+
+Returns complex TX/RX/(ADC) after 2:1 decimate (::2), matching MATLAB (1:2:end).
 """
 
 from __future__ import annotations
@@ -21,9 +24,28 @@ import pandas as pd
 
 PathLike = Union[str, Path]
 
-# MATLAB importfile19 defaults: rows 2..16385 inclusive (1-based with header)
+# MATLAB importfile20 defaults: rows 2..16385 inclusive (1-based with header)
 DEFAULT_START_ROW = 2
 DEFAULT_END_ROW = 16385
+
+
+def _parse_numeric_cell(val) -> float:
+    """Parse decimal or hex cell (importfile20 is decimal-only on fb/ref)."""
+    if val is None or (isinstance(val, float) and np.isnan(val)):
+        return np.nan
+    if isinstance(val, (int, np.integer)):
+        return float(val)
+    if isinstance(val, (float, np.floating)):
+        return float(val)
+    s = str(val).strip().lower()
+    if not s or s in ("nan", "none"):
+        return np.nan
+    try:
+        return float(s)
+    except ValueError:
+        if s.startswith("0x"):
+            s = s[2:]
+        return float(int(s, 16))
 
 
 def read_data(
@@ -39,7 +61,7 @@ def read_data(
     Parameters
     ----------
     csv_path :
-        Path to ILA CSV (same layout as gain168_test_data_3.csv).
+        Path to ILA CSV (adc + feedback + ref).
     start_row, end_row :
         1-based inclusive row indices as in MATLAB textscan HeaderLines /
         endRow (header is row 1; data starts at row 2).
@@ -51,21 +73,28 @@ def read_data(
     tx_data, rx_data, adc_data : complex column vectors (N, 1)
         tx = ref_i + 1j*ref_q
         rx = feedback_i + 1j*feedback_q
-        adc = adc_i + 1j*adc_q
+        adc = adc_i + 1j*adc_q  (zeros if columns missing)
     """
     path = Path(csv_path)
-    # pandas: skip header, then take rows [start_row-2 : end_row-1] in 0-based data index
-    # After skiprows=1 (header), first data row is MATLAB row 2 → index 0.
     nrows = int(end_row) - int(start_row) + 1
-    skip = max(int(start_row) - 2, 0)  # extra data rows to skip after header
+    skip = max(int(start_row) - 2, 0)
     df = pd.read_csv(
         path,
         skiprows=1 + skip,
         nrows=nrows,
         header=None,
         names=["adc_i", "adc_q", "feedback_q", "feedback_i", "ref_i", "ref_q"],
+        converters={
+            "adc_i": _parse_numeric_cell,
+            "adc_q": _parse_numeric_cell,
+            "feedback_q": _parse_numeric_cell,
+            "feedback_i": _parse_numeric_cell,
+            "ref_i": _parse_numeric_cell,
+            "ref_q": _parse_numeric_cell,
+        },
     )
     arr = df.to_numpy(dtype=float)
+    # importfile20 column order after skip: fb_q, fb_i, ref_i, ref_q
     tx0 = arr[:, 4] + 1j * arr[:, 5]
     rx0 = arr[:, 3] + 1j * arr[:, 2]
     adc0 = arr[:, 0] + 1j * arr[:, 1]
@@ -75,7 +104,6 @@ def read_data(
         rx0 = rx0[::decimate]
         adc0 = adc0[::decimate]
 
-    # Match MATLAB column vectors
     return (
         tx0.reshape(-1, 1),
         rx0.reshape(-1, 1),
