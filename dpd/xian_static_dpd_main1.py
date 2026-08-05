@@ -33,7 +33,7 @@ from dc_compensation import dc_compensation  # noqa: E402
 from fractional_delay_estimation import fractional_delay_estimation  # noqa: E402
 from frequency_offset_estimation import frequency_offset_estimation  # noqa: E402
 from gain_compensation import gain_compensation  # noqa: E402
-from read_data import read_data  # noqa: E402
+from read_data import load_iqxel_txt, read_data  # noqa: E402
 from static_dpd_memory import static_dpd_memory  # noqa: E402
 
 PathLike = Union[str, Path]
@@ -46,7 +46,8 @@ INPUT_CSV = DATA_DIR / "feedback_ref_gain1_168_gain2_127_iladata2.csv"
 # MATLAB: load(..._short.mat).rx_data
 RX_MAT = DATA_DIR / "iqxel_2412_gain1_168_gain2_127_short.mat"
 RX_TXT = DATA_DIR / "iqxel_2412_gain1_168_gain2_127.txt"
-RX_TXT_STRIDE = 1  # short txt already at sample rate; set 6 for long captures
+# 0 = auto (160 Msps LitePoint → stride 2); else keep every N-th sample
+RX_TXT_STRIDE = 0
 
 # MATLAB: tx_data(313:313+7000,:), rx_data(1596:1596+7000,:), then both (1:5500,:)
 TX_SLICE_START = 313  # 1-based
@@ -59,8 +60,8 @@ AMP_THRESH = 800.0
 CFO_CORR_LEN = 5000
 
 MAX_TABLE_VALUE = 1023
-NUM_LUT = 1
-EST_DELAY = 0
+NUM_LUT = 3
+EST_DELAY = 1
 ORDER = 3
 NITER = 1
 
@@ -69,6 +70,78 @@ OUTPUT_DIR = _THIS_DIR / "output" / "xian_static_dpd"
 
 def _as_col(z: np.ndarray) -> np.ndarray:
     return np.asarray(z, dtype=np.complex128).reshape(-1, 1)
+
+
+def plot_aligned_time_domain(
+    tx_data: np.ndarray,
+    rx_data: np.ndarray,
+    *,
+    out_dir: Path,
+    tx_slice_start: int,
+    rx_slice_start: int,
+    align_len: int,
+    show: bool = False,
+) -> Path:
+    """
+    Time-domain |TX| / |RX| after coarse slice+align, for tuning slice params.
+
+    Top: absolute magnitude (RX scaled to TX peak for overlay).
+    Bottom: each peak-normalized to 1.
+    """
+    import matplotlib.pyplot as plt
+
+    tx = np.asarray(tx_data, dtype=np.complex128).reshape(-1)
+    rx = np.asarray(rx_data, dtype=np.complex128).reshape(-1)
+    n = min(tx.size, rx.size)
+    tx, rx = tx[:n], rx[:n]
+    t = np.arange(n)
+
+    tx_abs = np.abs(tx)
+    rx_abs = np.abs(rx)
+    tx_peak = float(np.max(tx_abs)) if n else 0.0
+    rx_peak = float(np.max(rx_abs)) if n else 0.0
+    scale = (tx_peak / rx_peak) if rx_peak > 0 else 1.0
+
+    fig, axes = plt.subplots(2, 1, sharex=True, figsize=(11, 6.5))
+    title = (
+        f"Aligned time domain  N={n}  "
+        f"tx_slice={tx_slice_start}  rx_slice={rx_slice_start}  align_len={align_len}"
+    )
+    fig.suptitle(title)
+
+    ax0 = axes[0]
+    ax0.plot(t, tx_abs, label="|TX|", linewidth=0.8)
+    ax0.plot(t, rx_abs * scale, label=f"|RX|×{scale:.3g} (→TX peak)", linewidth=0.8, alpha=0.85)
+    ax0.set_ylabel("Amplitude")
+    ax0.grid(True, which="both", alpha=0.4)
+    ax0.legend(loc="best")
+    ax0.set_title("Raw |·| (RX gain-matched to TX peak for overlay)")
+
+    ax1 = axes[1]
+    tx_n = tx_abs / (tx_peak + 1e-12)
+    rx_n = rx_abs / (rx_peak + 1e-12)
+    ax1.plot(t, tx_n, label="|TX| / peak", linewidth=0.8)
+    ax1.plot(t, rx_n, label="|RX| / peak", linewidth=0.8, alpha=0.85)
+    ax1.set_xlabel("Sample index (after align)")
+    ax1.set_ylabel("Normalized")
+    ax1.set_ylim(-0.05, 1.15)
+    ax1.grid(True, which="both", alpha=0.4)
+    ax1.legend(loc="best")
+    ax1.set_title("Peak-normalized (shape / delay check)")
+
+    fig.tight_layout()
+    out_dir = Path(out_dir)
+    out_dir.mkdir(parents=True, exist_ok=True)
+    pdf = out_dir / "align_time_domain.pdf"
+    png = out_dir / "align_time_domain.png"
+    fig.savefig(pdf)
+    fig.savefig(png, dpi=120)
+    if show:
+        plt.show()
+    else:
+        plt.close(fig)
+    print(f"[PLOT] align time-domain → {png}")
+    return png
 
 
 def _mat_rx_key(m: dict) -> str:
@@ -122,12 +195,7 @@ def load_rx_pa(
         return _window(pa)
 
     def from_txt() -> np.ndarray:
-        data = np.loadtxt(str(txt_path), delimiter=",")
-        if data.ndim == 1:
-            raise ValueError(f"unexpected 1-D data in {txt_path}")
-        iq = data[:, 0] + 1j * data[:, 1]
-        if txt_stride > 1:
-            iq = iq[::txt_stride]
+        iq = load_iqxel_txt(txt_path, stride=int(txt_stride)).reshape(-1)
         return _window(iq)
 
     def from_csv() -> np.ndarray:
@@ -155,9 +223,7 @@ def load_rx_pa(
                 if not txt_path.is_file():
                     raise FileNotFoundError(txt_path)
                 pa = from_txt()
-                print(
-                    f"[RX] loaded txt {txt_path.name} stride={txt_stride}  N={pa.size}"
-                )
+                print(f"[RX] loaded txt {txt_path.name}  N={pa.size}")
                 return pa
             if kind == "csv":
                 pa = from_csv()
@@ -196,9 +262,13 @@ def run_pipeline(
     rx_slice_start: int = RX_SLICE_START,
     slice_len: int = SLICE_LEN,
     align_len: int = ALIGN_LEN,
+    tx_source: str = "auto",
 ) -> dict:
     """
     Execute the MATLAB main flow; return dict with LUT and intermediate arrays.
+
+    tx_source: ref | adc | auto
+      auto → use ref if |ref| has energy, else ADC (common when ILA ref columns are 0).
     """
     import matplotlib
 
@@ -209,10 +279,48 @@ def run_pipeline(
     out_dir = Path(output_dir)
     out_dir.mkdir(parents=True, exist_ok=True)
 
+    mat_resolved = Path(mat_path) if mat_path else RX_MAT
+    txt_resolved = Path(txt_path) if txt_path else RX_TXT
+
+    # If user points --txt at a non-default file under --rx auto, prefer txt over
+    # the stock default mat (otherwise auto always picks the existing default mat).
+    prefer = rx_prefer.lower()
+    if prefer == "auto":
+        try:
+            txt_custom = txt_resolved.resolve() != Path(RX_TXT).resolve()
+        except OSError:
+            txt_custom = str(txt_resolved) != str(RX_TXT)
+        if txt_custom and txt_resolved.is_file():
+            prefer = "txt"
+            print(f"[RX] auto→txt (custom --txt {txt_resolved.name})")
+
     # --- load CSV (ILA) ---
-    tx_data, rx_csv, adc_data = read_data(csv_path)
-    print(f"[CSV] {Path(csv_path).name}  tx={tx_data.size} (after 2:1)")
-    _ = adc_data  # available for debug; MATLAB importfile20 skips adc
+    ref_data, rx_csv, adc_data = read_data(csv_path)
+    print(f"[CSV] {Path(csv_path).name}  N={ref_data.size} (after 2:1)")
+
+    src = tx_source.lower()
+    ref_peak = float(np.max(np.abs(ref_data))) if ref_data.size else 0.0
+    adc_peak = float(np.max(np.abs(adc_data))) if adc_data.size else 0.0
+    if src == "auto":
+        if ref_peak > 0:
+            src = "ref"
+        elif adc_peak > 0:
+            src = "adc"
+            print(
+                "[TX] ref columns are empty; using ADC as TX "
+                f"(ref_peak={ref_peak:.3g}, adc_peak={adc_peak:.3g})"
+            )
+        else:
+            raise RuntimeError(
+                "TX empty: both ref and adc are zero in CSV; check ILA dump"
+            )
+    if src == "ref":
+        tx_data = ref_data
+    elif src == "adc":
+        tx_data = adc_data
+    else:
+        raise ValueError(f"unknown tx_source={tx_source!r}")
+    print(f"[TX] source={src}  peak={float(np.max(np.abs(tx_data))):.3g}")
 
     # MATLAB: tx_data = tx_data(313:313+7000,:)
     t0 = int(tx_slice_start) - 1
@@ -221,10 +329,8 @@ def run_pipeline(
 
     # MATLAB: rx_data = load(...).rx_data; rx_data(1596:1596+7000,:)
     # CSV feedback fallback uses the same TX window on ILA feedback.
-    use_csv_window = rx_prefer == "csv"
-    mat_resolved = Path(mat_path) if mat_path else RX_MAT
-    if rx_prefer == "auto" and not mat_resolved.is_file():
-        txt_resolved = Path(txt_path) if txt_path else RX_TXT
+    use_csv_window = prefer == "csv"
+    if prefer == "auto" and not mat_resolved.is_file():
         use_csv_window = not txt_resolved.is_file()
 
     if use_csv_window:
@@ -233,11 +339,11 @@ def run_pipeline(
     else:
         rx_data = load_rx_pa(
             int(slice_len),
-            mat_path=mat_path,
-            txt_path=txt_path,
+            mat_path=mat_resolved,
+            txt_path=txt_resolved,
             txt_stride=txt_stride,
             csv_rx=rx_csv,
-            prefer=rx_prefer,
+            prefer=prefer,
             rx_slice_start=int(rx_slice_start),
             slice_len=int(slice_len),
         )
@@ -246,6 +352,18 @@ def run_pipeline(
     tx_data = tx_data[:n, :]
     rx_data = rx_data[:n, :]
     print(f"[ALIGN] 1:{align_len} → N={tx_data.size}")
+
+    # Coarse-align check (before gain/CFO/frac) — always saved for slice tuning
+    plot_aligned_time_domain(
+        tx_data,
+        rx_data,
+        out_dir=out_dir,
+        tx_slice_start=int(tx_slice_start),
+        rx_slice_start=int(rx_slice_start),
+        align_len=int(align_len),
+        show=show,
+    )
+
     # --- gain ---
     tx_gain, rx_gain = gain_compensation(tx_data, rx_data, amp_thresh=amp_thresh)
 
@@ -338,8 +456,43 @@ def build_parser() -> argparse.ArgumentParser:
         default=str(RX_MAT),
         help="path to *.mat with rx_data (or pa_data)",
     )
-    p.add_argument("--txt", default=str(RX_TXT), help="path to I,Q txt")
-    p.add_argument("--txt-stride", type=int, default=RX_TXT_STRIDE)
+    p.add_argument("--txt", default=str(RX_TXT), help="path to I,Q txt (LitePoint ok)")
+    p.add_argument(
+        "--txt-stride",
+        type=int,
+        default=RX_TXT_STRIDE,
+        help="decimate iQxel txt (0=auto from SamplingRate; 2 for 160Msps→80M)",
+    )
+    p.add_argument(
+        "--tx-source",
+        choices=("auto", "ref", "adc"),
+        default="auto",
+        help="TX from CSV ref_* or adc_* (auto: ref if nonzero else adc)",
+    )
+    p.add_argument(
+        "--tx-slice-start",
+        type=int,
+        default=TX_SLICE_START,
+        help="1-based TX start index after 2:1 (MATLAB tx(start:start+slice_len-1))",
+    )
+    p.add_argument(
+        "--rx-slice-start",
+        type=int,
+        default=RX_SLICE_START,
+        help="1-based RX start on mat/txt capture",
+    )
+    p.add_argument(
+        "--slice-len",
+        type=int,
+        default=SLICE_LEN,
+        help="samples taken from each stream before align_len trim",
+    )
+    p.add_argument(
+        "--align-len",
+        type=int,
+        default=ALIGN_LEN,
+        help="keep first N samples after TX/RX slice (MATLAB 1:5500)",
+    )
     p.add_argument("-o", "--output-dir", default=str(OUTPUT_DIR))
     p.add_argument("--no-plot", action="store_true")
     p.add_argument("--show", action="store_true", help="interactive matplotlib windows")
@@ -377,6 +530,11 @@ def main(argv=None) -> int:
         amp_thresh=args.amp_thresh,
         cfo_corr_len=args.cfo_corr_len,
         enable_cfo=not args.no_cfo,
+        tx_source=args.tx_source,
+        tx_slice_start=args.tx_slice_start,
+        rx_slice_start=args.rx_slice_start,
+        slice_len=args.slice_len,
+        align_len=args.align_len,
     )
     return 0
 

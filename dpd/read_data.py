@@ -109,3 +109,59 @@ def read_data(
         rx0.reshape(-1, 1),
         adc0.reshape(-1, 1),
     )
+
+
+def load_iqxel_txt(
+    txt_path: PathLike,
+    *,
+    stride: int = 1,
+) -> np.ndarray:
+    """
+    Load LitePoint iQxel I/Q capture as complex column vector.
+
+    Supports:
+      - headerless ``I,Q`` lines (older exports)
+      - LitePoint header ending with ``Idata,Qdata`` then numeric rows
+    """
+    path = Path(txt_path)
+    skip = 0
+    sample_rate = None
+    with open(path, "r", encoding="utf-8", errors="replace") as f:
+        for i, line in enumerate(f):
+            s = line.strip()
+            if s.lower().startswith("samplingrate:"):
+                try:
+                    sample_rate = float(s.split(":", 1)[1].strip())
+                except ValueError:
+                    pass
+            if s.lower() in ("idata,qdata", "i,q", "i_data,q_data"):
+                skip = i + 1
+                break
+            # first numeric CSV line → no header (or header ended)
+            if s and (s[0].isdigit() or s[0] in "+-"):
+                parts = s.split(",")
+                if len(parts) >= 2:
+                    try:
+                        float(parts[0])
+                        float(parts[1])
+                        skip = i
+                        break
+                    except ValueError:
+                        pass
+
+    data = np.loadtxt(path, delimiter=",", skiprows=skip)
+    if data.ndim == 1:
+        raise ValueError(f"unexpected 1-D data in {path}")
+    if data.shape[1] < 2:
+        raise ValueError(f"need >=2 columns I,Q in {path}")
+    iq = data[:, 0] + 1j * data[:, 1]
+    st = int(stride)
+    if st <= 0:
+        # auto: 160 Msps → match ~80 Msps ILA after 2:1
+        if sample_rate is not None and sample_rate >= 1.5e8:
+            st = 2
+        else:
+            st = 1
+    if st > 1:
+        iq = iq[::st]
+    return iq.reshape(-1, 1)

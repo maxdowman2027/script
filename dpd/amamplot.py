@@ -67,21 +67,26 @@ def amamplot(
     # --- AM-PM ---
     fig2, ax2 = plt.subplots()
     phase1 = y * np.conj(x)
-    pm = np.arctan(np.imag(phase1) / np.real(phase1))
+    with np.errstate(divide="ignore", invalid="ignore"):
+        # Match MATLAB atan(imag/real); arctan2 is safer but changes branch cuts.
+        pm = np.arctan(np.imag(phase1) / np.real(phase1))
     h2 = []
     legend2 = []
     (ln,) = ax2.plot(np.abs(x), pm, marker="o", linestyle="none")
     h2.append(ln)
     legend2.append("PA")
-    # polyfit degree 2 on AM-PM cloud
+    # polyfit degree 2 on AM-PM cloud (skip if TX/PM empty — e.g. all-zero ref)
     amp = np.abs(x)
-    mask = np.isfinite(pm) & np.isfinite(amp)
-    phase_coef = np.polyfit(amp[mask], pm[mask], 2)
-    xx = np.arange(1, 1024, dtype=float)
-    yy = phase_coef[2] + phase_coef[1] * xx + phase_coef[0] * xx**2
-    (ln,) = ax2.plot(xx, yy, linestyle="-", color="green", linewidth=2)
-    h2.append(ln)
-    legend2.append("PA fit")
+    mask = np.isfinite(pm) & np.isfinite(amp) & (amp > 0)
+    if np.count_nonzero(mask) >= 3:
+        phase_coef = np.polyfit(amp[mask], pm[mask], 2)
+        xx = np.arange(1, 1024, dtype=float)
+        yy = phase_coef[2] + phase_coef[1] * xx + phase_coef[0] * xx**2
+        (ln,) = ax2.plot(xx, yy, linestyle="-", color="green", linewidth=2)
+        h2.append(ln)
+        legend2.append("PA fit")
+    else:
+        print("[amamplot] skip AM-PM polyfit: no finite |TX|>0 samples")
 
     ty_plot = ty.copy()
     # MATLAB: tableY(2,:) = real(tableY(2,:));
