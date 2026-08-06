@@ -2,42 +2,30 @@
 
 ## 功能
 将 `dpd/20260804_3_data/xian_static_DPD_main1.m` 及其依赖移植为 Python：
-读 ILA CSV → 增益对齐 → CFO → DC → 分数时延 → LUT → `lut_data_map` / AM-AM·AM-PM。
+读 ILA CSV → **自动包络粗对齐** → 增益 → CFO → DC → 分数时延 → LUT → `lut_data_map` / AM-AM·AM-PM。
 
 ## 入口（常用）
 ```bash
 cd D:\users\gxu\scripts
 
-# 默认：20260804_3_data CSV + mat
-python dpd/xian_static_dpd_main1.py
+# iQxel txt：全局自动找 RX 起点（不必手调 --rx-slice-start）
+python dpd/xian_static_dpd_main1.py --csv PATH\iladata.csv --txt PATH\iqxel.txt --rx txt --tx-source ref -o OUT
 
-# iQxel txt 作 RX，CSV ref 作 TX
-python dpd/xian_static_dpd_main1.py --csv PATH\iladata.csv --txt PATH\iqxel.txt --rx txt --tx-source ref
+# ILA 片上：ref vs feedback（自动补偿样点时延）
+python dpd/xian_static_dpd_main1.py --csv PATH\iladata.csv --rx feedback --tx-source ref -o OUT
 
-# ILA 片上对比：ref vs feedback_i/q
-python dpd/xian_static_dpd_main1.py --csv PATH\iladata.csv --rx feedback --tx-source ref
-
-# ADC 作 TX（ref 为空时）+ iQxel
-python dpd/xian_static_dpd_main1.py --csv PATH\iladata.csv --txt PATH\iqxel.txt --rx txt --tx-source adc
+# 对齐检查窗
+python dpd/xian_static_dpd_main1.py ... --align-plot-start 5700 --align-plot-end 6400
 ```
 
-## 模块对照
-| MATLAB | Python |
-|--------|--------|
-| `xian_static_DPD_main1.m` | `dpd/xian_static_dpd_main1.py` |
-| `read_data.m` / `importfile20.m` | `dpd/read_data.py`（含 `load_iqxel_txt`） |
-| `gain_compensation.m` | `dpd/gain_compensation.py` |
-| `frequency_offset_estimation.m` | `dpd/frequency_offset_estimation.py` |
-| `dc_compensation.m` | `dpd/dc_compensation.py` |
-| `fractional_delay_estimation.m` | `dpd/fractional_delay_estimation.py` |
-| `static_DPD_memory.m` | `dpd/static_dpd_memory.py` |
-| `amamplot.m` | `dpd/amamplot.py` |
-
-## TX / RX 选择
-| 参数 | 取值 | 含义 |
-|------|------|------|
-| `--tx-source` | `ref` / `adc` / `auto` | CSV `ref_i/q` 或 `adc_i/q` |
-| `--rx` | `txt` / `mat` / `feedback`(`csv`) / `auto` | iQxel 或 ILA feedback |
+## TX / RX / 对齐
+| 参数 | 含义 |
+|------|------|
+| `--tx-source ref\|adc\|auto` | CSV TX |
+| `--rx txt\|mat\|feedback\|auto` | iQxel 或 ILA feedback |
+| （默认）全局包络搜索 | iQxel 自动 `rx_slice`；feedback 自动 Δ |
+| `--no-coarse-align` | 关闭自动对齐 |
+| `--coarse-local-only` | 仅在 `--rx-slice-start` ±`--coarse-max-lag` 搜 |
 
 ## 文档
 `skill/xian_static_dpd_Skill.md`

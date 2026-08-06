@@ -65,6 +65,13 @@ ALIGN_LEN = 7000
 ALIGN_PLOT_START = 5000
 ALIGN_PLOT_END = 7000
 
+# Integer-sample envelope align (abs cross-corr) before gain/CFO
+COARSE_ALIGN = True
+COARSE_MAX_LAG = 512  # local refine / feedback-mode ±search
+# Global search length into iQxel capture (0-based samples after txt stride).
+# Large enough to find packet start when default rx_slice_start is wrong.
+COARSE_SEARCH_LEN = 500_000
+
 DPD_TRIM_START = 1000  # MATLAB (1000:end) 1-based → Python 999:
 AMP_THRESH = 800.0
 CFO_CORR_LEN = 5000
@@ -80,6 +87,159 @@ OUTPUT_DIR = _THIS_DIR / "output" / "xian_static_dpd"
 
 def _as_col(z: np.ndarray) -> np.ndarray:
     return np.asarray(z, dtype=np.complex128).reshape(-1, 1)
+
+
+def estimate_envelope_delay(
+    tx: np.ndarray,
+    rx: np.ndarray,
+    *,
+    max_lag: int = COARSE_MAX_LAG,
+) -> int:
+    """
+    Integer lag of |RX| vs |TX| via abs cross-correlation.
+
+    Positive lag ⇒ RX is late relative to TX ⇒ drop ``rx[:lag]``.
+    Negative lag ⇒ RX is early ⇒ drop ``tx[:-lag]``.
+    """
+    from scipy.signal import correlate
+
+    a = np.abs(np.asarray(tx, dtype=np.complex128).reshape(-1)).astype(float)
+    b = np.abs(np.asarray(rx, dtype=np.complex128).reshape(-1)).astype(float)
+    n = min(a.size, b.size)
+    if n < 8:
+        return 0
+    a, b = a[:n], b[:n]
+    a = a - a.mean()
+    b = b - b.mean()
+    c = correlate(b, a, mode="full")
+    mid = n - 1
+    ml = min(int(max_lag), n - 1)
+    i0 = mid - ml
+    i1 = mid + ml + 1
+    k = i0 + int(np.argmax(c[i0:i1]))
+    return int(k - mid)
+
+
+def apply_integer_delay(
+    tx: np.ndarray,
+    rx: np.ndarray,
+    lag: int,
+) -> tuple:
+    """Trim TX/RX to apply integer lag; returns (tx, rx, n)."""
+    tx = np.asarray(tx, dtype=np.complex128).reshape(-1)
+    rx = np.asarray(rx, dtype=np.complex128).reshape(-1)
+    if lag > 0:
+        rx = rx[lag:]
+    elif lag < 0:
+        tx = tx[-lag:]
+    n = min(tx.size, rx.size)
+    return _as_col(tx[:n]), _as_col(rx[:n]), n
+
+
+def coarse_align_streams(
+    tx: np.ndarray,
+    rx: np.ndarray,
+    *,
+    max_lag: int = COARSE_MAX_LAG,
+) -> tuple:
+    """
+    Coarse-align RX to TX using envelope correlation.
+
+    Returns ``(tx_aln, rx_aln, lag)``.
+    """
+    lag = estimate_envelope_delay(tx, rx, max_lag=max_lag)
+    tx_a, rx_a, _ = apply_integer_delay(tx, rx, lag)
+    return tx_a, rx_a, lag
+
+
+def find_best_rx_start_envelope(
+    tx: np.ndarray,
+    rx_full: np.ndarray,
+    *,
+    search_len: Optional[int] = None,
+    template_len: Optional[int] = None,
+    hint_start: Optional[int] = None,
+    local_radius: Optional[int] = None,
+) -> tuple:
+    """
+    Find 0-based start index in ``rx_full`` that best matches |TX| envelope.
+
+    If ``local_radius`` and ``hint_start`` are set, only search that neighborhood;
+    otherwise search ``[0, search_len)``.
+
+    Returns ``(start0, score)`` where score is normalized correlation in [-1, 1].
+    """
+    from scipy.signal import correlate
+
+    tx = np.asarray(tx, dtype=np.complex128).reshape(-1)
+    rx_full = np.asarray(rx_full, dtype=np.complex128).reshape(-1)
+    if tx.size < 8 or rx_full.size < 8:
+        return 0, 0.0
+
+    win = int(template_len) if template_len else min(5000, tx.size)
+    win = min(win, tx.size, rx_full.size)
+    ta = np.abs(tx[:win]).astype(float)
+    ta = ta - ta.mean()
+    ta_n = float(np.linalg.norm(ta)) + 1e-12
+
+    if local_radius is not None and hint_start is not None:
+        i0 = max(0, int(hint_start) - int(local_radius))
+        i1 = min(rx_full.size - win + 1, int(hint_start) + int(local_radius) + 1)
+        if i1 <= i0:
+            i0, i1 = 0, min(rx_full.size - win + 1, max(1, int(local_radius) * 2))
+        seg = rx_full[i0 : i1 + win - 1]
+        base = i0
+    else:
+        sl = int(search_len) if search_len and search_len > 0 else rx_full.size
+        sl = min(sl, rx_full.size - win + 1)
+        if sl < 1:
+            return 0, 0.0
+        seg = rx_full[: sl + win - 1]
+        base = 0
+
+    rb = np.abs(seg).astype(float)
+    c = correlate(rb - rb.mean(), ta, mode="valid")
+    if c.size < 1:
+        return 0, 0.0
+    peak_rel = int(np.argmax(c))
+    start0 = base + peak_rel
+
+    # normalized score at peak
+    rw = np.abs(rx_full[start0 : start0 + win]).astype(float)
+    rw = rw - rw.mean()
+    score = float(np.dot(ta, rw) / (ta_n * (float(np.linalg.norm(rw)) + 1e-12)))
+    return start0, score
+
+
+def load_rx_full_capture(
+    *,
+    prefer: str,
+    mat_path: Path,
+    txt_path: Path,
+    txt_stride: int,
+    csv_rx: Optional[np.ndarray],
+) -> np.ndarray:
+    """Load entire RX capture (no slice) for global coarse align."""
+    mode = prefer.lower()
+    if mode == "csv":
+        if csv_rx is None:
+            raise FileNotFoundError("no CSV feedback")
+        return np.asarray(csv_rx, dtype=np.complex128).reshape(-1)
+
+    if mode in ("auto", "mat") and mat_path.is_file():
+        from scipy.io import loadmat
+
+        m = loadmat(str(mat_path))
+        key = _mat_rx_key(m)
+        return np.asarray(m[key], dtype=np.complex128).reshape(-1)
+
+    if mode in ("auto", "txt") and txt_path.is_file():
+        return load_iqxel_txt(txt_path, stride=int(txt_stride)).reshape(-1)
+
+    if mode == "auto" and csv_rx is not None:
+        return np.asarray(csv_rx, dtype=np.complex128).reshape(-1)
+
+    raise FileNotFoundError(f"cannot load full RX for prefer={prefer!r}")
 
 
 def write_lut_data_map(
@@ -341,6 +501,10 @@ def run_pipeline(
     lut_map_scale: float = 128.0,
     align_plot_start: int = ALIGN_PLOT_START,
     align_plot_end: int = ALIGN_PLOT_END,
+    coarse_align: bool = COARSE_ALIGN,
+    coarse_max_lag: int = COARSE_MAX_LAG,
+    coarse_search_len: int = COARSE_SEARCH_LEN,
+    coarse_local_only: bool = False,
 ) -> dict:
     """
     Execute the MATLAB main flow; return dict with LUT and intermediate arrays.
@@ -430,29 +594,113 @@ def run_pipeline(
                 "RX source=feedback but CSV feedback_i/q are all zero; "
                 "check ILA dump or use --rx txt/mat"
             )
-        rx_data = _as_col(np.asarray(fb_data).reshape(-1)[t0 : t0 + int(slice_len)])
         rx_label = "feedback"
-        print(
-            f"[RX] source=feedback (CSV feedback_i/q), "
-            f"same TX window → N={rx_data.size}  peak={fb_peak:.3g}"
-        )
+        ml = int(coarse_max_lag) if coarse_align else 0
+        if coarse_align and ml > 0:
+            # Load feedback with margin so we can shift vs TX (same CSV timeline)
+            fb_full = np.asarray(fb_data, dtype=np.complex128).reshape(-1)
+            load0 = max(0, t0 - ml)
+            load1 = min(fb_full.size, t0 + int(slice_len) + ml)
+            rx_long = _as_col(fb_full[load0:load1])
+            off = t0 - load0
+            from scipy.signal import correlate
+
+            tx_abs = np.abs(tx_data.reshape(-1)).astype(float)
+            rx_abs = np.abs(rx_long.reshape(-1)).astype(float)
+            n_tx = min(tx_abs.size, int(slice_len))
+            ta = tx_abs[:n_tx] - tx_abs[:n_tx].mean()
+            c = correlate(rx_abs - rx_abs.mean(), ta, mode="valid")
+            i0 = max(0, off - ml)
+            i1 = min(c.size, off + ml + 1)
+            peak = i0 + int(np.argmax(c[i0:i1]))
+            lag_vs_nominal = peak - off
+            rx_data = rx_long[peak : peak + n_tx, :]
+            # Keep TX length matched
+            tx_data = tx_data[:n_tx, :]
+            rx_slice_used = int(tx_slice_start) + lag_vs_nominal
+            print(
+                f"[RX] source=feedback  peak={fb_peak:.3g}  "
+                f"N={rx_data.size}"
+            )
+            print(
+                f"[ALIGN] coarse envelope (feedback): same-window → "
+                f"Δ={lag_vs_nominal:+d} samples (search ±{ml})"
+            )
+        else:
+            rx_data = _as_col(np.asarray(fb_data).reshape(-1)[t0 : t0 + int(slice_len)])
+            rx_slice_used = int(tx_slice_start)
+            print(
+                f"[RX] source=feedback (CSV feedback_i/q), "
+                f"same TX window → N={rx_data.size}  peak={fb_peak:.3g}"
+            )
     else:
-        rx_data = load_rx_pa(
-            int(slice_len),
+        # iQxel mat/txt: load full capture, auto-find start by envelope match
+        rx_label = "iqxel" if prefer in ("txt", "mat", "auto") else prefer
+        rx_full = load_rx_full_capture(
+            prefer=prefer,
             mat_path=mat_resolved,
             txt_path=txt_resolved,
             txt_stride=txt_stride,
             csv_rx=fb_data,
-            prefer=prefer,
-            rx_slice_start=int(rx_slice_start),
-            slice_len=int(slice_len),
         )
-        rx_label = "iqxel" if prefer in ("txt", "mat", "auto") else prefer
-        print(f"[RX] source={rx_label}  peak={float(np.max(np.abs(rx_data))):.3g}")
+        print(
+            f"[RX] source={rx_label}  loaded full N={rx_full.size}  "
+            f"peak={float(np.max(np.abs(rx_full))):.3g}"
+        )
 
+        n_need = int(slice_len)
+        if coarse_align:
+            hint0 = int(rx_slice_start) - 1  # 0-based
+            if coarse_local_only:
+                start0, score = find_best_rx_start_envelope(
+                    tx_data,
+                    rx_full,
+                    hint_start=hint0,
+                    local_radius=int(coarse_max_lag),
+                    template_len=min(5000, tx_data.size),
+                )
+                mode = f"local±{int(coarse_max_lag)} around {int(rx_slice_start)}"
+            else:
+                start0, score = find_best_rx_start_envelope(
+                    tx_data,
+                    rx_full,
+                    search_len=int(coarse_search_len),
+                    template_len=min(5000, tx_data.size),
+                )
+                mode = f"global search_len={int(coarse_search_len)}"
+            if start0 + n_need > rx_full.size:
+                raise RuntimeError(
+                    f"auto-align start={start0} + slice_len={n_need} exceeds "
+                    f"RX length {rx_full.size}"
+                )
+            rx_data = _as_col(rx_full[start0 : start0 + n_need])
+            rx_slice_used = start0 + 1  # 1-based for logs/plots
+            print(
+                f"[ALIGN] auto envelope ({mode}): rx_slice → {rx_slice_used} "
+                f"(0-based {start0}), score={score:.4f}  "
+                f"(hint was {int(rx_slice_start)})"
+            )
+        else:
+            start0 = int(rx_slice_start) - 1
+            rx_data = _as_col(rx_full[start0 : start0 + n_need])
+            rx_slice_used = int(rx_slice_start)
+            print(
+                f"[RX] slice_start={rx_slice_used} (coarse align off)  "
+                f"N={rx_data.size}"
+            )
     n = min(tx_data.size, rx_data.size, int(align_len))
     tx_data = tx_data[:n, :]
     rx_data = rx_data[:n, :]
+    # Final integer refine on equal-length streams (catches residual few samples)
+    if coarse_align:
+        lag2 = estimate_envelope_delay(tx_data, rx_data, max_lag=min(64, n // 4))
+        if lag2 != 0:
+            tx_data, rx_data, n2 = apply_integer_delay(tx_data, rx_data, lag2)
+            n = min(n2, int(align_len))
+            tx_data = tx_data[:n, :]
+            rx_data = rx_data[:n, :]
+            print(f"[ALIGN] residual integer lag={lag2:+d} → N={n}")
+
     print(f"[ALIGN] 1:{align_len} → N={tx_data.size}  ({tx_label} vs {rx_label})")
 
     # Coarse-align check (before gain/CFO/frac) — always saved for slice tuning
@@ -461,7 +709,7 @@ def run_pipeline(
         rx_data,
         out_dir=out_dir,
         tx_slice_start=int(tx_slice_start),
-        rx_slice_start=int(rx_slice_start) if not use_csv_feedback else int(tx_slice_start),
+        rx_slice_start=int(rx_slice_used),
         align_len=int(align_len),
         plot_start=int(align_plot_start),
         plot_end=int(align_plot_end),
@@ -628,6 +876,28 @@ def build_parser() -> argparse.ArgumentParser:
         default=ALIGN_PLOT_END,
         help="align_time_domain plot end index (0-based, exclusive)",
     )
+    p.add_argument(
+        "--no-coarse-align",
+        action="store_true",
+        help="disable abs-envelope auto align of RX to TX",
+    )
+    p.add_argument(
+        "--coarse-max-lag",
+        type=int,
+        default=COARSE_MAX_LAG,
+        help="±samples for feedback align / --coarse-local-only (default 512)",
+    )
+    p.add_argument(
+        "--coarse-search-len",
+        type=int,
+        default=COARSE_SEARCH_LEN,
+        help="iQxel global envelope search length (default 500000)",
+    )
+    p.add_argument(
+        "--coarse-local-only",
+        action="store_true",
+        help="only search ±coarse-max-lag around --rx-slice-start (no global)",
+    )
     p.add_argument("-o", "--output-dir", default=str(OUTPUT_DIR))
     p.add_argument("--no-plot", action="store_true")
     p.add_argument("--show", action="store_true", help="interactive matplotlib windows")
@@ -679,6 +949,10 @@ def main(argv=None) -> int:
         lut_map_scale=args.lut_map_scale,
         align_plot_start=args.align_plot_start,
         align_plot_end=args.align_plot_end,
+        coarse_align=not args.no_coarse_align,
+        coarse_max_lag=args.coarse_max_lag,
+        coarse_search_len=args.coarse_search_len,
+        coarse_local_only=args.coarse_local_only,
     )
     return 0
 
