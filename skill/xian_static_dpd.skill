@@ -1,7 +1,7 @@
 # xian_static_dpd — Xian static DPD MATLAB→Python port
 
 ## 功能
-读 ILA CSV（**feedback/ref** 或 **dac** 布局）→ 自动包络粗对齐 → 增益 → CFO → DC → 分数时延 → LUT / `lut_data_map` / AM 图。
+读 ILA CSV（**feedback/ref** 或 **dac** 布局；可选 `--dac-csv` 第二份）→ 自动包络粗对齐 → 增益 → CFO → DC → 分数时延 → LUT / `lut_data_map` / AM 图。
 
 ## 入口（常用）
 ```bash
@@ -9,6 +9,9 @@ cd D:\users\gxu\scripts
 
 # DAC vs iQxel（dac_iladata.csv: adc_* + dac_*）
 python dpd/xian_static_dpd_main1.py --csv PATH\dac_iladata.csv --txt PATH\iqxel.txt --tx-source dac --rx txt -o OUT
+
+# ref CSV vs dac CSV（双文件对比）
+python dpd/xian_static_dpd_main1.py --csv PATH\feedback_ref_iladata.csv --tx-source ref --dac-csv PATH\dac_iladata.csv --rx dac -o OUT
 
 # ref vs iQxel（全局自动找 RX 起点）
 python dpd/xian_static_dpd_main1.py --csv PATH\iladata.csv --txt PATH\iqxel.txt --rx txt --tx-source ref -o OUT
@@ -21,7 +24,8 @@ python dpd/xian_static_dpd_main1.py --csv PATH\iladata.csv --rx feedback --tx-so
 | 参数 | 取值 |
 |------|------|
 | `--tx-source` | `ref` / `dac` / `adc` / `auto`（能量：ref→dac→adc） |
-| `--rx` | `txt` / `mat` / `feedback` / `csv` / `auto` |
+| `--rx` | `txt` / `mat` / `feedback` / `dac` / `csv` / `auto` |
+| `--dac-csv` | 第二份含 `dac_i/q` 的 CSV（配合 `--rx dac`） |
 
 CSV 按表头自动识别：`feedback_ref` 或 `dac`。
 

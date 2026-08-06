@@ -4,21 +4,23 @@
 
 按 `dpd/20260804_3_data/xian_static_DPD_main1.m` 调用链移植，并支持：
 
-- **包络互相关自动粗对齐**（iQxel 全局搜起点；feedback 补偿样点偏置）
+- **包络互相关自动粗对齐**（iQxel 全局搜起点；feedback/dac 同窗 ±lag）
 - **多种 ILA CSV 布局**：`feedback/ref` 与 **`dac_iladata`（dac_i/q）**
-- `--tx-source ref|dac|adc|auto` 与仪器 / 片上 RX 对比
+- **双文件对比**：`--csv`（ref）+ `--dac-csv`（dac）→ `--rx dac`
+- `--tx-source ref|dac|adc|auto` 与仪器 / 片上 / DAC RX 对比
 
 入口：`dpd/xian_static_dpd_main1.py`。
 
 ## 数据流
 
 ```text
-ILA CSV（表头自动识别）
+主 CSV（--csv，表头自动识别）
   · feedback_ref: adc_*, feedback_*, ref_*
   · dac:          adc_*, dac_*
+可选第二 CSV（--dac-csv）：覆盖/提供 dac_*（双 dump 对比）
   → read_data：组复数 + 2抽1
   → TX：--tx-source ref|dac|adc|auto
-  → RX：txt/mat（全局包络找起点）或 feedback（±lag 对齐）
+  → RX：txt/mat（全局包络）| feedback（±lag）| dac（±lag，可来自 --dac-csv）
   → align_time_domain → gain → CFO → DC → frac delay
   → LUT / lut_data_map.py / amamplot
 ```
@@ -28,28 +30,30 @@ ILA CSV（表头自动识别）
 | layout | 列 | 典型用途 |
 |--------|-----|----------|
 | `feedback_ref` | `adc_i/q, feedback_q/i, ref_i/q` | ref/feedback 与 iQxel 或片上对比 |
-| `dac` | `adc_i/q, dac_i/q` | **DAC 数字基带** vs iQxel |
+| `dac` | `adc_i/q, dac_i/q` | DAC 数字基带 vs iQxel，或作 `--dac-csv` RX |
 
-日志：`[CSV] layout=dac  cols=[...]`
+日志：`[CSV] layout=dac  cols=[...]`；双文件时另有 `[CSV] dac-csv ...`。
 
 ## TX / RX
 
 | 参数 | 取值 | 说明 |
 |------|------|------|
-| `--tx-source` | `ref` | `ref_i+j*ref_q` |
-| | `dac` | `dac_i+j*dac_q`（`dac_iladata.csv`） |
+| `--tx-source` | `ref` | `ref_i+j*ref_q`（主 CSV） |
+| | `dac` | `dac_i+j*dac_q`（主 CSV 或 `--dac-csv` 覆盖后的 dac） |
 | | `adc` | `adc_i+j*adc_q` |
-| | `auto` | 按能量：ref → dac → adc |
+| | `auto` | 能量：ref→dac→adc；`--rx dac` 时优先 ref |
 | `--rx` | `txt` / `mat` | iQxel |
-| | `feedback` / `csv` | 同 CSV 的 feedback |
-| | `auto` | 自定义 `--txt` 优先 txt |
+| | `feedback` / `csv` | 同主 CSV 的 feedback |
+| | `dac` | `dac_i/q`（`--dac-csv` 优先，否则主 CSV） |
+| | `auto` | 有 `--dac-csv`→dac；否则自定义 `--txt`→txt |
+| `--dac-csv` | 路径 | 第二份含 `dac_i/q` 的 CSV；与 `--rx dac` 联用 |
 
 ## 自动对齐
 
 | 模式 | 行为 |
 |------|------|
 | iQxel（默认） | 前 `--coarse-search-len`（默认 5e5）点 **全局** `\|TX\|` 相关 |
-| `--rx feedback` | ±`--coarse-max-lag` 补偿相对 TX 的整数时延 |
+| `--rx feedback` / `--rx dac` | ±`--coarse-max-lag` 补偿相对 TX 的整数时延 |
 | `--coarse-local-only` | 仅 hint±lag |
 | `--no-coarse-align` | 关闭 |
 
@@ -72,6 +76,20 @@ python .\dpd\xian_static_dpd_main1.py `
 
 ```powershell
 python .\dpd\xian_static_dpd_main1.py --csv PATH\dac_iladata.csv --txt PATH\iqxel.txt --rx txt -o OUT
+```
+
+### 1b) ref CSV vs dac CSV（双文件）
+
+主 CSV 取 `ref_*` 作 TX；`--dac-csv` 取 `dac_*` 作 RX（同窗 ±lag 粗对齐）：
+
+```powershell
+python .\dpd\xian_static_dpd_main1.py `
+  --csv "D:\test_data\AP\260806_dpd\4\feedback_ref_iladata.csv" `
+  --tx-source ref `
+  --dac-csv "D:\test_data\AP\260806_dpd\4\dac_iladata.csv" `
+  --rx dac `
+  --align-plot-start 5700 --align-plot-end 6400 `
+  -o "D:\users\gxu\scripts\dpd\output\260806\4_ref_vs_dac"
 ```
 
 ### 2) ref vs iQxel + 全局自动对齐
@@ -130,8 +148,8 @@ write_lut_data_map(z["table_y"], Path(r"OUT/lut_data_map.py"), scale=128)
 
 | 参数 | 默认 | 含义 |
 |------|------|------|
-| `--csv` / `--txt` / `--mat` | 仓库默认 | 输入 |
-| `--rx` | `auto` | `txt`/`mat`/`feedback`/`csv`/`auto` |
+| `--csv` / `--txt` / `--mat` / `--dac-csv` | 仓库默认 / 无 | 主 ILA CSV；iQxel；可选第二份 dac CSV |
+| `--rx` | `auto` | `txt`/`mat`/`feedback`/`dac`/`csv`/`auto` |
 | `--tx-source` | `auto` | `ref`/`dac`/`adc`/`auto` |
 | `--tx-slice-start` | `313` | TX 起点（1-based） |
 | `--rx-slice-start` | `1596` | hint（全局对齐时仅对照） |
@@ -165,4 +183,5 @@ write_lut_data_map(z["table_y"], Path(r"OUT/lut_data_map.py"), scale=128)
 1. DC 用的 TX 是切片后、未增益补偿的原始 TX。  
 2. DPD 输入：`tx_gain` + 分数时延后 RX，再 `1000:end`。  
 3. `dac` 布局无 ref/feedback 时不要用 `--rx feedback`。  
-4. 自动对齐为 Python 增强；看 `align_time_domain` 确认包络是否重合。
+4. **TX 与 RX 不能同时为 dac**（会报错）；双文件对比用 `--tx-source ref --rx dac --dac-csv ...`。  
+5. 自动对齐为 Python 增强；看 `align_time_domain` 确认包络是否重合。

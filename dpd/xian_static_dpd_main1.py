@@ -12,6 +12,10 @@ DAC vs iQxel::
 
   python dpd/xian_static_dpd_main1.py --csv dac_iladata.csv --txt iqxel.txt --tx-source dac --rx txt
 
+ref (CSV-A) vs dac (CSV-B)::
+
+  python dpd/xian_static_dpd_main1.py --csv feedback_ref_iladata.csv --tx-source ref --dac-csv dac_iladata.csv --rx dac
+
 ILA on-chip (ref vs feedback)::
 
   python dpd/xian_static_dpd_main1.py --csv ... --rx feedback --tx-source ref
@@ -485,6 +489,7 @@ def run_pipeline(
     mat_path: Optional[PathLike] = None,
     txt_path: Optional[PathLike] = None,
     txt_stride: int = RX_TXT_STRIDE,
+    dac_csv_path: Optional[PathLike] = None,
     output_dir: PathLike = OUTPUT_DIR,
     plot: bool = True,
     show: bool = False,
@@ -535,17 +540,36 @@ def run_pipeline(
     # If user points --txt at a non-default file under --rx auto, prefer txt over
     # the stock default mat (otherwise auto always picks the existing default mat).
     if prefer == "auto":
-        try:
-            txt_custom = txt_resolved.resolve() != Path(RX_TXT).resolve()
-        except OSError:
-            txt_custom = str(txt_resolved) != str(RX_TXT)
-        if txt_custom and txt_resolved.is_file():
-            prefer = "txt"
-            print(f"[RX] auto→txt (custom --txt {txt_resolved.name})")
+        if dac_csv_path and Path(dac_csv_path).is_file():
+            prefer = "dac"
+            print(f"[RX] auto→dac (custom --dac-csv {Path(dac_csv_path).name})")
+        else:
+            try:
+                txt_custom = txt_resolved.resolve() != Path(RX_TXT).resolve()
+            except OSError:
+                txt_custom = str(txt_resolved) != str(RX_TXT)
+            if txt_custom and txt_resolved.is_file():
+                prefer = "txt"
+                print(f"[RX] auto→txt (custom --txt {txt_resolved.name})")
 
-    # --- load CSV (ILA) ---
+    # --- load primary CSV (ILA) ---
     ref_data, fb_data, adc_data, dac_data = read_data(csv_path)
     print(f"[CSV] {Path(csv_path).name}  N={ref_data.size} (after 2:1)")
+
+    # Optional second CSV for DAC (ref vs dac across two dumps)
+    if dac_csv_path is not None and Path(dac_csv_path).is_file():
+        _r, _f, _a, dac_from_file = read_data(dac_csv_path)
+        dac_peak_file = float(np.max(np.abs(dac_from_file))) if dac_from_file.size else 0.0
+        print(
+            f"[CSV] dac-csv {Path(dac_csv_path).name}  "
+            f"N={dac_from_file.size}  dac_peak={dac_peak_file:.3g}"
+        )
+        if dac_peak_file > 0:
+            dac_data = dac_from_file
+        elif prefer == "dac":
+            raise RuntimeError(
+                f"--rx dac but no dac_i/q energy in {dac_csv_path}"
+            )
 
     ref_peak = float(np.max(np.abs(ref_data))) if ref_data.size else 0.0
     fb_peak = float(np.max(np.abs(fb_data))) if fb_data.size else 0.0
@@ -559,11 +583,13 @@ def run_pipeline(
     src = tx_source.lower()
     if src == "auto":
         if prefer == "csv" and ref_peak > 0:
-            # ILA self-compare: default TX=ref when using feedback as RX
+            src = "ref"
+        elif prefer == "dac" and ref_peak > 0:
+            # Comparing against dac RX → TX defaults to ref when present
             src = "ref"
         elif ref_peak > 0:
             src = "ref"
-        elif dac_peak > 0:
+        elif dac_peak > 0 and prefer != "dac":
             src = "dac"
             print(
                 "[TX] auto→dac "
@@ -587,7 +613,8 @@ def run_pipeline(
     elif src == "dac":
         if dac_peak <= 0:
             raise RuntimeError(
-                "TX source=dac but dac_i/q are empty; use a dac_iladata.csv"
+                "TX source=dac but dac_i/q are empty; use a dac_iladata.csv "
+                "or --dac-csv"
             )
         tx_data = dac_data
         tx_label = "dac"
@@ -603,25 +630,26 @@ def run_pipeline(
     tx_data = tx_data[t0 : t0 + int(slice_len), :]
     print(f"[TX] slice {tx_slice_start}:{tx_slice_start}+{slice_len - 1} → N={tx_data.size}")
 
-    # RX: CSV feedback uses the same TX window; mat/txt use rx_slice_start
+    # RX: feedback / dac CSV window, or mat/txt with global align
     use_csv_feedback = prefer == "csv"
+    use_csv_dac = prefer == "dac"
     if prefer == "auto" and not mat_resolved.is_file():
-        use_csv_feedback = not txt_resolved.is_file()
+        use_csv_feedback = not txt_resolved.is_file() and dac_peak <= 0
 
-    if use_csv_feedback:
-        if fb_peak <= 0:
-            raise RuntimeError(
-                "RX source=feedback but CSV feedback_i/q are all zero; "
-                "check ILA dump or use --rx txt/mat"
-            )
-        rx_label = "feedback"
+    def _align_rx_from_full(
+        rx_full: np.ndarray,
+        *,
+        label: str,
+        peak_val: float,
+    ) -> tuple:
+        """Same-timeline CSV RX: optional ±lag envelope align to TX."""
+        nonlocal tx_data
         ml = int(coarse_max_lag) if coarse_align else 0
+        rx_full = np.asarray(rx_full, dtype=np.complex128).reshape(-1)
         if coarse_align and ml > 0:
-            # Load feedback with margin so we can shift vs TX (same CSV timeline)
-            fb_full = np.asarray(fb_data, dtype=np.complex128).reshape(-1)
             load0 = max(0, t0 - ml)
-            load1 = min(fb_full.size, t0 + int(slice_len) + ml)
-            rx_long = _as_col(fb_full[load0:load1])
+            load1 = min(rx_full.size, t0 + int(slice_len) + ml)
+            rx_long = _as_col(rx_full[load0:load1])
             off = t0 - load0
             from scipy.signal import correlate
 
@@ -634,25 +662,47 @@ def run_pipeline(
             i1 = min(c.size, off + ml + 1)
             peak = i0 + int(np.argmax(c[i0:i1]))
             lag_vs_nominal = peak - off
-            rx_data = rx_long[peak : peak + n_tx, :]
-            # Keep TX length matched
+            rx_out = rx_long[peak : peak + n_tx, :]
             tx_data = tx_data[:n_tx, :]
-            rx_slice_used = int(tx_slice_start) + lag_vs_nominal
+            slice_used = int(tx_slice_start) + lag_vs_nominal
+            print(f"[RX] source={label}  peak={peak_val:.3g}  N={rx_out.size}")
             print(
-                f"[RX] source=feedback  peak={fb_peak:.3g}  "
-                f"N={rx_data.size}"
-            )
-            print(
-                f"[ALIGN] coarse envelope (feedback): same-window → "
+                f"[ALIGN] coarse envelope ({label}): same-window → "
                 f"Δ={lag_vs_nominal:+d} samples (search ±{ml})"
             )
-        else:
-            rx_data = _as_col(np.asarray(fb_data).reshape(-1)[t0 : t0 + int(slice_len)])
-            rx_slice_used = int(tx_slice_start)
-            print(
-                f"[RX] source=feedback (CSV feedback_i/q), "
-                f"same TX window → N={rx_data.size}  peak={fb_peak:.3g}"
+            return rx_out, slice_used
+        rx_out = _as_col(rx_full[t0 : t0 + int(slice_len)])
+        print(
+            f"[RX] source={label}, same TX window → N={rx_out.size}  "
+            f"peak={peak_val:.3g}"
+        )
+        return rx_out, int(tx_slice_start)
+
+    if use_csv_feedback:
+        if fb_peak <= 0:
+            raise RuntimeError(
+                "RX source=feedback but CSV feedback_i/q are all zero; "
+                "check ILA dump or use --rx txt/mat/dac"
             )
+        rx_data, rx_slice_used = _align_rx_from_full(
+            fb_data, label="feedback", peak_val=fb_peak
+        )
+        rx_label = "feedback"
+    elif use_csv_dac:
+        if dac_peak <= 0:
+            raise RuntimeError(
+                "RX source=dac but dac_i/q are empty; pass --dac-csv "
+                "dac_iladata.csv or a CSV that contains dac columns"
+            )
+        if src == "dac":
+            raise RuntimeError(
+                "TX and RX cannot both be dac; use --tx-source ref "
+                "with --rx dac --dac-csv ..."
+            )
+        rx_data, rx_slice_used = _align_rx_from_full(
+            dac_data, label="dac", peak_val=dac_peak
+        )
+        rx_label = "dac"
     else:
         # iQxel mat/txt: load full capture, auto-find start by envelope match
         rx_label = "iqxel" if prefer in ("txt", "mat", "auto") else prefer
@@ -828,15 +878,20 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument(
         "--csv",
         default=str(INPUT_CSV),
-        help="ILA CSV with ref/feedback/adc columns",
+        help="Primary ILA CSV (ref/feedback/adc and/or dac columns)",
+    )
+    p.add_argument(
+        "--dac-csv",
+        default=None,
+        help="Optional second CSV with dac_i/q (for --rx dac vs --tx-source ref)",
     )
     p.add_argument(
         "--rx",
-        choices=("auto", "mat", "txt", "csv", "feedback"),
+        choices=("auto", "mat", "txt", "csv", "feedback", "dac"),
         default="auto",
         help=(
-            "PA/RX source: mat/txt (iqxel), or csv/feedback "
-            "(ILA CSV feedback_i/q vs ref for on-chip compare)"
+            "RX: mat/txt (iqxel), feedback/csv (ILA feedback), "
+            "or dac (dac_i/q from --dac-csv or --csv)"
         ),
     )
     p.add_argument(
@@ -950,6 +1005,7 @@ def main(argv=None) -> int:
         mat_path=args.mat,
         txt_path=args.txt,
         txt_stride=args.txt_stride,
+        dac_csv_path=args.dac_csv,
         output_dir=args.output_dir,
         plot=not args.no_plot,
         show=args.show,
