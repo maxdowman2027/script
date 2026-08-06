@@ -1,31 +1,29 @@
 # xian_static_dpd — Xian static DPD MATLAB→Python port
 
 ## 功能
-将 `dpd/20260804_3_data/xian_static_DPD_main1.m` 及其依赖移植为 Python：
-读 ILA CSV → **自动包络粗对齐** → 增益 → CFO → DC → 分数时延 → LUT → `lut_data_map` / AM-AM·AM-PM。
+读 ILA CSV（**feedback/ref** 或 **dac** 布局）→ 自动包络粗对齐 → 增益 → CFO → DC → 分数时延 → LUT / `lut_data_map` / AM 图。
 
 ## 入口（常用）
 ```bash
 cd D:\users\gxu\scripts
 
-# iQxel txt：全局自动找 RX 起点（不必手调 --rx-slice-start）
+# DAC vs iQxel（dac_iladata.csv: adc_* + dac_*）
+python dpd/xian_static_dpd_main1.py --csv PATH\dac_iladata.csv --txt PATH\iqxel.txt --tx-source dac --rx txt -o OUT
+
+# ref vs iQxel（全局自动找 RX 起点）
 python dpd/xian_static_dpd_main1.py --csv PATH\iladata.csv --txt PATH\iqxel.txt --rx txt --tx-source ref -o OUT
 
-# ILA 片上：ref vs feedback（自动补偿样点时延）
+# ILA 片上：ref vs feedback
 python dpd/xian_static_dpd_main1.py --csv PATH\iladata.csv --rx feedback --tx-source ref -o OUT
-
-# 对齐检查窗
-python dpd/xian_static_dpd_main1.py ... --align-plot-start 5700 --align-plot-end 6400
 ```
 
-## TX / RX / 对齐
-| 参数 | 含义 |
+## TX / RX
+| 参数 | 取值 |
 |------|------|
-| `--tx-source ref\|adc\|auto` | CSV TX |
-| `--rx txt\|mat\|feedback\|auto` | iQxel 或 ILA feedback |
-| （默认）全局包络搜索 | iQxel 自动 `rx_slice`；feedback 自动 Δ |
-| `--no-coarse-align` | 关闭自动对齐 |
-| `--coarse-local-only` | 仅在 `--rx-slice-start` ±`--coarse-max-lag` 搜 |
+| `--tx-source` | `ref` / `dac` / `adc` / `auto`（能量：ref→dac→adc） |
+| `--rx` | `txt` / `mat` / `feedback` / `csv` / `auto` |
+
+CSV 按表头自动识别：`feedback_ref` 或 `dac`。
 
 ## 文档
 `skill/xian_static_dpd_Skill.md`

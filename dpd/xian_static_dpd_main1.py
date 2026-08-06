@@ -5,15 +5,18 @@ Xian static DPD training pipeline — Python port of xian_static_DPD_main1.m.
 
 Aligned with ``dpd/20260804_3_data/xian_static_DPD_main1.m``:
 
-  read_data(CSV) → TX (ref or adc) → RX (iqxel mat/txt, or CSV feedback)
-  → slice/align → gain_compensation → [CFO → DC → fractional delay]
-  → trim → static_dpd_memory → lut_data_map / amamplot
+  read_data(CSV) → TX (ref / dac / adc) → RX (iqxel / feedback)
+  → auto envelope align → gain → CFO → DC → frac delay → LUT / amamplot
 
-ILA on-chip compare (ref vs feedback_i/q)::
+DAC vs iQxel::
+
+  python dpd/xian_static_dpd_main1.py --csv dac_iladata.csv --txt iqxel.txt --tx-source dac --rx txt
+
+ILA on-chip (ref vs feedback)::
 
   python dpd/xian_static_dpd_main1.py --csv ... --rx feedback --tx-source ref
 
-iQxel instrument RX::
+iQxel + ref::
 
   python dpd/xian_static_dpd_main1.py --csv ... --txt ... --rx txt --tx-source ref
 
@@ -509,8 +512,8 @@ def run_pipeline(
     """
     Execute the MATLAB main flow; return dict with LUT and intermediate arrays.
 
-    tx_source: ref | adc | auto
-      auto → use ref if |ref| has energy, else ADC (common when ILA ref columns are 0).
+    tx_source: ref | adc | dac | auto
+      auto → ref if energy, else dac, else ADC.
     """
     import matplotlib
 
@@ -541,14 +544,16 @@ def run_pipeline(
             print(f"[RX] auto→txt (custom --txt {txt_resolved.name})")
 
     # --- load CSV (ILA) ---
-    ref_data, fb_data, adc_data = read_data(csv_path)
+    ref_data, fb_data, adc_data, dac_data = read_data(csv_path)
     print(f"[CSV] {Path(csv_path).name}  N={ref_data.size} (after 2:1)")
 
     ref_peak = float(np.max(np.abs(ref_data))) if ref_data.size else 0.0
     fb_peak = float(np.max(np.abs(fb_data))) if fb_data.size else 0.0
     adc_peak = float(np.max(np.abs(adc_data))) if adc_data.size else 0.0
+    dac_peak = float(np.max(np.abs(dac_data))) if dac_data.size else 0.0
     print(
-        f"[CSV] peaks  ref={ref_peak:.3g}  feedback={fb_peak:.3g}  adc={adc_peak:.3g}"
+        f"[CSV] peaks  ref={ref_peak:.3g}  feedback={fb_peak:.3g}  "
+        f"adc={adc_peak:.3g}  dac={dac_peak:.3g}"
     )
 
     src = tx_source.lower()
@@ -558,19 +563,34 @@ def run_pipeline(
             src = "ref"
         elif ref_peak > 0:
             src = "ref"
+        elif dac_peak > 0:
+            src = "dac"
+            print(
+                "[TX] auto→dac "
+                f"(ref_peak={ref_peak:.3g}, dac_peak={dac_peak:.3g})"
+            )
         elif adc_peak > 0:
             src = "adc"
             print(
-                "[TX] ref columns are empty; using ADC as TX "
+                "[TX] ref/dac empty; using ADC as TX "
                 f"(ref_peak={ref_peak:.3g}, adc_peak={adc_peak:.3g})"
             )
         else:
             raise RuntimeError(
-                "TX empty: both ref and adc are zero in CSV; check ILA dump"
+                "TX empty: ref/dac/adc are all zero in CSV; check ILA dump"
             )
     if src == "ref":
+        if ref_peak <= 0:
+            raise RuntimeError("TX source=ref but ref_i/q are empty in CSV")
         tx_data = ref_data
         tx_label = "ref"
+    elif src == "dac":
+        if dac_peak <= 0:
+            raise RuntimeError(
+                "TX source=dac but dac_i/q are empty; use a dac_iladata.csv"
+            )
+        tx_data = dac_data
+        tx_label = "dac"
     elif src == "adc":
         tx_data = adc_data
         tx_label = "adc"
@@ -833,11 +853,11 @@ def build_parser() -> argparse.ArgumentParser:
     )
     p.add_argument(
         "--tx-source",
-        choices=("auto", "ref", "adc"),
+        choices=("auto", "ref", "adc", "dac"),
         default="auto",
         help=(
-            "TX from CSV: ref_i/q, adc_i/q, or auto "
-            "(with --rx feedback/csv prefers ref when nonzero)"
+            "TX from CSV: ref_i/q, dac_i/q, adc_i/q, or auto "
+            "(ref→dac→adc by energy; dac_iladata.csv uses dac)"
         ),
     )
     p.add_argument(

@@ -3,21 +3,24 @@
 """
 Read ILA dump CSV for static DPD training.
 
-Port of read_data.m + importfile20.m (20260804_3_data).
+Supported layouts (header row required):
 
-CSV columns (header skipped):
-  adc_i, adc_q, feedback_q, feedback_i, ref_i, ref_q
+1) feedback/ref (importfile20 style)::
 
-importfile20 skips the first two (adc) columns via ``%*s%*s``; this loader
-still returns adc when present, and tolerates hex cells (e.g. Vivado ``3fc``).
+     adc_i, adc_q, feedback_q, feedback_i, ref_i, ref_q
 
-Returns complex TX/RX/(ADC) after 2:1 decimate (::2), matching MATLAB (1:2:end).
+2) DAC dump::
+
+     adc_i, adc_q, dac_i, dac_q
+
+Returns complex columns after 2:1 decimate (::2), matching MATLAB (1:2:end).
+Hex cells (e.g. Vivado ``3fc``) are accepted.
 """
 
 from __future__ import annotations
 
 from pathlib import Path
-from typing import Tuple, Union
+from typing import Optional, Tuple, Union
 
 import numpy as np
 import pandas as pd
@@ -30,7 +33,7 @@ DEFAULT_END_ROW = 16385
 
 
 def _parse_numeric_cell(val) -> float:
-    """Parse decimal or hex cell (importfile20 is decimal-only on fb/ref)."""
+    """Parse decimal or hex cell."""
     if val is None or (isinstance(val, float) and np.isnan(val)):
         return np.nan
     if isinstance(val, (int, np.integer)):
@@ -48,67 +51,99 @@ def _parse_numeric_cell(val) -> float:
         return float(int(s, 16))
 
 
+def _series_to_complex(i_col: np.ndarray, q_col: np.ndarray) -> np.ndarray:
+    return (
+        np.asarray(i_col, dtype=float) + 1j * np.asarray(q_col, dtype=float)
+    ).reshape(-1, 1)
+
+
+def _zeros_like_n(n: int) -> np.ndarray:
+    return np.zeros((n, 1), dtype=np.complex128)
+
+
 def read_data(
     csv_path: PathLike,
     *,
     start_row: int = DEFAULT_START_ROW,
     end_row: int = DEFAULT_END_ROW,
     decimate: int = 2,
-) -> Tuple[np.ndarray, np.ndarray, np.ndarray]:
+) -> Tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray]:
     """
-    Load training CSV and build complex baseband.
-
-    Parameters
-    ----------
-    csv_path :
-        Path to ILA CSV (adc + feedback + ref).
-    start_row, end_row :
-        1-based inclusive row indices as in MATLAB textscan HeaderLines /
-        endRow (header is row 1; data starts at row 2).
-    decimate :
-        Keep every N-th sample (MATLAB 2抽1 → 2).
+    Load ILA CSV and build complex baseband channels.
 
     Returns
     -------
-    tx_data, rx_data, adc_data : complex column vectors (N, 1)
-        tx = ref_i + 1j*ref_q
-        rx = feedback_i + 1j*feedback_q
-        adc = adc_i + 1j*adc_q  (zeros if columns missing)
+    ref, feedback, adc, dac : complex (N, 1)
+        Missing channels are all-zero vectors of length N (after decimate).
+        Layout is auto-detected from the header.
     """
     path = Path(csv_path)
     nrows = int(end_row) - int(start_row) + 1
-    skip = max(int(start_row) - 2, 0)
-    df = pd.read_csv(
-        path,
-        skiprows=1 + skip,
-        nrows=nrows,
-        header=None,
-        names=["adc_i", "adc_q", "feedback_q", "feedback_i", "ref_i", "ref_q"],
-        converters={
-            "adc_i": _parse_numeric_cell,
-            "adc_q": _parse_numeric_cell,
-            "feedback_q": _parse_numeric_cell,
-            "feedback_i": _parse_numeric_cell,
-            "ref_i": _parse_numeric_cell,
-            "ref_q": _parse_numeric_cell,
-        },
-    )
-    arr = df.to_numpy(dtype=float)
-    # importfile20 column order after skip: fb_q, fb_i, ref_i, ref_q
-    tx0 = arr[:, 4] + 1j * arr[:, 5]
-    rx0 = arr[:, 3] + 1j * arr[:, 2]
-    adc0 = arr[:, 0] + 1j * arr[:, 1]
+    i0 = max(int(start_row) - 2, 0)  # 0-based index into data rows
+
+    df = pd.read_csv(path)
+    df.columns = [str(c).strip().lower() for c in df.columns]
+    df = df.iloc[i0 : i0 + nrows].copy()
+    if df.empty:
+        raise ValueError(f"no data rows in {path} for rows {start_row}..{end_row}")
+
+    for c in df.columns:
+        df[c] = df[c].map(_parse_numeric_cell)
+
+    def get_iq(i_name: str, q_name: str) -> Optional[np.ndarray]:
+        if i_name in df.columns and q_name in df.columns:
+            return _series_to_complex(df[i_name].to_numpy(), df[q_name].to_numpy())
+        return None
+
+    adc = get_iq("adc_i", "adc_q")
+    dac = get_iq("dac_i", "dac_q")
+    fb = get_iq("feedback_i", "feedback_q")
+    ref = get_iq("ref_i", "ref_q")
+
+    if dac is not None and ref is None and fb is None:
+        layout = "dac"
+    elif ref is not None or fb is not None:
+        layout = "feedback_ref"
+    else:
+        layout = "unknown"
+        if adc is None:
+            raise ValueError(
+                f"unrecognized CSV columns in {path}: {list(df.columns)}; "
+                "need adc_* and (ref_*/feedback_* or dac_*)"
+            )
+
+    n = len(df)
+    if adc is None:
+        adc = _zeros_like_n(n)
+    if dac is None:
+        dac = _zeros_like_n(n)
+    if fb is None:
+        fb = _zeros_like_n(n)
+    if ref is None:
+        ref = _zeros_like_n(n)
 
     if decimate > 1:
-        tx0 = tx0[::decimate]
-        rx0 = rx0[::decimate]
-        adc0 = adc0[::decimate]
+        ref = ref[::decimate]
+        fb = fb[::decimate]
+        adc = adc[::decimate]
+        dac = dac[::decimate]
 
-    return (
-        tx0.reshape(-1, 1),
-        rx0.reshape(-1, 1),
-        adc0.reshape(-1, 1),
+    print(f"[CSV] layout={layout}  cols={list(df.columns)}")
+    return ref, fb, adc, dac
+
+
+def read_data_legacy(
+    csv_path: PathLike,
+    *,
+    start_row: int = DEFAULT_START_ROW,
+    end_row: int = DEFAULT_END_ROW,
+    decimate: int = 2,
+) -> Tuple[np.ndarray, np.ndarray, np.ndarray]:
+    """Backward-compatible 3-tuple: (ref, feedback, adc). """
+    ref, fb, adc, _dac = read_data(
+        csv_path, start_row=start_row, end_row=end_row, decimate=decimate
     )
+    return ref, fb, adc
 
 
 def load_iqxel_txt(
@@ -137,7 +172,6 @@ def load_iqxel_txt(
             if s.lower() in ("idata,qdata", "i,q", "i_data,q_data"):
                 skip = i + 1
                 break
-            # first numeric CSV line → no header (or header ended)
             if s and (s[0].isdigit() or s[0] in "+-"):
                 parts = s.split(",")
                 if len(parts) >= 2:
@@ -157,7 +191,6 @@ def load_iqxel_txt(
     iq = data[:, 0] + 1j * data[:, 1]
     st = int(stride)
     if st <= 0:
-        # auto: 160 Msps → match ~80 Msps ILA after 2:1
         if sample_rate is not None and sample_rate >= 1.5e8:
             st = 2
         else:
