@@ -19,8 +19,9 @@
 
 | 变量 | 含义 |
 |------|------|
-| `INPUT_CSV` | 输入 I/Q CSV **或目录** |
-| `OUTPUT_PDF` | 单文件：PDF stem（无 `.pdf`）；空 → 输入文件 stem。目录模式：可选输出目录 |
+| `INPUT_CSV` | 输入 I/Q CSV **或目录**（目录则自动检索 `*.csv`） |
+| `RECURSIVE` | 目录模式是否递归子目录（也可用 CLI `-r`） |
+| `OUTPUT_PDF` | 单文件：PDF stem（无 `.pdf`）；空 → 输入文件 stem。**目录模式**：可选输出目录；空则 PDF/结果写在各 CSV 旁 |
 | `BW_MHZ` | phymd 带宽 |
 | `CH_FREQ_MHZ` | chan 信道中心 MHz |
 | `FREQCW_MHZ` | freqcw 单音 MHz |
@@ -58,14 +59,26 @@ CSV (signed I/Q columns)
 
 ## 目录批量
 
+将配置区 `INPUT_CSV`（或 CLI 位置参数）设为**目录**即可；无参运行也会走目录模式。
+
 | 行为 | 说明 |
 |------|------|
-| 输入为目录 | 检索该目录下 `*.csv`（默认**非递归**） |
-| `--recursive` / `-r` | 递归子目录 `**/*.csv` |
-| 跳过产物 | 自动跳过 `*_iq_cal_result.csv` |
+| `INPUT_CSV` / `input` 为目录 | 检索该目录下 `*.csv`（默认**非递归**） |
+| `RECURSIVE=True` 或 `--recursive` / `-r` | 递归子目录 `**/*.csv` |
+| 跳过产物 | 自动跳过 `*_iq_cal_result.csv`、`iq_cal_batch_summary.csv` |
 | 单文件产物 | 每个 CSV 旁写 `<stem>.pdf`、`<stem>_iq_cal_result.csv` |
-| `-o <dir>`（目录模式） | PDF/结果写到指定输出目录 |
+| `-o <dir>` / `OUTPUT_PDF`（目录模式） | PDF/结果写到指定输出目录 |
 | 批汇总 | 目录模式额外写 `iq_cal_batch_summary.csv` |
+| 日志 | `[INFO] directory mode: N CSV(s) ...` 并列出文件名 |
+
+```bash
+# 配置 INPUT_CSV = r"D:\...\iq_cmp_en" 后
+python rx_iq_imbalance_psd.py
+
+# 或显式传目录
+python rx_iq_imbalance_psd.py "D:\test_data\AP\260812_dpd\iq_cmp_en" --norm-mode peak
+python rx_iq_imbalance_psd.py "D:\path\to\dump_dir" -r -o "D:\path\to\out"
+```
 
 ---
 
@@ -98,20 +111,22 @@ CSV (signed I/Q columns)
 ## 命令行示例
 
 ```bash
-# 默认列 sample_i / sample_q
+# 默认列 sample_i / sample_q；配置区 INPUT_CSV 为文件或目录
 python rx_iq_imbalance_psd.py
 python rx_iq_imbalance_psd.py data.csv --bw 20 --chan 2462 --freqcw 2467
 
-# 指定 I/Q 列名（如 feedback / ref / adc 等）
+# 指定 I/Q 列名（如 feedback / ref / adc / iq_cmp 等）
 python rx_iq_imbalance_psd.py data.csv --col-i feedback_i --col-q feedback_q --bw 20 --chan 2412 --freqcw 2417
-python rx_iq_imbalance_psd.py data.csv --col-i ref_i --col-q ref_q --sample-freq-mhz 80
+python rx_iq_imbalance_psd.py data.csv --col-i iq_cmp_i --col-q iq_cmp_q --sample-freq-mhz 160
 
 # 配置区也可改：
-#   COL_I = "feedback_i"
-#   COL_Q = "feedback_q"
+#   INPUT_CSV = r"D:\path\to\dir_or_file.csv"
+#   RECURSIVE = False
+#   COL_I = "iq_cmp_i"
+#   COL_Q = "iq_cmp_q"
 
-# 目录批量 + 自定义列名
-python rx_iq_imbalance_psd.py "D:\test_data\rls4\260722_dpd\tone" --col-i sample_i --col-q sample_q --bw 20 --chan 2412 --freqcw 2417
+# 目录批量（INPUT_CSV 为目录，或 CLI 传目录）
+python rx_iq_imbalance_psd.py "D:\test_data\AP\260812_dpd\iq_cmp_en" --col-i iq_cmp_i --col-q iq_cmp_q --bw 20 --chan 2412 --freqcw 2417
 python rx_iq_imbalance_psd.py "D:\path\to\dump_dir" -r -o "D:\path\to\out" --col-i sample_i --col-q sample_q
 
 # 2ant：指定双天线列并选通道

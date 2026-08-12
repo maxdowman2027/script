@@ -6,7 +6,7 @@ RX IQ calibration PSD — 1:1 port of Xian myplot.psd_plot_rx_cal.
 Diff vs original myplot.py:
   - bw / ch_freq / freqcw from config (not parsed from fname regex)
   - real_data / image_data loaded from specified CSV (12-bit signed → float normalize)
-  - CLI input may be a single CSV or a directory of CSVs (batch)
+  - INPUT_CSV / CLI input may be a single CSV or a directory of CSVs (batch)
   - I/Q column names configurable via COL_I/COL_Q (or --col-i/--col-q)
   - Optional peak normalization: divide by max(|I+jQ|) of the plotted samples
 
@@ -38,8 +38,12 @@ from scipy.signal import welch
 # =============================================================================
 # Config（替代 myplot 从 fname 正则提取的 bw / chan / freqcw）
 # =============================================================================
-INPUT_CSV = r"D:\chip_test\dev\xian_test\Xian-Esp-Test-Scripts\rftest_data\dump_adc_0x200_raw\FPGA752_0x_20260722\2.4G\result"
-OUTPUT_PDF = ""  # 空 → <INPUT_CSV stem>.pdf（同 myplot: fname + '.pdf'）
+# 单文件 CSV，或目录（自动检索该目录下 *.csv；RECURSIVE=True 时含子目录）
+INPUT_CSV = r"D:\test_data\AP\260812_dpd\iq_cmp_en"
+# 单文件：PDF stem（无 .pdf）；空 → 与 CSV 同 stem。目录模式：可选输出目录（空则写回各 CSV 旁）
+OUTPUT_PDF = ""
+# 仅当 INPUT_CSV（或 CLI input）为目录时有效：是否递归子目录
+RECURSIVE = False
 
 BW_MHZ = 20  # phymd
 CH_FREQ_MHZ = 2412  # chan
@@ -47,10 +51,10 @@ FREQCW_MHZ = 2417 # freqcw
 
 # Welch 采样率 MHz：须与 dump 实际 ADC 采样率一致，频谱横轴与 tone 定位共用
 # 0 = myplot 按 BW 映射（20→40）；ILA 全速率 20MHz 带宽常用 160
-SAMPLE_FREQ_MHZ = 80
+SAMPLE_FREQ_MHZ = 160
 
 # 数据重复时先做 2 抽 1（I/Q 各取 [::2]），Welch 有效 Fs = SAMPLE_FREQ_MHZ / DECIMATE_FACTOR
-DECIMATE_FACTOR = 1  # 1 = 不抽取
+DECIMATE_FACTOR = 2  # 1 = 不抽取
 
 MAX_ROWS = 65536  # 0 = read all
 IQ_MODE = "single"  # auto | single | 2ant
@@ -60,8 +64,8 @@ USE_CH = 0
 ADC_BIT_WIDTH = 12
 
 # I/Q 列名（可按 CSV 实际表头改；匹配时忽略大小写与首尾空格）
-COL_I = "sample_i_ch0"
-COL_Q = "sample_q_ch0"
+COL_I = "iq_cmp_i"
+COL_Q = "iq_cmp_q"
 # 2ant 布局列名（mode=2ant / auto 检测到双天线时使用）
 COL_CH0_I = "sample_i_ch0"
 COL_CH0_Q = "sample_q_ch0"
@@ -499,7 +503,10 @@ def run_from_csv(
 def is_result_csv(path: Path) -> bool:
     """Skip previously generated summary CSVs when scanning a directory."""
     name = path.name.lower()
-    return name.endswith("_iq_cal_result.csv")
+    return (
+        name.endswith("_iq_cal_result.csv")
+        or name == "iq_cal_batch_summary.csv"
+    )
 
 
 def collect_csv_inputs(
@@ -511,15 +518,17 @@ def collect_csv_inputs(
     Resolve input path to a list of I/Q CSV files.
 
     - File: that single CSV
-    - Directory: all *.csv under it (non-recursive by default; --recursive for rglob)
-      Skips *_iq_cal_result.csv products.
+    - Directory: all *.csv under it (non-recursive by default; recursive for rglob)
+      Skips ``*_iq_cal_result.csv`` and ``iq_cal_batch_summary.csv`` products.
     """
     path = Path(input_path)
     if path.is_file():
         return [path]
     if path.is_dir():
         pattern = "**/*.csv" if recursive else "*.csv"
-        csvs = sorted(p for p in path.glob(pattern) if p.is_file() and not is_result_csv(p))
+        csvs = sorted(
+            p for p in path.glob(pattern) if p.is_file() and not is_result_csv(p)
+        )
         return csvs
     return []
 
@@ -599,7 +608,8 @@ def build_parser() -> argparse.ArgumentParser:
         "--recursive",
         "-r",
         action="store_true",
-        help="When input is a directory, also search CSV in subfolders",
+        help="When input is a directory, also search CSV in subfolders "
+        f"(or set config RECURSIVE=True; currently {RECURSIVE})",
     )
     p.add_argument("--bw", type=int, default=BW_MHZ, help="phymd bandwidth MHz")
     p.add_argument("--chan", type=int, default=CH_FREQ_MHZ, help="channel center MHz")
@@ -659,10 +669,17 @@ def build_parser() -> argparse.ArgumentParser:
 def main(argv: Optional[Sequence[str]] = None) -> int:
     args = build_parser().parse_args(argv)
     input_path = Path(args.input)
-    csv_list = collect_csv_inputs(input_path, recursive=args.recursive)
+    recursive = bool(args.recursive) or bool(RECURSIVE)
+    csv_list = collect_csv_inputs(input_path, recursive=recursive)
     if not csv_list:
         if not input_path.exists():
             print(f"[ERROR] path not found: {input_path}")
+        elif input_path.is_dir():
+            print(
+                f"[ERROR] no I/Q CSV found under directory: {input_path} "
+                f"(recursive={recursive}; skipped *_iq_cal_result.csv / "
+                f"iq_cal_batch_summary.csv)"
+            )
         else:
             print(f"[ERROR] no CSV found under: {input_path}")
         return 1
@@ -674,7 +691,15 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
         out_dir = Path(args.output_pdf)
         out_dir.mkdir(parents=True, exist_ok=True)
 
-    print(f"[INFO] {len(csv_list)} CSV(s) from {input_path}")
+    if is_dir:
+        print(
+            f"[INFO] directory mode: {len(csv_list)} CSV(s) under {input_path} "
+            f"(recursive={recursive})"
+        )
+        for p in csv_list:
+            print(f"  - {p.name}")
+    else:
+        print(f"[INFO] {len(csv_list)} CSV(s) from {input_path}")
     rows: List[dict] = []
     failed = 0
     for csv_path in csv_list:

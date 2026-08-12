@@ -3,57 +3,39 @@
 ## 功能
 - **1:1** 移植 Xian `myplot.psd_plot_rx_cal`
 - 差异：bw/chan/freqcw 用配置变量；I/Q 从指定 CSV 读取
-- **目录批量**：`input` 可为目录，自动检索 `*.csv`
+- **目录批量**：`INPUT_CSV` / CLI `input` 可为**目录**，自动检索 `*.csv`
 - **列名可配**：`COL_I`/`COL_Q` 或 `--col-i`/`--col-q`
-- **归一化可选**：`NORM_MODE` / `--norm-mode` = `adc`（÷ADC满幅）或 `peak`（÷`max(|I+jQ|)`，PSD 峰值归 0 dB）
+- **归一化可选**：`NORM_MODE` / `--norm-mode` = `adc` 或 `peak`
 
 ## 配置
 ```python
-INPUT_CSV = r"D:\path\to\dump.csv"   # 或目录
+INPUT_CSV = r"D:\path\to\dump_dir"   # 单文件 CSV，或目录（自动扫 *.csv）
+RECURSIVE = False                    # 目录模式是否递归子目录
+OUTPUT_PDF = ""                      # 单文件: PDF stem；目录: 可选输出目录
 BW_MHZ = 20
 CH_FREQ_MHZ = 2462
 FREQCW_MHZ = 2467
-ADC_BIT_WIDTH = 12
-SAMPLE_FREQ_MHZ = 160
-DECIMATE_FACTOR = 2
 COL_I = "sample_i"
 COL_Q = "sample_q"
-NORM_MODE = "adc"   # 或 "peak"：时域÷max(|I+jQ|)，频谱峰值=0dB
+NORM_MODE = "peak"   # 或 "adc"
 ```
 
 ## 运行示例
 ```bash
-# ADC 满幅归一化（默认）
-python rx_iq_imbalance_psd.py data.csv --bw 20 --chan 2462 --freqcw 2467 --norm-mode adc
+# 配置区 INPUT_CSV 为目录时：无参即批量
+python rx_iq_imbalance_psd.py
 
-# 按数据复数幅度峰值归一化（PSD 峰值 0 dB）
-python rx_iq_imbalance_psd.py data.csv --norm-mode peak --col-i sample_i_ch0 --col-q sample_q_ch0
+# 显式目录 / 递归 / 输出目录
+python rx_iq_imbalance_psd.py "D:\path\to\dump_dir" --norm-mode peak
+python rx_iq_imbalance_psd.py "D:\path\to\dump_dir" -r -o "D:\path\to\out"
 
-# 指定列名
-python rx_iq_imbalance_psd.py data.csv --col-i feedback_i --col-q feedback_q --bw 20 --chan 2412 --freqcw 2417
-
-# 目录批量
-python rx_iq_imbalance_psd.py "D:\path\to\dump_dir" --norm-mode peak -r -o "D:\path\to\out"
+# 单文件
+python rx_iq_imbalance_psd.py data.csv --bw 20 --chan 2412 --freqcw 2417 --col-i iq_cmp_i --col-q iq_cmp_q
 ```
 
 ## 输出
-- `<stem>.pdf`：PSD + 主/镜像竖线；**main / mirror / Δ(main−mirror)**；`peak` 时纵轴峰值=0 dB
-- `<stem>_iq_cal_result.csv`（含 `norm_mode` 列）
-- 目录模式：`iq_cal_batch_summary.csv`
-
-## peak vs adc
-| | adc | peak |
-|--|-----|------|
-| 时域 | ÷`2**(bit-1)` | ÷`max(|I+jQ|)`（截断后样点） |
-| PSD | 原始 dB | 减峰值 → 0 dB |
-| 用途 | 对齐 myplot / 满幅参考 | 非满幅 dump 对比镜像抑制度 |
-
-## API
-```python
-from rx_iq_imbalance_psd import load_real_image_from_csv, run_from_csv
-real, imag = load_real_image_from_csv("data.csv", norm_mode="peak")
-out = run_from_csv("data.csv", 20, 2412, 2417, norm_mode="peak")
-```
+- `<stem>.pdf` / `<stem>_iq_cal_result.csv`
+- 目录模式额外：`iq_cal_batch_summary.csv`（扫描时自动跳过该文件与 `*_iq_cal_result.csv`）
 
 ## 文档
 `skill/rx_iq_imbalance_psd_Skill.md`
