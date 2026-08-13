@@ -132,7 +132,8 @@ python process_ila_files.py [输入目录] [选项]
 - `--rename_columns`：提取后重命名列（`old:new`，逗号分隔多个）
 - `--passthrough-rename`：仅改列名、不改数据，且跳过有符号位域（`old:new`，逗号分隔）
 - `--auto-signed`：列名含 `[high:low]` 时自动提取该位域并转为有符号十进制
-- `--signed-bit-fields`：显式位域提取，格式 `col:[hi:lo]:out` 或 `col::out`（位域从列名解析），逗号分隔多个
+- `--signed-bit-fields`：显式**有符号**位域提取，格式 `col:[hi:lo]:out` 或 `col::out`（位域从列名解析），逗号分隔多个
+- `--unsigned-bit-fields`：显式**无符号**位域提取，格式同上
 
 #### 使用示例
 
@@ -212,20 +213,26 @@ ILA `waveform.csv` 中信号列常为 `信号名[high:low]`，单元格为无符
 - 若列在 `PASSTHROUGH_RENAME` 中，则跳过自动转换，只改列名
 - 若同时配置了 `RENAME_COLUMNS`，输出列名使用重命名映射（源列在提取后删除）
 
-**显式模式**（`SIGNED_BIT_FIELDS` 或 `--signed-bit-fields`）：
+**显式有符号模式**（`SIGNED_BIT_FIELDS` 或 `--signed-bit-fields`）：
 - 适用于列名无位域后缀的总线列（如 `wide_bus`），或需从同一列拆出多个子域
 - 同一源列可配置多条规则（如 `[23:12]` 与 `[11:0]`）；全部提取完成后再删除源列
-- 可选 **`"signed": False`**：输出**无符号**十进制（1-bit 使能为 `0/1` 而非 `-1/0`；`[31:0]` 为 `0..2³²−1`）
+- 输出为**有符号**十进制（二补码）
 
-**自动 + 显式并用**：显式规则优先；未在 `SIGNED_BIT_FIELDS` 中声明的 `[high:low]` 列仍走自动模式；二者均不处理 `PASSTHROUGH_RENAME` 源列。
+**显式无符号模式**（`UNSIGNED_BIT_FIELDS` 或 `--unsigned-bit-fields`）：
+- 格式与有符号相同（`column` / `bits` / `output`）
+- 输出为**无符号**十进制（1-bit → `0/1`，`[31:0]` → `0..2³²−1`）
+- 可与 `SIGNED_BIT_FIELDS` 同时使用（同一源列可同时拆有符号与无符号子域）
+
+**自动 + 显式并用**：显式规则优先；未在 SIGNED/UNSIGNED 中声明的 `[high:low]` 列仍走自动有符号模式；均不处理 `PASSTHROUGH_RENAME` 源列。
 ```python
 SIGNED_BIT_FIELDS = [
     {"column": "adc_q_ch0[11:0]", "output": "adc_q_ch0"},
     {"column": "wide_bus", "bits": "[23:12]", "output": "wide_hi"},
     {"column": "wide_bus", "bits": "[11:0]", "output": "wide_lo"},
-    # 无符号（vector / valid 等）
-    {"column": "phy_dump_data_0d[63:0]", "bits": "[33:33]", "output": "valid", "signed": False},
-    {"column": "phy_dump_data_0d[63:0]", "bits": "[31:0]", "output": "data", "signed": False},
+]
+UNSIGNED_BIT_FIELDS = [
+    {"column": "phy_dump_data_0d[63:0]", "bits": "[33:33]", "output": "valid"},
+    {"column": "phy_dump_data_0d[63:0]", "bits": "[31:0]", "output": "data"},
 ]
 ```
 
@@ -239,8 +246,13 @@ python process_ila_files.py "D:\path\to\ila_dir" \
 
 或显式指定位域：
 ```bash
+# 有符号
 python process_ila_files.py "D:\path\to\ila_dir" \
   --signed-bit-fields "wide_bus:[23:12]:hi,wide_bus:[11:0]:lo"
+
+# 无符号（valid / data 等）
+python process_ila_files.py "D:\path\to\ila_dir" \
+  --unsigned-bit-fields "phy_dump_data_0d[63:0]:[33:33]:valid,phy_dump_data_0d[63:0]:[31:0]:data"
 ```
 
 **数值解析规则**：
@@ -384,7 +396,8 @@ A: 使用 `PASSTHROUGH_RENAME`（或 `--passthrough-rename`）；不要把这些
 
 ### v1.3.0 (2026-07-07)
 - 新增指定位域有符号提取：`AUTO_SIGNED_BIT_FIELDS`、`SIGNED_BIT_FIELDS`
-- 支持 `--auto-signed`、`--signed-bit-fields` 命令行参数
+- 支持 `--auto-signed`、`--signed-bit-fields`、`--unsigned-bit-fields` 命令行参数
+- 配置区 `SIGNED_BIT_FIELDS` / `UNSIGNED_BIT_FIELDS` 可分别选择有符号 / 无符号位域转换
 - ILA 单元格按位宽启发式解析十六进制（如 12-bit 的 `800` → −2048）
 - 处理顺序：保留列 → 位域提取 → 列重命名
 - 同一总线多段位域合并解析位宽；`dtype=str` 保留前导零

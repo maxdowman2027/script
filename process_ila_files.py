@@ -9,7 +9,8 @@
 3. 提取其中的waveform.csv文件
 4. 兼容 Vivado 2025+ waveform.csv 的 Radix 元数据行（HEX/UNSIGNED...）与旧版无该行的格式
 5. 按照ILA文件名进行更名
-6. 可选：保留/重命名列；从指定列指定位域提取并转为有符号数；或仅改列名不改数据
+6. 可选：保留/重命名列；位域提取为有符号（SIGNED_BIT_FIELDS）或无符号（UNSIGNED_BIT_FIELDS）；
+   或仅改列名不改数据（PASSTHROUGH_RENAME）
 7. 支持批量处理和进度显示
 """
 
@@ -27,7 +28,7 @@ import sys
 # 配置参数 - 可根据需要修改
 # ===========================================
 # 输入目录：包含.ila文件的目录
-INPUT_DIR = r"D:\test_data\AP\260804_dpd\static_dpd_data"
+INPUT_DIR = r"D:\test_data\AP\260813_dpd\dac\vht_mcs7_byte30"
 
 # 输出目录：用于保存提取后的CSV文件（默认与输入目录相同）
 # 如果需要保存到其他目录，请修改此处
@@ -54,11 +55,11 @@ KEEP_COLUMNS = [
 # 提取后的CSV列重命名映射（None表示不重命名）
 # 示例：{"sample_i": "i_data", "sample_q": "q_data"}
 # 与 KEEP_COLUMNS 等长的新列名列表：["adc_q_ch0", "adc_i_ch0"]
-# 注意：会被 AUTO_SIGNED / SIGNED_BIT_FIELDS 改写的列，改名应写在 extract 之后的 output，
-# 或改用下方 PASSTHROUGH_RENAME（只改列名、不改单元格）。
+# 注意：会被 AUTO_SIGNED / SIGNED_BIT_FIELDS / UNSIGNED_BIT_FIELDS 改写的列，
+# 改名应写在 extract 之后的 output，或改用下方 PASSTHROUGH_RENAME。
 RENAME_COLUMNS = None
 
-# 仅改列名、不改单元格数据的列映射（跳过 AUTO_SIGNED / SIGNED_BIT_FIELDS）
+# 仅改列名、不改单元格数据的列映射（跳过 AUTO_SIGNED / SIGNED / UNSIGNED 位域）
 # 格式同 RENAME_COLUMNS：dict / "old:new,..." / [("old","new"), ...] /
 # 与 KEEP_COLUMNS 子集等长的新列名列表（见 normalize_passthrough_rename）
 # 示例：{"adc_i_ch0[11:0]": "adc_i", "adc_q_ch0[11:0]": "adc_q"}
@@ -72,7 +73,7 @@ PASSTHROUGH_RENAME = {
 # PASSTHROUGH_RENAME 中的源列一律不参与自动/显式位域转换
 AUTO_SIGNED_BIT_FIELDS = True
 
-# 显式位域提取；每项 dict: column, bits(可选), output(可选)
+# 显式位域 → 有符号十进制；每项 dict: column, bits(可选), output(可选)
 # bits 省略时从 column 名 [high:low] 解析；同一列可拆多个位域
 # 示例：
 # SIGNED_BIT_FIELDS = [
@@ -137,6 +138,14 @@ SIGNED_BIT_FIELDS = [
     #     "output": "vector",
     # },
 ]
+
+# 显式位域 → 无符号十进制（格式同 SIGNED_BIT_FIELDS；1-bit 为 0/1，宽总线为 0..2^n-1）
+# 示例：
+# UNSIGNED_BIT_FIELDS = [
+#     {"column": "phy_dump_data_0d[63:0]", "bits": "[33:33]", "output": "valid"},
+#     {"column": "phy_dump_data_0d[63:0]", "bits": "[31:0]", "output": "data"},
+# ]
+UNSIGNED_BIT_FIELDS = None
 
 _COLUMN_BIT_SUFFIX_RE = re.compile(r"^(?P<base>.+)\[(?P<hi>\d+):(?P<lo>\d+)\]$")
 _BIT_RANGE_RE = re.compile(r"^\[(?P<hi>\d+):(?P<lo>\d+)\]$")
@@ -309,33 +318,96 @@ def parse_ila_cell_int(cell, *, bit_width: Optional[int] = None) -> int:
     return int(text, 10)
 
 
-def extract_signed_field(word: int, high: int, low: int) -> int:
-    """Extract bits [high:low] from word and return signed integer."""
+def extract_bit_field(word: int, high: int, low: int, *, signed: bool = True) -> int:
+    """Extract bits [high:low]; signed uses two's complement, else unsigned."""
     width = high - low + 1
     mask = (1 << width) - 1
     extracted = (int(word) >> low) & mask
-    return twos_complement(extracted, width)
+    if signed:
+        return twos_complement(extracted, width)
+    return extracted
 
 
-def normalize_signed_bit_field_specs(
+def extract_signed_field(word: int, high: int, low: int) -> int:
+    """Extract bits [high:low] from word and return signed integer."""
+    return extract_bit_field(word, high, low, signed=True)
+
+
+def extract_unsigned_field(word: int, high: int, low: int) -> int:
+    """Extract bits [high:low] from word and return unsigned integer."""
+    return extract_bit_field(word, high, low, signed=False)
+
+
+def _spec_signed_flag(spec: Dict) -> bool:
+    """Default True; set spec['signed']=False for unsigned decimal output."""
+    if "signed" not in spec:
+        return True
+    v = spec["signed"]
+    if isinstance(v, str):
+        return v.strip().lower() not in ("0", "false", "no", "unsigned", "u")
+    return bool(v)
+
+
+def parse_bit_field_cli_item(text: str) -> Tuple[str, Optional[str], Optional[str]]:
+    """
+    Parse one CLI bit-field item.
+
+    Formats:
+      - ``col``
+      - ``col::out``  (bits from column name suffix)
+      - ``col:[hi:lo]:out``
+      - ``col:[hi:lo]``
+    """
+    text = (text or "").strip()
+    if not text:
+        raise ValueError("empty bit-field CLI item")
+    m = re.match(
+        r"^(?P<col>.+?):(?P<bits>\[\d+:\d+\])(?::(?P<out>.*))?$",
+        text,
+    )
+    if m:
+        out = m.group("out")
+        return m.group("col"), m.group("bits"), (out.strip() if out else None)
+    m = re.match(r"^(?P<col>.+?)::(?P<out>.*)$", text)
+    if m:
+        out = m.group("out")
+        return m.group("col"), None, (out.strip() if out else None)
+    if ":" in text and not text.endswith("]"):
+        # ambiguous; prefer whole string as column if it has [hi:lo] suffix
+        if parse_column_bit_suffix(text):
+            return text, None, None
+        raise ValueError(
+            f"invalid bit field CLI item {text!r}; "
+            "use col:[hi:lo]:out or col::out"
+        )
+    return text, None, None
+
+
+def normalize_bit_field_specs(
     value,
     *,
     columns: Sequence[str],
     auto_from_columns: bool = False,
     rename_map: Optional[Dict[str, str]] = None,
-) -> List[Dict[str, str]]:
+    default_signed: bool = True,
+) -> List[Dict]:
     """
-    Normalize signed bit-field specs to list of {column, bits, output}.
+    Normalize bit-field specs to list of {column, bits, output, signed}.
 
     Supported value:
       - None + auto_from_columns: infer from column names with [high:low]
-      - dict: single spec
-      - list of dict / "col:[hi:lo]:out" strings
+      - dict: single spec (optional signed=)
+      - list of dict / CLI strings ``col:[hi:lo]:out``
     """
-    specs: List[Dict[str, str]] = []
+    specs: List[Dict] = []
     rename_map = rename_map or {}
 
-    def add_spec(column: str, bits: Optional[str] = None, output: Optional[str] = None) -> None:
+    def add_spec(
+        column: str,
+        bits: Optional[str] = None,
+        output: Optional[str] = None,
+        signed: Optional[bool] = None,
+    ) -> None:
         column = (column or "").strip()
         if not column:
             return
@@ -344,14 +416,22 @@ def normalize_signed_bit_field_specs(
             _, hi, lo = parsed
             bits = f"[{hi}:{lo}]"
         if not bits:
-            raise ValueError(f"column {column!r} has no [high:low] suffix; set bits explicitly")
+            raise ValueError(
+                f"column {column!r} has no [high:low] suffix; set bits explicitly"
+            )
         if output is None:
             output = rename_map.get(column)
             if output is None and parsed is not None:
                 output = parsed[0]
             if output is None:
                 output = column
-        specs.append({"column": column, "bits": bits, "output": output.strip()})
+        entry = {
+            "column": column,
+            "bits": bits,
+            "output": str(output).strip(),
+            "signed": default_signed if signed is None else bool(signed),
+        }
+        specs.append(entry)
 
     if value is None:
         if not auto_from_columns:
@@ -362,7 +442,17 @@ def normalize_signed_bit_field_specs(
         return specs
 
     if isinstance(value, dict):
-        add_spec(value.get("column", ""), value.get("bits"), value.get("output"))
+        signed = value.get("signed")
+        if signed is None:
+            signed = default_signed
+        else:
+            signed = _spec_signed_flag({"signed": signed})
+        add_spec(
+            value.get("column", ""),
+            value.get("bits"),
+            value.get("output"),
+            signed,
+        )
         return specs
 
     if isinstance(value, str):
@@ -371,33 +461,66 @@ def normalize_signed_bit_field_specs(
     if isinstance(value, (list, tuple)):
         for item in value:
             if isinstance(item, dict):
-                add_spec(item.get("column", ""), item.get("bits"), item.get("output"))
+                signed = item.get("signed")
+                if signed is None:
+                    signed = default_signed
+                else:
+                    signed = _spec_signed_flag({"signed": signed})
+                add_spec(
+                    item.get("column", ""),
+                    item.get("bits"),
+                    item.get("output"),
+                    signed,
+                )
                 continue
             if not isinstance(item, str):
                 continue
             text = item.strip()
             if not text:
                 continue
-            parts = text.split(":")
-            if len(parts) == 1:
-                add_spec(parts[0])
-            elif len(parts) == 2:
-                col, out = parts
-                add_spec(col, output=out)
-            elif len(parts) == 3:
-                col, bits, out = parts
-                bits = bits if bits else None
-                out = out if out else None
-                add_spec(col, bits=bits, output=out)
-            else:
-                raise ValueError(f"invalid signed bit field spec: {item!r}")
+            col, bits, out = parse_bit_field_cli_item(text)
+            add_spec(col, bits=bits, output=out, signed=default_signed)
         return specs
 
-    raise ValueError(f"unsupported SIGNED_BIT_FIELDS type: {type(value)!r}")
+    raise ValueError(f"unsupported bit-field specs type: {type(value)!r}")
 
 
-def apply_signed_bit_fields(df: pd.DataFrame, specs: Sequence[Dict[str, str]]) -> pd.DataFrame:
-    """Extract bit fields from source columns and write signed decimal outputs."""
+def normalize_signed_bit_field_specs(
+    value,
+    *,
+    columns: Sequence[str],
+    auto_from_columns: bool = False,
+    rename_map: Optional[Dict[str, str]] = None,
+) -> List[Dict]:
+    """Backward-compatible alias: normalize with signed=True default."""
+    return normalize_bit_field_specs(
+        value,
+        columns=columns,
+        auto_from_columns=auto_from_columns,
+        rename_map=rename_map,
+        default_signed=True,
+    )
+
+
+def normalize_unsigned_bit_field_specs(
+    value,
+    *,
+    columns: Sequence[str],
+    auto_from_columns: bool = False,
+    rename_map: Optional[Dict[str, str]] = None,
+) -> List[Dict]:
+    """Normalize specs with signed=False default (UNSIGNED_BIT_FIELDS)."""
+    return normalize_bit_field_specs(
+        value,
+        columns=columns,
+        auto_from_columns=auto_from_columns,
+        rename_map=rename_map,
+        default_signed=False,
+    )
+
+
+def apply_bit_fields(df: pd.DataFrame, specs: Sequence[Dict]) -> pd.DataFrame:
+    """Extract bit fields; each spec may set signed True/False."""
     if not specs:
         return df
 
@@ -418,14 +541,15 @@ def apply_signed_bit_fields(df: pd.DataFrame, specs: Sequence[Dict[str, str]]) -
         src = spec["column"]
         bits = spec["bits"]
         dst = spec["output"]
+        as_signed = _spec_signed_flag(spec)
         if src not in out.columns:
             log(f"[WARNING] 位域源列不存在: {src!r}，跳过")
             continue
         hi, lo = parse_bit_range_text(bits)
         parse_width = source_parse_width.get(src, hi + 1)
         out[dst] = out[src].map(
-            lambda cell, pw=parse_width, h=hi, l=lo: extract_signed_field(
-                parse_ila_cell_int(cell, bit_width=pw), h, l
+            lambda cell, pw=parse_width, h=hi, l=lo, s=as_signed: extract_bit_field(
+                parse_ila_cell_int(cell, bit_width=pw), h, l, signed=s
             )
         )
         if dst != src:
@@ -437,6 +561,10 @@ def apply_signed_bit_fields(df: pd.DataFrame, specs: Sequence[Dict[str, str]]) -
     return out
 
 
+def apply_signed_bit_fields(df: pd.DataFrame, specs: Sequence[Dict]) -> pd.DataFrame:
+    """Alias for apply_bit_fields (specs may mix signed/unsigned via 'signed')."""
+    return apply_bit_fields(df, specs)
+
 def process_ila_file(
     ila_path: Path,
     output_dir: Path,
@@ -445,6 +573,7 @@ def process_ila_file(
     rename_columns=None,
     passthrough_rename=None,
     signed_bit_fields=None,
+    unsigned_bit_fields=None,
     auto_signed_bit_fields: bool = False,
 ) -> bool:
     """
@@ -456,8 +585,9 @@ def process_ila_file(
         keep_original: 是否保留原始ILA文件
         keep_columns: 仅保留的源列名列表
         rename_columns: 列重命名映射（位域提取之后）
-        passthrough_rename: 只改列名、不改单元格；且跳过有符号位域转换
-        signed_bit_fields: 显式位域提取配置
+        passthrough_rename: 只改列名、不改单元格；且跳过位域转换
+        signed_bit_fields: 显式位域 → 有符号十进制
+        unsigned_bit_fields: 显式位域 → 无符号十进制
         auto_signed_bit_fields: 列名含 [high:low] 时自动有符号转换
 
     Returns:
@@ -503,15 +633,18 @@ def process_ila_file(
                 f"metadata row(s) from waveform.csv"
             )
 
-        # 可选：只保留指定列，位域有符号提取，passthrough/普通重命名
+        # 可选：只保留指定列，位域有/无符号提取，passthrough/普通重命名
         if (
             keep_columns
             or rename_columns
             or passthrough_rename
             or signed_bit_fields
+            or unsigned_bit_fields
             or auto_signed_bit_fields
         ):
-            needs_bit_fields = bool(signed_bit_fields or auto_signed_bit_fields)
+            needs_bit_fields = bool(
+                signed_bit_fields or unsigned_bit_fields or auto_signed_bit_fields
+            )
             df, _n_drop = read_ila_waveform_csv(
                 extracted_path,
                 dtype=str if needs_bit_fields else None,
@@ -571,13 +704,21 @@ def process_ila_file(
                 auto_from_columns=False,
                 rename_map=rename_map_prep,
             )
-            skipped_signed = [
+            bit_specs.extend(
+                normalize_unsigned_bit_field_specs(
+                    unsigned_bit_fields,
+                    columns=list(df.columns),
+                    auto_from_columns=False,
+                    rename_map=rename_map_prep,
+                )
+            )
+            skipped_bit = [
                 s["column"] for s in bit_specs if s["column"] in passthrough_sources
             ]
-            if skipped_signed:
+            if skipped_bit:
                 log(
                     f"[WARNING] 文件 {ila_path.name} 的位域规则跳过 passthrough 列: "
-                    f"{sorted(set(skipped_signed))}"
+                    f"{sorted(set(skipped_bit))}"
                 )
             bit_specs = [
                 s for s in bit_specs if s["column"] not in passthrough_sources
@@ -597,7 +738,7 @@ def process_ila_file(
                     ):
                         bit_specs.append(spec)
             if bit_specs:
-                df = apply_signed_bit_fields(df, bit_specs)
+                df = apply_bit_fields(df, bit_specs)
 
             # 先做只改列名的 passthrough（单元格原样保留）
             if passthrough_map:
@@ -804,8 +945,15 @@ def main():
     parser.add_argument(
         "--signed-bit-fields",
         help=(
-            "显式位域提取，逗号分隔：col:[hi:lo]:out 或 col::out（位域从列名解析）；"
+            "显式有符号位域，逗号分隔：col:[hi:lo]:out 或 col::out（位域从列名解析）；"
             "例: \"bus:[23:12]:hi,bus:[11:0]:lo\""
+        ),
+    )
+    parser.add_argument(
+        "--unsigned-bit-fields",
+        help=(
+            "显式无符号位域，逗号分隔：col:[hi:lo]:out 或 col::out；"
+            "例: \"bus:[33:33]:valid,bus:[31:0]:data\""
         ),
     )
 
@@ -854,6 +1002,13 @@ def main():
             columns=keep_columns or [],
             auto_from_columns=False,
         )
+    unsigned_bit_fields = UNSIGNED_BIT_FIELDS
+    if args.unsigned_bit_fields:
+        unsigned_bit_fields = normalize_unsigned_bit_field_specs(
+            args.unsigned_bit_fields.split(","),
+            columns=keep_columns or [],
+            auto_from_columns=False,
+        )
 
     # 检查输入目录是否存在
     if not input_path.exists():
@@ -885,6 +1040,7 @@ def main():
             rename_columns=rename_columns,
             passthrough_rename=passthrough_rename,
             signed_bit_fields=signed_bit_fields,
+            unsigned_bit_fields=unsigned_bit_fields,
             auto_signed_bit_fields=auto_signed_bit_fields,
         )
         if success:
