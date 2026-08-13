@@ -4,9 +4,11 @@
 
 按 `dpd/20260804_3_data/xian_static_DPD_main1.m` 调用链移植，并支持：
 
-- **包络互相关自动粗对齐**（iQxel 全局搜起点；feedback/dac 同窗 ±lag）
-- **多种 ILA CSV 布局**：`feedback/ref` 与 **`dac_iladata`（dac_i/q）**
+- **包络互相关自动粗对齐**（iQxel / `--dac-csv` **全局**搜起点；同 CSV feedback ±lag）
+- **CW tone 模式**（`|TX|` 平坦时自动）：复数去直流对齐、估频、I/Q 与 `tone_spectrum` 图
+- **多种 ILA CSV 布局**：`feedback/ref` 与 **`dac_iladata` / `pkt_out`（dac_i/q）**
 - **双文件对比**：`--csv`（ref）+ `--dac-csv`（dac）→ `--rx dac`
+- **OSR 速率匹配**：`--csv-osr` / `--dac-csv-osr` / `--work-osr`（真 2x vs 4x dump）
 - `--tx-source ref|dac|adc|auto` 与仪器 / 片上 / DAC RX 对比
 
 入口：`dpd/xian_static_dpd_main1.py`。
@@ -14,13 +16,11 @@
 ## 数据流
 
 ```text
-主 CSV（--csv，表头自动识别）
-  · feedback_ref: adc_*, feedback_*, ref_*
-  · dac:          adc_*, dac_*
-可选第二 CSV（--dac-csv）：覆盖/提供 dac_*（双 dump 对比）
-  → read_data：组复数 + 2抽1
+主 CSV（--csv）+ 可选 --dac-csv
+  → read_data（decimate，或 OSR 模式下 decimate=1）
+  → 可选 resample_iq_to_osr → 共同 work_osr
   → TX：--tx-source ref|dac|adc|auto
-  → RX：txt/mat（全局包络）| feedback（±lag）| dac（±lag，可来自 --dac-csv）
+  → RX：txt/mat（全局）| feedback（±lag）| dac（--dac-csv → 全局包络）
   → align_time_domain → gain → CFO → DC → frac delay
   → LUT / lut_data_map.py / amamplot
 ```
@@ -30,30 +30,36 @@
 | layout | 列 | 典型用途 |
 |--------|-----|----------|
 | `feedback_ref` | `adc_i/q, feedback_q/i, ref_i/q` | ref/feedback 与 iQxel 或片上对比 |
-| `dac` | `adc_i/q, dac_i/q` | DAC 数字基带 vs iQxel，或作 `--dac-csv` RX |
+| `dac` | `adc_i/q, dac_i/q` | `dac_iladata` / `pkt_out_iladata` 等 |
 
-日志：`[CSV] layout=dac  cols=[...]`；双文件时另有 `[CSV] dac-csv ...`。
-
-## TX / RX
+## TX / RX / 速率
 
 | 参数 | 取值 | 说明 |
 |------|------|------|
-| `--tx-source` | `ref` | `ref_i+j*ref_q`（主 CSV） |
-| | `dac` | `dac_i+j*dac_q`（主 CSV 或 `--dac-csv` 覆盖后的 dac） |
-| | `adc` | `adc_i+j*adc_q` |
-| | `auto` | 能量：ref→dac→adc；`--rx dac` 时优先 ref |
-| `--rx` | `txt` / `mat` | iQxel |
-| | `feedback` / `csv` | 同主 CSV 的 feedback |
-| | `dac` | `dac_i/q`（`--dac-csv` 优先，否则主 CSV） |
-| | `auto` | 有 `--dac-csv`→dac；否则自定义 `--txt`→txt |
-| `--dac-csv` | 路径 | 第二份含 `dac_i/q` 的 CSV；与 `--rx dac` 联用 |
+| `--tx-source` | `ref` / `dac` / `adc` / `auto` | 见上 |
+| `--rx` | `txt` / `mat` / `feedback` / `dac` / … | `--dac-csv` 时用全局对齐 |
+| `--dac-csv` | 路径 | 第二份 `dac_i/q` |
+| `--csv-decimate` | 默认 `2` | 主 CSV 行抽稀（MATLAB `1:2:end`） |
+| `--dac-csv-decimate` | 默认同主 CSV | 第二份抽稀 |
+| `--csv-osr` / `--dac-csv-osr` | 如 `4` / `2` | dump 过采样标注；设置后先全采样再重采样 |
+| `--work-osr` | 默认 `min(…)` | 对齐前共同速率 |
+
+### 2x / 4x 说明（pkt_out vs ref）
+
+模块上 `pkt_out` 常标 **2x**、`ref` 标 **4x**，但 Vivado ILA 对这两路 dump **多为同一采样钟**（两侧都 `decimate=2` 后包络相关 ≈0.95）。  
+因此 **默认不要** 对 pkt_out 做 2→4 上采样；用默认抽稀 + `--dac-csv` 全局对齐即可。
+
+仅当确认 dump 真为半速率时再用：
+
+`--csv-osr 4 --dac-csv-osr 2 --work-osr 2`
 
 ## 自动对齐
 
 | 模式 | 行为 |
 |------|------|
-| iQxel（默认） | 前 `--coarse-search-len`（默认 5e5）点 **全局** `\|TX\|` 相关 |
-| `--rx feedback` / `--rx dac` | ±`--coarse-max-lag` 补偿相对 TX 的整数时延 |
+| iQxel / `--dac-csv` | **全局** `\|TX\|` 包络相关找起点 |
+| `--signal-mode tone` / auto-CW | 复数去直流 + 估频；跳过包络残差整数时延 |
+| 同 CSV `--rx feedback` / 同文件 dac | ±`--coarse-max-lag` |
 | `--coarse-local-only` | 仅 hint±lag |
 | `--no-coarse-align` | 关闭 |
 
@@ -78,9 +84,24 @@ python .\dpd\xian_static_dpd_main1.py `
 python .\dpd\xian_static_dpd_main1.py --csv PATH\dac_iladata.csv --txt PATH\iqxel.txt --rx txt -o OUT
 ```
 
+### 1a) 发送 tone：DAC vs iQxel
+
+CW 时 `|TX|` 近似恒定，包络对齐失效；`auto` 会切到 **tone**（复数去直流对齐、估频、I/Q 与频谱图）：
+
+```powershell
+python .\dpd\xian_static_dpd_main1.py `
+  --csv "D:\test_data\AP\260807_dpd\tone\dac_iladata.csv" `
+  --txt "D:\test_data\AP\260807_dpd\tone\iqxel_2412_tone.txt" `
+  --tx-source dac --rx txt `
+  --align-plot-start 5700 --align-plot-end 6400 `
+  -o "D:\users\gxu\scripts\dpd\output\260807\tone\dac_iqxel"
+```
+
+可选：`--signal-mode tone` 强制；`--fs 80e6`（默认，ILA `decimate=2` 与 iQxel `stride=2` 后）。
+
 ### 1b) ref CSV vs dac CSV（双文件）
 
-主 CSV 取 `ref_*` 作 TX；`--dac-csv` 取 `dac_*` 作 RX（同窗 ±lag 粗对齐）：
+主 CSV 取 `ref_*` 作 TX；`--dac-csv` 取 `dac_*` 作 RX（**全局**包络对齐）：
 
 ```powershell
 python .\dpd\xian_static_dpd_main1.py `
@@ -91,6 +112,20 @@ python .\dpd\xian_static_dpd_main1.py `
   --align-plot-start 5700 --align-plot-end 6400 `
   -o "D:\users\gxu\scripts\dpd\output\260806\4_ref_vs_dac"
 ```
+
+### 1c) ref vs pkt_out dac（2x 模块名 / 同 ILA 钟）
+
+```powershell
+python .\dpd\xian_static_dpd_main1.py `
+  --csv "D:\test_data\AP\260806_dpd\4\feedback_ref_iladata.csv" `
+  --tx-source ref `
+  --dac-csv "D:\test_data\AP\260806_dpd\6\pkt_out_iladata.csv" `
+  --rx dac `
+  --align-plot-start 5700 --align-plot-end 6400 `
+  -o "D:\users\gxu\scripts\dpd\output\260806\6_ref_vs_pkt_out"
+```
+
+真半速率时再加：`--csv-osr 4 --dac-csv-osr 2 --work-osr 2`。
 
 ### 2) ref vs iQxel + 全局自动对齐
 
@@ -149,6 +184,10 @@ write_lut_data_map(z["table_y"], Path(r"OUT/lut_data_map.py"), scale=128)
 | 参数 | 默认 | 含义 |
 |------|------|------|
 | `--csv` / `--txt` / `--mat` / `--dac-csv` | 仓库默认 / 无 | 主 ILA CSV；iQxel；可选第二份 dac CSV |
+| `--csv-decimate` / `--dac-csv-decimate` | `2` / 同主 | 行抽稀；与 `--*-osr` 互斥优先 OSR |
+| `--csv-osr` / `--dac-csv-osr` / `--work-osr` | 无 | 过采样匹配（真 2x/4x dump） |
+| `--signal-mode` | `auto` | `auto`/`ofdm`/`tone`（CW 自动切 tone） |
+| `--fs` | `80e6` | 抽稀后采样率（tone 估频用） |
 | `--rx` | `auto` | `txt`/`mat`/`feedback`/`dac`/`csv`/`auto` |
 | `--tx-source` | `auto` | `ref`/`dac`/`adc`/`auto` |
 | `--tx-slice-start` | `313` | TX 起点（1-based） |
@@ -165,17 +204,49 @@ write_lut_data_map(z["table_y"], Path(r"OUT/lut_data_map.py"), scale=128)
 
 | 文件 | 说明 |
 |------|------|
-| `align_time_domain.png/.pdf` | 粗对齐时域 |
+| `pre_gain_time_domain.png/.pdf` | 粗对齐后、**增益补偿前**时域（\|·\| / peak-norm / **I** / **Q**） |
+| `align_time_domain.png/.pdf` | 与 `pre_gain_time_domain` **同一张图**（兼容旧文件名） |
+| `tone_spectrum.*` | CW tone 模式：TX/RX \|FFT\| 叠画 |
 | `cfo_iter*_before/after.*` | CFO 相位 |
 | `lut_table.npz` / `lut_*.txt` / `lut_data_map.py` | LUT |
 | `PA-Rx_amam/ampm.*` | AM-AM / AM-PM |
+
+## 时域 I/Q 叠画相位对齐（`plot_aligned_time_domain`）
+
+增益补偿前的 I/Q 图仅做**可视化**相位对齐（不改变后续 DPD 流水线数据）：
+
+\[
+a = \frac{\langle \mathrm{rx}, \mathrm{tx} \rangle}{\langle \mathrm{rx}, \mathrm{rx} \rangle},\quad
+\mathrm{rx}\leftarrow \mathrm{rx}\cdot\frac{a}{|a|}
+\]
+
+再按 TX peak 对 RX 做幅度缩放便于叠画。
+
+### 历史 bug（已修复）
+
+旧实现用 `rx *= exp(-j∠g)`，`g` 取自 `vdot(rx,tx)/vdot(tx,tx)`，**旋转符号错误**。  
+当窗内真实相位差接近 ±90° 时，残差约 ±180°，表现为 **I、Q 同时相对 TX「刚好取反」**，而 \|·\| 仍重合 —— 易误判为仪器/DAC 极性反了。
+
+正确做法是对最小二乘复数增益 `a` 施加单位模 `a/|a|`（如上式）。
+
+### 仍可能看到的 180°（非 bug）
+
+DAC 数字基带 vs iQxel 下变频之间存在**未知载波相位**（混频差分极性、线缆、仪器 IF 约定），常为 ±180°（整体 ×(−1)）。  
+这由后续 `gain_compensation` 吸收，**不影响**包络对齐与 LUT 拟合。  
+区分：
+
+| 现象 | 含义 |
+|------|------|
+| \|TX\| 与 \|RX\| 重合，I/Q 同翻 | 全局 180° 相位（或看旧图） |
+| 仅 Q 反 / 频谱左右镜像 | 共轭或镜像混频，需另查 |
+| \|·\| 都不齐 | 先查时延 / OSR / 是否 tone |
 
 ## 模块
 
 | 模块 | 作用 |
 |------|------|
 | `read_data.py` | 双布局 CSV + `load_iqxel_txt` |
-| `xian_static_dpd_main1.py` | 主流程 / 自动对齐 / `write_lut_data_map` |
+| `xian_static_dpd_main1.py` | 主流程 / 自动对齐 / 时域与 tone 图 / `write_lut_data_map` |
 | `gain_compensation.py` 等 | 增益 / CFO / DC / 分数时延 / LUT / 绘图 |
 
 ## 注意点
@@ -183,5 +254,6 @@ write_lut_data_map(z["table_y"], Path(r"OUT/lut_data_map.py"), scale=128)
 1. DC 用的 TX 是切片后、未增益补偿的原始 TX。  
 2. DPD 输入：`tx_gain` + 分数时延后 RX，再 `1000:end`。  
 3. `dac` 布局无 ref/feedback 时不要用 `--rx feedback`。  
-4. **TX 与 RX 不能同时为 dac**（会报错）；双文件对比用 `--tx-source ref --rx dac --dac-csv ...`。  
-5. 自动对齐为 Python 增强；看 `align_time_domain` 确认包络是否重合。
+4. **双文件都是 dac 布局**时：`--csv` 取 TX 的 `dac_*`，`--dac-csv` 只作 RX；主文件名含 `ref` 时 TX 标签可为 `ref`。同文件勿让 TX/RX 抢同一份 dac。  
+5. `pkt_out` 标 2x、`ref` 标 4x 时，先按**同 ILA 钟**默认抽稀对比；仅确认半速率 dump 再用 `--*-osr`。  
+6. 看 `pre_gain_time_domain` / `align_time_domain` 与日志 `score=` 确认包络是否重合；I/Q 叠画已用正确 `a/|a|` 相位对齐。

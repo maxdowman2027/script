@@ -8,13 +8,27 @@ Aligned with ``dpd/20260804_3_data/xian_static_DPD_main1.m``:
   read_data(CSV) → TX (ref / dac / adc) → RX (iqxel / feedback)
   → auto envelope align → gain → CFO → DC → frac delay → LUT / amamplot
 
-DAC vs iQxel::
+DAC vs iQxel (OFDM or CW tone; tone auto-detected)::
 
   python dpd/xian_static_dpd_main1.py --csv dac_iladata.csv --txt iqxel.txt --tx-source dac --rx txt
+
+  python dpd/xian_static_dpd_main1.py --csv tone/dac_iladata.csv --txt tone/iqxel_2412_tone.txt --tx-source dac --rx txt --signal-mode tone
 
 ref (CSV-A) vs dac (CSV-B)::
 
   python dpd/xian_static_dpd_main1.py --csv feedback_ref_iladata.csv --tx-source ref --dac-csv dac_iladata.csv --rx dac
+
+ref_iladata (dac_* cols as TX) vs dac_iladata (RX)::
+
+  python dpd/xian_static_dpd_main1.py --csv ref_iladata.csv --tx-source dac --dac-csv dac_iladata.csv --rx dac
+
+ref (4x ILA) vs pkt_out dac (label 2x; same ILA clock → keep default OSR, global align)::
+
+  python dpd/xian_static_dpd_main1.py --csv feedback_ref_iladata.csv --tx-source ref --dac-csv pkt_out_iladata.csv --rx dac
+
+True half-rate dump vs 4x (resample to work OSR)::
+
+  python dpd/xian_static_dpd_main1.py --csv feedback_ref.csv --csv-osr 4 --dac-csv pkt_out.csv --dac-csv-osr 2 --work-osr 2 --tx-source ref --rx dac
 
 ILA on-chip (ref vs feedback)::
 
@@ -46,7 +60,7 @@ from dc_compensation import dc_compensation  # noqa: E402
 from fractional_delay_estimation import fractional_delay_estimation  # noqa: E402
 from frequency_offset_estimation import frequency_offset_estimation  # noqa: E402
 from gain_compensation import gain_compensation  # noqa: E402
-from read_data import load_iqxel_txt, read_data  # noqa: E402
+from read_data import load_iqxel_txt, read_data, resample_iq_to_osr  # noqa: E402
 from static_dpd_memory import static_dpd_memory  # noqa: E402
 
 PathLike = Union[str, Path]
@@ -78,6 +92,11 @@ COARSE_MAX_LAG = 512  # local refine / feedback-mode ±search
 # Global search length into iQxel capture (0-based samples after txt stride).
 # Large enough to find packet start when default rx_slice_start is wrong.
 COARSE_SEARCH_LEN = 500_000
+
+# Sample rate of post-decimate ILA / post-stride iQxel streams (Hz)
+FS_HZ = 80e6
+# CW / single-tone: |x| crest variation below this → tone mode
+TONE_CV_MAX = 0.05
 
 DPD_TRIM_START = 1000  # MATLAB (1000:end) 1-based → Python 999:
 AMP_THRESH = 800.0
@@ -218,6 +237,142 @@ def find_best_rx_start_envelope(
     return start0, score
 
 
+def is_cw_tone(x: np.ndarray, *, max_cv: float = TONE_CV_MAX) -> bool:
+    """True if |x| is nearly constant (CW / single-tone)."""
+    a = np.abs(np.asarray(x, dtype=np.complex128).reshape(-1))
+    if a.size < 16:
+        return False
+    m = float(np.mean(a))
+    if m <= 1e-12:
+        return False
+    return float(np.std(a) / m) <= float(max_cv)
+
+
+def estimate_tone_hz(x: np.ndarray, fs: float) -> float:
+    """Peak FFT bin frequency (Hz), signed via fftfreq."""
+    x = np.asarray(x, dtype=np.complex128).reshape(-1)
+    n = min(8192, int(x.size))
+    if n < 8 or fs <= 0:
+        return 0.0
+    w = np.hanning(n)
+    X = np.fft.fft(x[:n] * w)
+    f = np.fft.fftfreq(n, d=1.0 / float(fs))
+    return float(f[int(np.argmax(np.abs(X)))])
+
+
+def find_rx_tone_start(
+    rx_full: np.ndarray,
+    n_need: int,
+    *,
+    search_len: Optional[int] = None,
+    level: float = 0.5,
+) -> int:
+    """
+    First index where |RX| stays near its peak (skip quiet/settling head).
+
+    Continuous tone has no packet edge; pick a stable high-level region.
+    """
+    rx = np.asarray(rx_full, dtype=np.complex128).reshape(-1)
+    if rx.size < 8:
+        return 0
+    sl = min(int(search_len) if search_len else rx.size, rx.size)
+    a = np.abs(rx[:sl])
+    peak = float(np.max(a))
+    if peak <= 0:
+        return 0
+    thr = float(level) * peak
+    run = max(16, min(int(n_need) // 20, 256))
+    above = (a >= thr).astype(np.float64)
+    if above.size < run:
+        return 0
+    s = np.convolve(above, np.ones(run), mode="valid")
+    hits = np.flatnonzero(s >= run * 0.95)
+    if hits.size == 0:
+        return int(np.argmax(a))
+    start = int(hits[0])
+    if start + int(n_need) > rx.size:
+        start = max(0, rx.size - int(n_need))
+    return start
+
+
+def estimate_complex_delay(
+    tx: np.ndarray,
+    rx: np.ndarray,
+    *,
+    max_lag: int = 64,
+) -> int:
+    """Integer lag maximizing |corr| after removing DC (for CW refine)."""
+    from scipy.signal import correlate
+
+    a = np.asarray(tx, dtype=np.complex128).reshape(-1)
+    b = np.asarray(rx, dtype=np.complex128).reshape(-1)
+    n = min(a.size, b.size)
+    if n < 8:
+        return 0
+    a = a[:n] - np.mean(a[:n])
+    b = b[:n] - np.mean(b[:n])
+    c = correlate(b, a, mode="full")
+    mid = n - 1
+    ml = min(int(max_lag), n - 1)
+    i0 = mid - ml
+    i1 = mid + ml + 1
+    k = i0 + int(np.argmax(np.abs(c[i0:i1])))
+    return int(k - mid)
+
+
+def find_best_rx_start_tone(
+    tx: np.ndarray,
+    rx_full: np.ndarray,
+    *,
+    fs: float = FS_HZ,
+    search_len: Optional[int] = None,
+    template_len: int = 2048,
+) -> tuple:
+    """
+    CW align: wipe TX tone freq on both, complex-corr template in RX search.
+
+    Returns ``(start0, score, f_tx_hz, f_rx_hz)``.
+    """
+    from scipy.signal import correlate
+
+    tx = np.asarray(tx, dtype=np.complex128).reshape(-1)
+    rx = np.asarray(rx_full, dtype=np.complex128).reshape(-1)
+    f_tx = estimate_tone_hz(tx, fs)
+    f_rx = estimate_tone_hz(rx[: min(rx.size, int(search_len or 200_000))], fs)
+
+    win = min(int(template_len), tx.size, 4096)
+    if win < 16 or rx.size < win:
+        return find_rx_tone_start(rx, win), 0.0, f_tx, f_rx
+
+    n_t = np.arange(win, dtype=np.float64)
+    # Mix TX template to DC using TX tone; mix RX with same LO (CFO left for later)
+    lo_tx = np.exp(-1j * 2 * np.pi * f_tx * n_t / float(fs))
+    tmpl = (tx[:win] - np.mean(tx[:win])) * lo_tx
+    tmpl = tmpl - np.mean(tmpl)
+    tn = float(np.linalg.norm(tmpl)) + 1e-12
+
+    sl = int(search_len) if search_len and search_len > 0 else min(rx.size, 200_000)
+    sl = min(sl, rx.size - win + 1)
+    if sl < 1:
+        return 0, 0.0, f_tx, f_rx
+
+    n_r = np.arange(sl + win - 1, dtype=np.float64)
+    rx_mix = (rx[: sl + win - 1] - np.mean(rx[: sl + win - 1])) * np.exp(
+        -1j * 2 * np.pi * f_tx * n_r / float(fs)
+    )
+    c = correlate(rx_mix, tmpl, mode="valid")
+    peak = int(np.argmax(np.abs(c)))
+    start0 = peak
+    # coherence-like score
+    seg = rx_mix[peak : peak + win]
+    score = float(np.abs(np.vdot(seg, tmpl)) / (tn * (float(np.linalg.norm(seg)) + 1e-12)))
+    # Prefer a stable-level start if complex score is weak (flat CW corr)
+    if score < 0.15:
+        start0 = find_rx_tone_start(rx, win, search_len=sl + win)
+        score = float(score)
+    return start0, score, f_tx, f_rx
+
+
 def load_rx_full_capture(
     *,
     prefer: str,
@@ -304,13 +459,17 @@ def plot_aligned_time_domain(
     show: bool = False,
     tx_label: str = "TX",
     rx_label: str = "RX",
+    tone_mode: bool = False,
 ) -> Path:
     """
-    Time-domain |TX| / |RX| after coarse slice+align, for tuning slice params.
+    Time-domain compare after coarse align, **before gain compensation**.
 
-    Plots only ``[plot_start:plot_end)`` (0-based sample indices after align).
-    Top: absolute magnitude (RX scaled to TX peak for overlay).
-    Bottom: each peak-normalized to 1 (peaks from the plot window).
+    Plots ``[plot_start:plot_end)``:
+      1) |TX|/|RX| (RX peak-scaled for overlay only)
+      2) peak-normalized magnitude
+      3) I (separate)
+      4) Q (separate)
+    Saves ``pre_gain_time_domain`` and ``align_time_domain`` (same figure).
     """
     import matplotlib.pyplot as plt
 
@@ -336,9 +495,16 @@ def plot_aligned_time_domain(
     rx_peak = float(np.max(rx_abs)) if rx.size else 0.0
     scale = (tx_peak / rx_peak) if rx_peak > 0 else 1.0
 
-    fig, axes = plt.subplots(2, 1, sharex=True, figsize=(11, 6.5))
+    # Phase-align RX for I/Q overlay (visual only; not gain_compensation).
+    # LS: tx ≈ a*rx with a = vdot(rx, tx)/vdot(rx, rx); apply a/|a| (not exp(-j∠)).
+    a = np.vdot(rx, tx) / (np.vdot(rx, rx) + 1e-30)
+    rx_p = rx * (a / np.abs(a) if np.abs(a) > 0 else 1.0)
+    rx_p = rx_p * scale
+
+    fig, axes = plt.subplots(4, 1, sharex=True, figsize=(11, 10))
     title = (
-        f"Aligned time domain  {tx_label} vs {rx_label}  "
+        f"Pre-gain time domain  {tx_label} vs {rx_label}"
+        f"{'  [TONE]' if tone_mode else ''}  "
         f"samples [{i0}:{i1})  N_win={i1 - i0}  (full N={n})  "
         f"tx_slice={tx_slice_start}  rx_slice={rx_slice_start}  "
         f"align_len={align_len}"
@@ -350,39 +516,115 @@ def plot_aligned_time_domain(
     ax0.plot(
         t,
         rx_abs * scale,
-        label=f"|{rx_label}|×{scale:.3g} (→{tx_label} peak)",
+        label=f"|{rx_label}|×{scale:.3g} (peak overlay)",
         linewidth=0.8,
         alpha=0.85,
     )
     ax0.set_ylabel("Amplitude")
     ax0.grid(True, which="both", alpha=0.4)
     ax0.legend(loc="best")
-    ax0.set_title(f"Raw |·| ({rx_label} gain-matched to {tx_label} peak for overlay)")
+    ax0.set_title("Raw |·| before gain compensation (RX peak-scaled for overlay)")
 
     ax1 = axes[1]
     tx_n = tx_abs / (tx_peak + 1e-12)
     rx_n = rx_abs / (rx_peak + 1e-12)
     ax1.plot(t, tx_n, label=f"|{tx_label}| / peak", linewidth=0.8)
     ax1.plot(t, rx_n, label=f"|{rx_label}| / peak", linewidth=0.8, alpha=0.85)
-    ax1.set_xlabel("Sample index (after align)")
     ax1.set_ylabel("Normalized")
     ax1.set_ylim(-0.05, 1.15)
     ax1.grid(True, which="both", alpha=0.4)
     ax1.legend(loc="best")
     ax1.set_title("Peak-normalized (shape / delay check)")
 
+    ax_i = axes[2]
+    ax_i.plot(t, np.real(tx), label=f"I {tx_label}", linewidth=0.8)
+    ax_i.plot(
+        t,
+        np.real(rx_p),
+        label=f"I {rx_label} (ph+peak)",
+        linewidth=0.8,
+        alpha=0.85,
+    )
+    ax_i.set_ylabel("I")
+    ax_i.grid(True, which="both", alpha=0.4)
+    ax_i.legend(loc="best", fontsize=8)
+    ax_i.set_title("I before gain (RX phase-aligned + peak-scale)")
+
+    ax_q = axes[3]
+    ax_q.plot(t, np.imag(tx), label=f"Q {tx_label}", linewidth=0.8)
+    ax_q.plot(
+        t,
+        np.imag(rx_p),
+        label=f"Q {rx_label} (ph+peak)",
+        linewidth=0.8,
+        alpha=0.85,
+    )
+    ax_q.set_ylabel("Q")
+    ax_q.grid(True, which="both", alpha=0.4)
+    ax_q.legend(loc="best", fontsize=8)
+    ax_q.set_title("Q before gain (RX phase-aligned + peak-scale)")
+    ax_q.set_xlabel("Sample index (after align)")
+
     fig.tight_layout()
     out_dir = Path(out_dir)
     out_dir.mkdir(parents=True, exist_ok=True)
-    pdf = out_dir / "align_time_domain.pdf"
-    png = out_dir / "align_time_domain.png"
-    fig.savefig(pdf)
+    for stem in ("pre_gain_time_domain", "align_time_domain"):
+        fig.savefig(out_dir / f"{stem}.pdf")
+        fig.savefig(out_dir / f"{stem}.png", dpi=120)
+    if show:
+        plt.show()
+    else:
+        plt.close(fig)
+    png = out_dir / "pre_gain_time_domain.png"
+    print(
+        f"[PLOT] pre-gain time-domain [{i0}:{i1}) {tx_label} vs {rx_label} "
+        f"→ {png}"
+    )
+    return png
+
+
+def plot_tone_spectrum(
+    tx_data: np.ndarray,
+    rx_data: np.ndarray,
+    *,
+    out_dir: Path,
+    fs: float = FS_HZ,
+    tx_label: str = "TX",
+    rx_label: str = "RX",
+    show: bool = False,
+) -> Path:
+    """Overlay |FFT| of TX/RX for CW tone sanity check."""
+    import matplotlib.pyplot as plt
+
+    tx = np.asarray(tx_data, dtype=np.complex128).reshape(-1)
+    rx = np.asarray(rx_data, dtype=np.complex128).reshape(-1)
+    n = min(tx.size, rx.size, 8192)
+    w = np.hanning(n)
+    f = np.fft.fftshift(np.fft.fftfreq(n, d=1.0 / float(fs))) / 1e6
+    Tx = np.fft.fftshift(np.fft.fft(tx[:n] * w))
+    Rx = np.fft.fftshift(np.fft.fft(rx[:n] * w))
+    tx_db = 20 * np.log10(np.abs(Tx) + 1e-15)
+    rx_db = 20 * np.log10(np.abs(Rx) + 1e-15)
+    rx_db = rx_db - np.max(rx_db) + np.max(tx_db)
+
+    fig, ax = plt.subplots(figsize=(10, 4.5))
+    ax.plot(f, tx_db, label=tx_label, linewidth=0.9)
+    ax.plot(f, rx_db, label=f"{rx_label} (peak-aligned dB)", linewidth=0.9, alpha=0.85)
+    ax.set_xlabel("Frequency (MHz)")
+    ax.set_ylabel("Magnitude (dB)")
+    ax.set_title(f"Tone spectrum  {tx_label} vs {rx_label}  (N={n}, fs={fs/1e6:.3g} MHz)")
+    ax.grid(True, alpha=0.4)
+    ax.legend(loc="best")
+    fig.tight_layout()
+    out_dir = Path(out_dir)
+    png = out_dir / "tone_spectrum.png"
+    fig.savefig(out_dir / "tone_spectrum.pdf")
     fig.savefig(png, dpi=120)
     if show:
         plt.show()
     else:
         plt.close(fig)
-    print(f"[PLOT] align time-domain [{i0}:{i1}) {tx_label} vs {rx_label} → {png}")
+    print(f"[PLOT] tone spectrum → {png}")
     return png
 
 
@@ -490,6 +732,11 @@ def run_pipeline(
     txt_path: Optional[PathLike] = None,
     txt_stride: int = RX_TXT_STRIDE,
     dac_csv_path: Optional[PathLike] = None,
+    csv_decimate: int = 2,
+    dac_csv_decimate: Optional[int] = None,
+    csv_osr: Optional[int] = None,
+    dac_csv_osr: Optional[int] = None,
+    work_osr: Optional[int] = None,
     output_dir: PathLike = OUTPUT_DIR,
     plot: bool = True,
     show: bool = False,
@@ -513,6 +760,8 @@ def run_pipeline(
     coarse_max_lag: int = COARSE_MAX_LAG,
     coarse_search_len: int = COARSE_SEARCH_LEN,
     coarse_local_only: bool = False,
+    signal_mode: str = "auto",
+    fs_hz: float = FS_HZ,
 ) -> dict:
     """
     Execute the MATLAB main flow; return dict with LUT and intermediate arrays.
@@ -553,31 +802,75 @@ def run_pipeline(
                 print(f"[RX] auto→txt (custom --txt {txt_resolved.name})")
 
     # --- load primary CSV (ILA) ---
-    ref_data, fb_data, adc_data, dac_data = read_data(csv_path)
-    print(f"[CSV] {Path(csv_path).name}  N={ref_data.size} (after 2:1)")
+    use_osr = csv_osr is not None or dac_csv_osr is not None
+    if use_osr:
+        # Load full-rate rows, then resample to a common work OSR.
+        primary_dec = 1
+        dac_dec = 1
+        osr_tx = int(csv_osr) if csv_osr is not None else 4
+        osr_dac = int(dac_csv_osr) if dac_csv_osr is not None else osr_tx
+        work = int(work_osr) if work_osr is not None else int(min(osr_tx, osr_dac))
+        print(
+            f"[RATE] csv_osr={osr_tx}  dac_csv_osr={osr_dac}  work_osr={work}  "
+            f"(load decimate=1 then resample)"
+        )
+    else:
+        primary_dec = int(csv_decimate)
+        dac_dec = (
+            int(dac_csv_decimate)
+            if dac_csv_decimate is not None
+            else primary_dec
+        )
+        osr_tx = osr_dac = work = None
 
-    # Optional second CSV for DAC (ref vs dac across two dumps)
+    ref_data, fb_data, adc_data, dac_primary = read_data(
+        csv_path, decimate=primary_dec
+    )
+    print(
+        f"[CSV] {Path(csv_path).name}  N={ref_data.size} "
+        f"(after decimate={primary_dec})"
+    )
+
+    # Optional second CSV for DAC RX (keep primary dac for TX when --tx-source dac)
+    dac_data = dac_primary
+    dac_from_second = False
     if dac_csv_path is not None and Path(dac_csv_path).is_file():
-        _r, _f, _a, dac_from_file = read_data(dac_csv_path)
+        _r, _f, _a, dac_from_file = read_data(dac_csv_path, decimate=dac_dec)
         dac_peak_file = float(np.max(np.abs(dac_from_file))) if dac_from_file.size else 0.0
         print(
             f"[CSV] dac-csv {Path(dac_csv_path).name}  "
-            f"N={dac_from_file.size}  dac_peak={dac_peak_file:.3g}"
+            f"N={dac_from_file.size} (decimate={dac_dec})  "
+            f"dac_peak={dac_peak_file:.3g}"
         )
         if dac_peak_file > 0:
             dac_data = dac_from_file
+            dac_from_second = True
         elif prefer == "dac":
             raise RuntimeError(
                 f"--rx dac but no dac_i/q energy in {dac_csv_path}"
             )
 
+    if use_osr:
+        ref_data = resample_iq_to_osr(ref_data, osr_tx, work)
+        fb_data = resample_iq_to_osr(fb_data, osr_tx, work)
+        adc_data = resample_iq_to_osr(adc_data, osr_tx, work)
+        dac_primary = resample_iq_to_osr(dac_primary, osr_tx, work)
+        dac_src_osr = osr_dac if dac_from_second else osr_tx
+        dac_data = resample_iq_to_osr(dac_data, dac_src_osr, work)
+        print(
+            f"[RATE] after resample → N  ref={ref_data.size}  "
+            f"dac_tx={dac_primary.size}  dac_rx={dac_data.size}  "
+            f"(work_osr={work})"
+        )
+
     ref_peak = float(np.max(np.abs(ref_data))) if ref_data.size else 0.0
     fb_peak = float(np.max(np.abs(fb_data))) if fb_data.size else 0.0
     adc_peak = float(np.max(np.abs(adc_data))) if adc_data.size else 0.0
+    dac_tx_peak = float(np.max(np.abs(dac_primary))) if dac_primary.size else 0.0
     dac_peak = float(np.max(np.abs(dac_data))) if dac_data.size else 0.0
     print(
         f"[CSV] peaks  ref={ref_peak:.3g}  feedback={fb_peak:.3g}  "
-        f"adc={adc_peak:.3g}  dac={dac_peak:.3g}"
+        f"adc={adc_peak:.3g}  dac_tx={dac_tx_peak:.3g}  dac_rx={dac_peak:.3g}"
     )
 
     src = tx_source.lower()
@@ -585,15 +878,21 @@ def run_pipeline(
         if prefer == "csv" and ref_peak > 0:
             src = "ref"
         elif prefer == "dac" and ref_peak > 0:
-            # Comparing against dac RX → TX defaults to ref when present
             src = "ref"
+        elif prefer == "dac" and dac_from_second and dac_tx_peak > 0:
+            # e.g. ref_iladata.csv (dac_* cols) vs dac_iladata.csv
+            src = "dac"
+            print(
+                "[TX] auto→primary dac columns "
+                f"(ref_peak={ref_peak:.3g}, dac_tx_peak={dac_tx_peak:.3g})"
+            )
         elif ref_peak > 0:
             src = "ref"
-        elif dac_peak > 0 and prefer != "dac":
+        elif dac_tx_peak > 0 and prefer != "dac":
             src = "dac"
             print(
                 "[TX] auto→dac "
-                f"(ref_peak={ref_peak:.3g}, dac_peak={dac_peak:.3g})"
+                f"(ref_peak={ref_peak:.3g}, dac_peak={dac_tx_peak:.3g})"
             )
         elif adc_peak > 0:
             src = "adc"
@@ -611,24 +910,57 @@ def run_pipeline(
         tx_data = ref_data
         tx_label = "ref"
     elif src == "dac":
-        if dac_peak <= 0:
+        # TX always from primary CSV dac_* (not overwritten by --dac-csv)
+        if dac_tx_peak <= 0:
             raise RuntimeError(
-                "TX source=dac but dac_i/q are empty; use a dac_iladata.csv "
-                "or --dac-csv"
+                "TX source=dac but primary CSV dac_i/q are empty; "
+                "use a dac/ref iladata.csv with dac columns"
             )
-        tx_data = dac_data
-        tx_label = "dac"
+        tx_data = dac_primary
+        stem = Path(csv_path).stem.lower()
+        tx_label = "ref" if "ref" in stem else "dac"
     elif src == "adc":
         tx_data = adc_data
         tx_label = "adc"
     else:
         raise ValueError(f"unknown tx_source={tx_source!r}")
-    print(f"[TX] source={src}  peak={float(np.max(np.abs(tx_data))):.3g}")
+    print(f"[TX] source={src}  label={tx_label}  peak={float(np.max(np.abs(tx_data))):.3g}")
+
+    # Detect CW / single-tone (envelope align is useless on flat |TX|)
+    mode = (signal_mode or "auto").lower()
+    if mode == "auto":
+        tone_mode = is_cw_tone(tx_data)
+        if tone_mode:
+            print(
+                f"[MODE] auto→tone  (|TX| CV="
+                f"{float(np.std(np.abs(tx_data))/ (np.mean(np.abs(tx_data))+1e-12)):.4g} "
+                f"< {TONE_CV_MAX})"
+            )
+        else:
+            print("[MODE] auto→ofdm/packet")
+    elif mode == "tone":
+        tone_mode = True
+        print("[MODE] tone (forced)")
+    else:
+        tone_mode = False
+        print(f"[MODE] {mode}")
 
     # MATLAB: tx_data = tx_data(313:313+7000,:)
     t0 = int(tx_slice_start) - 1
     tx_data = tx_data[t0 : t0 + int(slice_len), :]
     print(f"[TX] slice {tx_slice_start}:{tx_slice_start}+{slice_len - 1} → N={tx_data.size}")
+
+    if tone_mode:
+        f_tx0 = estimate_tone_hz(tx_data, fs_hz)
+        print(f"[TONE] TX freq ≈ {f_tx0/1e6:.6g} MHz  (fs={fs_hz/1e6:.3g} MHz)")
+        # Gain match needs |tx|<amp_thresh samples; tone peak may be below 800 already.
+        tx_pk = float(np.max(np.abs(tx_data)))
+        if tx_pk >= float(amp_thresh) - 1e-9:
+            amp_thresh = tx_pk * 1.05
+            print(
+                f"[TONE] raise amp_thresh → {amp_thresh:.4g} "
+                f"(tone peak {tx_pk:.4g})"
+            )
 
     # RX: feedback / dac CSV window, or mat/txt with global align
     use_csv_feedback = prefer == "csv"
@@ -694,14 +1026,48 @@ def run_pipeline(
                 "RX source=dac but dac_i/q are empty; pass --dac-csv "
                 "dac_iladata.csv or a CSV that contains dac columns"
             )
-        if src == "dac":
+        if src == "dac" and not dac_from_second:
             raise RuntimeError(
-                "TX and RX cannot both be dac; use --tx-source ref "
-                "with --rx dac --dac-csv ..."
+                "TX and RX cannot both be dac from the same CSV; "
+                "use --csv ref_iladata.csv --tx-source dac "
+                "--dac-csv dac_iladata.csv --rx dac"
             )
-        rx_data, rx_slice_used = _align_rx_from_full(
-            dac_data, label="dac", peak_val=dac_peak
-        )
+        # Cross-file / rate-matched dac: global envelope search (like iQxel).
+        # Same-CSV dac still uses same-window ±lag.
+        if dac_from_second or use_osr:
+            rx_full = np.asarray(dac_data, dtype=np.complex128).reshape(-1)
+            n_need = int(slice_len)
+            print(
+                f"[RX] source=dac  peak={dac_peak:.3g}  full N={rx_full.size}"
+            )
+            if coarse_align:
+                start0, score = find_best_rx_start_envelope(
+                    tx_data,
+                    rx_full,
+                    search_len=min(int(coarse_search_len), rx_full.size),
+                    template_len=min(5000, tx_data.size),
+                )
+                if start0 + n_need > rx_full.size:
+                    # fall back: clamp start
+                    start0 = max(0, rx_full.size - n_need)
+                rx_data = _as_col(rx_full[start0 : start0 + n_need])
+                rx_slice_used = start0 + 1
+                print(
+                    f"[ALIGN] global envelope (dac csv): rx_slice → "
+                    f"{rx_slice_used} (0-based {start0}), score={score:.4f}"
+                )
+            else:
+                start0 = max(0, int(tx_slice_start) - 1)
+                rx_data = _as_col(rx_full[start0 : start0 + n_need])
+                rx_slice_used = start0 + 1
+                print(
+                    f"[RX] dac slice_start={rx_slice_used} "
+                    f"(coarse align off)  N={rx_data.size}"
+                )
+        else:
+            rx_data, rx_slice_used = _align_rx_from_full(
+                dac_data, label="dac", peak_val=dac_peak
+            )
         rx_label = "dac"
     else:
         # iQxel mat/txt: load full capture, auto-find start by envelope match
@@ -721,7 +1087,20 @@ def run_pipeline(
         n_need = int(slice_len)
         if coarse_align:
             hint0 = int(rx_slice_start) - 1  # 0-based
-            if coarse_local_only:
+            if tone_mode:
+                start0, score, f_tx, f_rx = find_best_rx_start_tone(
+                    tx_data,
+                    rx_full,
+                    fs=float(fs_hz),
+                    search_len=min(int(coarse_search_len), rx_full.size),
+                    template_len=min(2048, tx_data.size),
+                )
+                mode_s = "tone complex/DC wipe"
+                print(
+                    f"[TONE] RX freq ≈ {f_rx/1e6:.6g} MHz  "
+                    f"(Δf≈{(f_rx - f_tx)/1e3:.4g} kHz vs TX)"
+                )
+            elif coarse_local_only:
                 start0, score = find_best_rx_start_envelope(
                     tx_data,
                     rx_full,
@@ -729,7 +1108,7 @@ def run_pipeline(
                     local_radius=int(coarse_max_lag),
                     template_len=min(5000, tx_data.size),
                 )
-                mode = f"local±{int(coarse_max_lag)} around {int(rx_slice_start)}"
+                mode_s = f"local±{int(coarse_max_lag)} around {int(rx_slice_start)}"
             else:
                 start0, score = find_best_rx_start_envelope(
                     tx_data,
@@ -737,7 +1116,7 @@ def run_pipeline(
                     search_len=int(coarse_search_len),
                     template_len=min(5000, tx_data.size),
                 )
-                mode = f"global search_len={int(coarse_search_len)}"
+                mode_s = f"global search_len={int(coarse_search_len)}"
             if start0 + n_need > rx_full.size:
                 raise RuntimeError(
                     f"auto-align start={start0} + slice_len={n_need} exceeds "
@@ -746,7 +1125,7 @@ def run_pipeline(
             rx_data = _as_col(rx_full[start0 : start0 + n_need])
             rx_slice_used = start0 + 1  # 1-based for logs/plots
             print(
-                f"[ALIGN] auto envelope ({mode}): rx_slice → {rx_slice_used} "
+                f"[ALIGN] auto ({mode_s}): rx_slice → {rx_slice_used} "
                 f"(0-based {start0}), score={score:.4f}  "
                 f"(hint was {int(rx_slice_start)})"
             )
@@ -762,14 +1141,19 @@ def run_pipeline(
     tx_data = tx_data[:n, :]
     rx_data = rx_data[:n, :]
     # Final integer refine on equal-length streams (catches residual few samples)
-    if coarse_align:
-        lag2 = estimate_envelope_delay(tx_data, rx_data, max_lag=min(64, n // 4))
+    # Skip for CW: flat envelope + CFO beat makes |corr| lag unreliable (hits ±max).
+    if coarse_align and not tone_mode:
+        lag2 = estimate_envelope_delay(
+            tx_data, rx_data, max_lag=min(64, n // 4)
+        )
         if lag2 != 0:
             tx_data, rx_data, n2 = apply_integer_delay(tx_data, rx_data, lag2)
             n = min(n2, int(align_len))
             tx_data = tx_data[:n, :]
             rx_data = rx_data[:n, :]
             print(f"[ALIGN] residual integer lag={lag2:+d} → N={n}")
+    elif tone_mode and coarse_align:
+        print("[ALIGN] tone: skip residual integer lag (use CFO / frac delay)")
 
     print(f"[ALIGN] 1:{align_len} → N={tx_data.size}  ({tx_label} vs {rx_label})")
 
@@ -786,7 +1170,18 @@ def run_pipeline(
         show=show,
         tx_label=tx_label,
         rx_label=rx_label,
+        tone_mode=tone_mode,
     )
+    if tone_mode:
+        plot_tone_spectrum(
+            tx_data,
+            rx_data,
+            out_dir=out_dir,
+            fs=float(fs_hz),
+            tx_label=tx_label,
+            rx_label=rx_label,
+            show=show,
+        )
 
     # --- gain ---
     tx_gain, rx_gain = gain_compensation(tx_data, rx_data, amp_thresh=amp_thresh)
@@ -886,6 +1281,36 @@ def build_parser() -> argparse.ArgumentParser:
         help="Optional second CSV with dac_i/q (for --rx dac vs --tx-source ref)",
     )
     p.add_argument(
+        "--csv-decimate",
+        type=int,
+        default=2,
+        help="ILA row stride for --csv (MATLAB 1:2:end → 2). Ignored if --csv-osr set",
+    )
+    p.add_argument(
+        "--dac-csv-decimate",
+        type=int,
+        default=None,
+        help="ILA row stride for --dac-csv (default: same as --csv-decimate)",
+    )
+    p.add_argument(
+        "--csv-osr",
+        type=int,
+        default=None,
+        help="Oversampling label of --csv (e.g. 4 for ref 4x). Enables rate match",
+    )
+    p.add_argument(
+        "--dac-csv-osr",
+        type=int,
+        default=None,
+        help="Oversampling label of --dac-csv (e.g. 2 for pkt_out). With --csv-osr",
+    )
+    p.add_argument(
+        "--work-osr",
+        type=int,
+        default=None,
+        help="Common OSR after resample (default: min(csv-osr, dac-csv-osr))",
+    )
+    p.add_argument(
         "--rx",
         choices=("auto", "mat", "txt", "csv", "feedback", "dac"),
         default="auto",
@@ -973,6 +1398,18 @@ def build_parser() -> argparse.ArgumentParser:
         action="store_true",
         help="only search ±coarse-max-lag around --rx-slice-start (no global)",
     )
+    p.add_argument(
+        "--signal-mode",
+        choices=("auto", "ofdm", "tone"),
+        default="auto",
+        help="auto: detect CW by |TX| CV; tone: complex/DC align + spectrum",
+    )
+    p.add_argument(
+        "--fs",
+        type=float,
+        default=FS_HZ,
+        help="sample rate (Hz) after CSV decimate / txt stride (default 80e6)",
+    )
     p.add_argument("-o", "--output-dir", default=str(OUTPUT_DIR))
     p.add_argument("--no-plot", action="store_true")
     p.add_argument("--show", action="store_true", help="interactive matplotlib windows")
@@ -1006,6 +1443,11 @@ def main(argv=None) -> int:
         txt_path=args.txt,
         txt_stride=args.txt_stride,
         dac_csv_path=args.dac_csv,
+        csv_decimate=args.csv_decimate,
+        dac_csv_decimate=args.dac_csv_decimate,
+        csv_osr=args.csv_osr,
+        dac_csv_osr=args.dac_csv_osr,
+        work_osr=args.work_osr,
         output_dir=args.output_dir,
         plot=not args.no_plot,
         show=args.show,
@@ -1029,6 +1471,8 @@ def main(argv=None) -> int:
         coarse_max_lag=args.coarse_max_lag,
         coarse_search_len=args.coarse_search_len,
         coarse_local_only=args.coarse_local_only,
+        signal_mode=args.signal_mode,
+        fs_hz=args.fs,
     )
     return 0
 

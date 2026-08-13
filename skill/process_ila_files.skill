@@ -215,6 +215,7 @@ ILA `waveform.csv` 中信号列常为 `信号名[high:low]`，单元格为无符
 **显式模式**（`SIGNED_BIT_FIELDS` 或 `--signed-bit-fields`）：
 - 适用于列名无位域后缀的总线列（如 `wide_bus`），或需从同一列拆出多个子域
 - 同一源列可配置多条规则（如 `[23:12]` 与 `[11:0]`）；全部提取完成后再删除源列
+- 可选 **`"signed": False`**：输出**无符号**十进制（1-bit 使能为 `0/1` 而非 `-1/0`；`[31:0]` 为 `0..2³²−1`）
 
 **自动 + 显式并用**：显式规则优先；未在 `SIGNED_BIT_FIELDS` 中声明的 `[high:low]` 列仍走自动模式；二者均不处理 `PASSTHROUGH_RENAME` 源列。
 ```python
@@ -222,6 +223,9 @@ SIGNED_BIT_FIELDS = [
     {"column": "adc_q_ch0[11:0]", "output": "adc_q_ch0"},
     {"column": "wide_bus", "bits": "[23:12]", "output": "wide_hi"},
     {"column": "wide_bus", "bits": "[11:0]", "output": "wide_lo"},
+    # 无符号（vector / valid 等）
+    {"column": "phy_dump_data_0d[63:0]", "bits": "[33:33]", "output": "valid", "signed": False},
+    {"column": "phy_dump_data_0d[63:0]", "bits": "[31:0]", "output": "data", "signed": False},
 ]
 ```
 

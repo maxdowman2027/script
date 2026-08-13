@@ -81,45 +81,60 @@ AUTO_SIGNED_BIT_FIELDS = True
 #     {"column": "wide_bus", "bits": "[11:0]", "output": "wide_lo"},
 # ]
 SIGNED_BIT_FIELDS = [
-    {
-        "column": "chip_top_inst/u_chip_dig_top/u_mp_sys_top/u_hp_peri_top/u_modem_itop/u_modem_wrap/u_modem_top/u_wifi_bb_wrap/u_wifi_bb_top/u_phy_dfx_dump/phy_dump_data_0d[63:0]",
-        "bits": "[59:48]",
-        "output": "feedback_q",
-    },
-    {
-        "column": "chip_top_inst/u_chip_dig_top/u_mp_sys_top/u_hp_peri_top/u_modem_itop/u_modem_wrap/u_modem_top/u_wifi_bb_wrap/u_wifi_bb_top/u_phy_dfx_dump/phy_dump_data_0d[63:0]",
-        "bits": "[43:32]",
-        "output": "feedback_i",
-    },
-    {
-        "column": "chip_top_inst/u_chip_dig_top/u_mp_sys_top/u_hp_peri_top/u_modem_itop/u_modem_wrap/u_modem_top/u_wifi_bb_wrap/u_wifi_bb_top/u_phy_dfx_dump/phy_dump_data_0d[63:0]",
-        "bits": "[11:0]",
-        "output": "ref_i",
-    },
-    {
-        "column": "chip_top_inst/u_chip_dig_top/u_mp_sys_top/u_hp_peri_top/u_modem_itop/u_modem_wrap/u_modem_top/u_wifi_bb_wrap/u_wifi_bb_top/u_phy_dfx_dump/phy_dump_data_0d[63:0]",
-        "bits": "[27:16]",
-        "output": "ref_q",
-    },
+    # {
+    #     "column": "chip_top_inst/u_chip_dig_top/u_mp_sys_top/u_hp_peri_top/u_modem_itop/u_modem_wrap/u_modem_top/u_wifi_bb_wrap/u_wifi_bb_top/u_phy_dfx_dump/phy_dump_data_0d[63:0]",
+    #     "bits": "[59:48]",
+    #     "output": "feedback_q",
+    # },
+    # {
+    #     "column": "chip_top_inst/u_chip_dig_top/u_mp_sys_top/u_hp_peri_top/u_modem_itop/u_modem_wrap/u_modem_top/u_wifi_bb_wrap/u_wifi_bb_top/u_phy_dfx_dump/phy_dump_data_0d[63:0]",
+    #     "bits": "[43:32]",
+    #     "output": "feedback_i",
+    # },
     # {
     #     "column": "chip_top_inst/u_chip_dig_top/u_mp_sys_top/u_hp_peri_top/u_modem_itop/u_modem_wrap/u_modem_top/u_wifi_bb_wrap/u_wifi_bb_top/u_phy_dfx_dump/phy_dump_data_0d[63:0]",
     #     "bits": "[11:0]",
-    #     "output": "dac_i",
+    #     "output": "ref_i",
     # },
     # {
     #     "column": "chip_top_inst/u_chip_dig_top/u_mp_sys_top/u_hp_peri_top/u_modem_itop/u_modem_wrap/u_modem_top/u_wifi_bb_wrap/u_wifi_bb_top/u_phy_dfx_dump/phy_dump_data_0d[63:0]",
     #     "bits": "[27:16]",
-    #     "output": "dac_q",
+    #     "output": "ref_q",
     # },
+    {
+        "column": "chip_top_inst/u_chip_dig_top/u_mp_sys_top/u_hp_peri_top/u_modem_itop/u_modem_wrap/u_modem_top/u_wifi_bb_wrap/u_wifi_bb_top/u_phy_dfx_dump/phy_dump_data_0d[63:0]",
+        "bits": "[11:0]",
+        "output": "dac_i",
+    },
+    {
+        "column": "chip_top_inst/u_chip_dig_top/u_mp_sys_top/u_hp_peri_top/u_modem_itop/u_modem_wrap/u_modem_top/u_wifi_bb_wrap/u_wifi_bb_top/u_phy_dfx_dump/phy_dump_data_0d[63:0]",
+        "bits": "[27:16]",
+        "output": "dac_q",
+    },
     # {
     #     "column": "chip_top_inst/u_chip_dig_top/u_mp_sys_top/u_hp_peri_top/u_modem_itop/u_modem_wrap/u_modem_top/u_wifi_bb_wrap/u_wifi_bb_top/u_phy_dfx_dump/phy_dump_data_0d[63:0]",
     #     "bits": "[11:0]",
-    #     "output": "adc_q",
+    #     "output": "iq_cmp_q",
     # },
     # {
     #     "column": "chip_top_inst/u_chip_dig_top/u_mp_sys_top/u_hp_peri_top/u_modem_itop/u_modem_wrap/u_modem_top/u_wifi_bb_wrap/u_wifi_bb_top/u_phy_dfx_dump/phy_dump_data_0d[63:0]",
     #     "bits": "[23:12]",
-    #     "output": "adc_i",
+    #     "output": "iq_cmp_i",
+    # },
+    # {
+    #     "column": "chip_top_inst/u_chip_dig_top/u_mp_sys_top/u_hp_peri_top/u_modem_itop/u_modem_wrap/u_modem_top/u_wifi_bb_wrap/u_wifi_bb_top/u_phy_dfx_dump/phy_dump_data_0d[63:0]",
+    #     "bits": "[17:17]",
+    #     "output": "valid",
+    # },
+    # {
+    #     "column": "chip_top_inst/u_chip_dig_top/u_mp_sys_top/u_hp_peri_top/u_modem_itop/u_modem_wrap/u_modem_top/u_wifi_bb_wrap/u_wifi_bb_top/u_phy_dfx_dump/phy_dump_data_0d[63:0]",
+    #     "bits": "[57:57]",
+    #     "output": "vector_valid",
+    # },
+    # {
+    #     "column": "chip_top_inst/u_chip_dig_top/u_mp_sys_top/u_hp_peri_top/u_modem_itop/u_modem_wrap/u_modem_top/u_wifi_bb_wrap/u_wifi_bb_top/u_phy_dfx_dump/phy_dump_data_0d[63:0]",
+    #     "bits": "[31:0]",
+    #     "output": "vector",
     # },
 ]
 

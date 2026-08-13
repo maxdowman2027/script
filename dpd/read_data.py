@@ -13,8 +13,11 @@ Supported layouts (header row required):
 
      adc_i, adc_q, dac_i, dac_q
 
-Returns complex columns after 2:1 decimate (::2), matching MATLAB (1:2:end).
-Hex cells (e.g. Vivado ``3fc``) are accepted.
+Returns complex columns after optional decimate (::K), matching MATLAB (1:2:end)
+when ``decimate=2``. Hex cells (e.g. Vivado ``3fc``) are accepted.
+
+Oversampling helpers (``resample_iq_to_osr``) convert between dump OSR labels
+(e.g. pkt_out 2x vs ref 4x) before TX/RX compare.
 """
 
 from __future__ import annotations
@@ -59,6 +62,37 @@ def _series_to_complex(i_col: np.ndarray, q_col: np.ndarray) -> np.ndarray:
 
 def _zeros_like_n(n: int) -> np.ndarray:
     return np.zeros((n, 1), dtype=np.complex128)
+
+
+def resample_iq_to_osr(
+    x: np.ndarray,
+    src_osr: int,
+    work_osr: int,
+) -> np.ndarray:
+    """
+    Resample complex IQ from ``src_osr`` to ``work_osr`` (integer ratios preferred).
+
+    - ``src_osr == work_osr``: unchanged
+    - ``src_osr`` multiple of ``work_osr``: decimate ``src/work`` (take every K-th)
+    - ``work_osr`` multiple of ``src_osr``: ``resample_poly`` upsample
+    - else: ``resample_poly(work_osr, src_osr)``
+    """
+    x = np.asarray(x, dtype=np.complex128).reshape(-1)
+    s = int(src_osr)
+    w = int(work_osr)
+    if s <= 0 or w <= 0:
+        raise ValueError(f"osr must be positive, got src={src_osr} work={work_osr}")
+    if s == w or x.size == 0:
+        return x.reshape(-1, 1)
+    if s % w == 0:
+        return x[:: (s // w)].reshape(-1, 1)
+    from scipy.signal import resample_poly
+
+    if w % s == 0:
+        y = resample_poly(x, w // s, 1)
+    else:
+        y = resample_poly(x, w, s)
+    return np.asarray(y, dtype=np.complex128).reshape(-1, 1)
 
 
 def read_data(
