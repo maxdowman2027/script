@@ -1,0 +1,59 @@
+# download_gdvs_pipeline_dirs — 按 pipeline_id 从 GDVS 下载目录 tar
+
+## 功能
+访问三个仓库在 `master/4.0.0/4.0.0` 下的目录树，找到 **Last commit** 文案或**目录名**末尾匹配 `pipeline_id` 的条目，下载该目录的 **tar**（等价网页 Download this directory → tar）到本地。
+
+| 仓库 | 默认树路径 |
+|------|------------|
+| `chip11.2.1_mp/wifi-fpga` | `4.0.0/4.0.0` |
+| `chip11.2.1_mp/wifimac-csv` | 同上 |
+| `chip11.2.1_mp/wifibb-csv` | 同上 |
+
+## 认证
+需 GitLab 登录凭据（仓库为私有）：
+
+```bash
+# 推荐：Personal Access Token（read_api + read_repository）
+set GDVS_TOKEN=glpat-xxxxxxxx
+```
+
+或 `--token` / `--cookie`（浏览器 Cookie）。
+
+## 命令示例
+```bash
+cd D:\users\gxu\scripts
+
+python download_gdvs_pipeline_dirs.py -p 12345 -o D:\download\gdvs --insecure
+
+# 只预览匹配、不下载
+python download_gdvs_pipeline_dirs.py -p 12345 -o .\out --dry-run --insecure
+
+# 仅按目录名末尾匹配（更快）
+python download_gdvs_pipeline_dirs.py -p 12345 -o .\out --match-name-only
+
+# tar.gz
+python download_gdvs_pipeline_dirs.py -p 12345 -o .\out --format tar.gz
+```
+
+## 参数
+| 参数 | 说明 |
+|------|------|
+| `-p / --pipeline-id` | 必填，匹配末尾 |
+| `-o / --output-dir` | 本地下载根目录 |
+| `--token` / `GDVS_TOKEN` | Private Token |
+| `--format` | `tar`（默认）/`tar.gz`/`zip` |
+| `--match-name-only` | 只匹配目录名 |
+| `--match-commit-only` | 只匹配 Last commit |
+| `--dry-run` | 只列出 |
+| `--insecure` | 跳过 TLS 校验 |
+
+## 输出布局
+```text
+<output-dir>/
+  wifi-fpga/<archive>.tar
+  wifimac-csv/<archive>.tar
+  wifibb-csv/<archive>.tar
+```
+
+## 实现
+GitLab API：`repository/tree` + `repository/commits?path=` + `repository/archive.tar?path=`。
