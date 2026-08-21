@@ -1,16 +1,23 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 """
-Force DPD LUT AM-PM through phase 0, then poly-smooth amplitude/phase.
+DPD LUT phase-through-0 smooth (single / multi LUT, optional master).
 
-Typical use: hardware ``dpd_lut_read`` dump (``lut_data_map_lut*.txt``) has
-noisy Q / outliers; fit amp & phase vs LUT index with **no constant term**
-so ``amp(0)=0`` and ``phase(0)=0``, rebuild I/Q, write a new map.
+Two methods
+-----------
+* ``ma``   — moving-average on amp/phase (chip-friendly, O(N·W), default)
+* ``poly`` — weighted no-constant polynomial (offline / higher quality)
+
+Multi-LUT
+---------
+Process a directory of ``lut_data_map_lut*.txt``, optionally only the
+``master_lut`` (``scope=master_only``) or all LUTs (``scope=all``).
 
 CLI::
 
-  python dpd/lut_phase0_fit.py INPUT_lut_data_map.txt -o OUT_DIR
-  python dpd/lut_phase0_fit.py INPUT.txt --deg-amp 4 --deg-ph 4 --exclude 2
+  python dpd/lut_phase0_fit.py INPUT.txt -o OUT --method ma
+  python dpd/lut_phase0_fit.py DIR_WITH_MAPS -o OUT --method ma --master-lut 0 --scope all
+  python dpd/lut_phase0_fit.py DIR -o OUT --method poly --deg-amp 4 --exclude 2
 """
 
 from __future__ import annotations
@@ -28,20 +35,20 @@ PathLike = Union[str, Path]
 DEFAULT_N_PTS = 33
 DEFAULT_DEG_AMP = 4
 DEFAULT_DEG_PH = 4
-DEFAULT_EXCLUDE = (2,)  # common bad bin after hw readback
+DEFAULT_EXCLUDE = (2,)
 DEFAULT_EARLY_W = 1.0
 DEFAULT_LATE_W = 200.0
 DEFAULT_EARLY_BINS = 3
+DEFAULT_MA_WIN = 5
+DEFAULT_METHOD = "ma"
 
+
+# ---------------------------------------------------------------------------
+# I/O
+# ---------------------------------------------------------------------------
 
 def parse_lut_data_map(text: str, *, map_name: Optional[str] = None) -> Dict[int, Tuple[int, int]]:
-    """
-    Parse ``lut_data_map_lutN = { ... }`` from a text/py dump.
-
-    Returns
-    -------
-    dict index -> (i, q) as ints
-    """
+    """Parse ``lut_data_map_lutN = { ... }`` from text."""
     if map_name:
         start_re = re.compile(rf"{re.escape(map_name)}\s*=\s*\{{")
     else:
@@ -49,7 +56,7 @@ def parse_lut_data_map(text: str, *, map_name: Optional[str] = None) -> Dict[int
     m = start_re.search(text)
     if not m:
         raise ValueError("no lut_data_map_lut* dict found in text")
-    i0 = m.end() - 1  # position of '{'
+    i0 = m.end() - 1
     depth = 0
     i1 = None
     for i in range(i0, len(text)):
@@ -79,7 +86,6 @@ def map_to_arrays(
     *,
     n_pts: int = DEFAULT_N_PTS,
 ) -> Tuple[np.ndarray, np.ndarray]:
-    """Return (i, q) float arrays length n_pts; missing keys → 0."""
     ii = np.zeros(n_pts, dtype=float)
     qq = np.zeros(n_pts, dtype=float)
     for k, (i_v, q_v) in lut_map.items():
@@ -89,143 +95,27 @@ def map_to_arrays(
     return ii, qq
 
 
-def poly_through_zero(
-    x: np.ndarray,
-    y: np.ndarray,
-    deg: int,
-    *,
-    w: Optional[np.ndarray] = None,
-) -> np.ndarray:
+def discover_lut_maps(path: PathLike) -> List[Tuple[Path, int]]:
     """
-    Weighted LS: ``y ≈ sum_{k=1..deg} c_k * x^k`` (no constant → y(0)=0).
-
-    Returns coefficient vector ``c`` length ``deg`` (c[0] multiplies x^1).
+    If ``path`` is a file → [(path, lut_sel)].
+    If directory → all ``lut_data_map_lut*.txt`` sorted by lut index.
     """
-    deg = int(deg)
-    if deg < 1:
-        raise ValueError("deg must be >= 1")
-    x = np.asarray(x, dtype=float).reshape(-1)
-    y = np.asarray(y, dtype=float).reshape(-1)
-    if x.size != y.size:
-        raise ValueError("x/y length mismatch")
-    A = np.column_stack([x ** k for k in range(1, deg + 1)])
-    if w is None:
-        coef, *_ = np.linalg.lstsq(A, y, rcond=None)
-    else:
-        sw = np.sqrt(np.asarray(w, dtype=float).reshape(-1))
-        coef, *_ = np.linalg.lstsq(A * sw[:, None], y * sw, rcond=None)
-    return coef
-
-
-def eval_through_zero(x: np.ndarray, coef: np.ndarray) -> np.ndarray:
-    x = np.asarray(x, dtype=float)
-    y = np.zeros_like(x, dtype=float)
-    for k, c in enumerate(np.asarray(coef, dtype=float).reshape(-1), start=1):
-        y = y + c * (x ** k)
-    return y
-
-
-def default_weights(
-    n_pts: int,
-    *,
-    early_bins: int = DEFAULT_EARLY_BINS,
-    early_w: float = DEFAULT_EARLY_W,
-    late_w: float = DEFAULT_LATE_W,
-) -> np.ndarray:
-    """Same idea as MATLAB ``polyfit_for_lut`` Q diagonal."""
-    w = np.full(n_pts, float(late_w), dtype=float)
-    w[: max(0, int(early_bins))] = float(early_w)
-    return w
-
-
-def fit_lut_phase0(
-    lut_i: Sequence[float],
-    lut_q: Sequence[float],
-    *,
-    deg_amp: int = DEFAULT_DEG_AMP,
-    deg_ph: int = DEFAULT_DEG_PH,
-    exclude: Iterable[int] = DEFAULT_EXCLUDE,
-    force_index1_real: bool = True,
-    early_bins: int = DEFAULT_EARLY_BINS,
-    early_w: float = DEFAULT_EARLY_W,
-    late_w: float = DEFAULT_LATE_W,
-) -> dict:
-    """
-    Fit amplitude & unwrapped phase vs LUT index through the origin; rebuild I/Q.
-
-    Parameters
-    ----------
-    lut_i, lut_q :
-        Length-N fixed-point LUT (typically N=33, index 0 is zero pad).
-    deg_amp, deg_ph :
-        Polynomial degrees for amp / phase (terms x^1 .. x^deg only).
-    exclude :
-        LUT indices excluded from the fit (e.g. known outliers).
-    force_index1_real :
-        After rebuild, set ``q[1]=0`` and keep ``|z[1]|`` on I (phase 0 at first bin).
-
-    Returns
-    -------
-    dict with keys:
-      ``i_out``, ``q_out`` (int arrays),
-      ``amp_fit``, ``phase_fit`` (float),
-      ``coef_amp``, ``coef_ph``,
-      ``exclude``, ``n_pts``
-    """
-    ii = np.asarray(lut_i, dtype=float).reshape(-1)
-    qq = np.asarray(lut_q, dtype=float).reshape(-1)
-    if ii.size != qq.size:
-        raise ValueError("lut_i / lut_q length mismatch")
-    n = int(ii.size)
-    z = ii + 1j * qq
-    amp = np.abs(z)
-    ph = np.unwrap(np.angle(z))
-    x = np.arange(n, dtype=float)
-
-    excl = {int(e) for e in exclude}
-    fit_mask = np.array([(k not in excl) and (amp[k] > 0.0) for k in range(n)], dtype=bool)
-    if int(np.count_nonzero(fit_mask)) < max(deg_amp, deg_ph) + 1:
-        raise ValueError(
-            f"too few fit points ({int(np.count_nonzero(fit_mask))}) "
-            f"for deg_amp={deg_amp} deg_ph={deg_ph}"
-        )
-
-    w_full = default_weights(n, early_bins=early_bins, early_w=early_w, late_w=late_w)
-    xf = x[fit_mask]
-    w = w_full[fit_mask]
-    coef_amp = poly_through_zero(xf, amp[fit_mask], deg_amp, w=w)
-    coef_ph = poly_through_zero(xf, ph[fit_mask], deg_ph, w=w)
-
-    amp_fit = eval_through_zero(x, coef_amp)
-    ph_fit = eval_through_zero(x, coef_ph)
-    amp_fit[0] = 0.0
-    ph_fit[0] = 0.0
-
-    z_new = amp_fit * np.exp(1j * ph_fit)
-    if force_index1_real and n > 1:
-        z_new[1] = abs(z_new[1]) + 0j
-
-    i_out = np.rint(np.real(z_new)).astype(int)
-    q_out = np.rint(np.imag(z_new)).astype(int)
-    i_out[0] = 0
-    q_out[0] = 0
-    if force_index1_real and n > 1:
-        q_out[1] = 0
-        i_out[1] = int(np.rint(abs(complex(i_out[1], 0))))
-
-    return {
-        "n_pts": n,
-        "i_out": i_out,
-        "q_out": q_out,
-        "amp_orig": amp,
-        "phase_orig": ph,
-        "amp_fit": amp_fit,
-        "phase_fit": ph_fit,
-        "coef_amp": coef_amp,
-        "coef_ph": coef_ph,
-        "exclude": sorted(excl),
-        "fit_mask": fit_mask,
-    }
+    p = Path(path)
+    if p.is_file():
+        m = re.search(r"lut_data_map_lut(\d+)", p.name)
+        sel = int(m.group(1)) if m else 0
+        return [(p, sel)]
+    if not p.is_dir():
+        raise FileNotFoundError(path)
+    found: List[Tuple[Path, int]] = []
+    for f in sorted(p.glob("lut_data_map_lut*.txt")):
+        m = re.search(r"lut_data_map_lut(\d+)", f.name)
+        if not m:
+            continue
+        found.append((f, int(m.group(1))))
+    if not found:
+        raise FileNotFoundError(f"no lut_data_map_lut*.txt under {p}")
+    return found
 
 
 def format_lut_data_map(
@@ -235,7 +125,6 @@ def format_lut_data_map(
     lut_sel: int = 0,
     header_lines: Optional[List[str]] = None,
 ) -> str:
-    """Render ``lut_data_map_lut{N}`` text matching wifi_dpd_test_wifi7 style."""
     lines: List[str] = list(header_lines or [])
     if lines and lines[-1] != "":
         lines.append("")
@@ -266,7 +155,6 @@ def write_lut_data_map(
 
 
 def write_iq_csv(path: PathLike, i_arr: Sequence[int], q_arr: Sequence[int]) -> Path:
-    """Simple ``index,i,q`` CSV for the C tool."""
     out = Path(path)
     out.parent.mkdir(parents=True, exist_ok=True)
     lines = ["index,i,q"]
@@ -275,6 +163,177 @@ def write_iq_csv(path: PathLike, i_arr: Sequence[int], q_arr: Sequence[int]) -> 
     out.write_text("\n".join(lines) + "\n", encoding="utf-8")
     return out
 
+
+# ---------------------------------------------------------------------------
+# Core math
+# ---------------------------------------------------------------------------
+
+def default_weights(
+    n_pts: int,
+    *,
+    early_bins: int = DEFAULT_EARLY_BINS,
+    early_w: float = DEFAULT_EARLY_W,
+    late_w: float = DEFAULT_LATE_W,
+) -> np.ndarray:
+    w = np.full(n_pts, float(late_w), dtype=float)
+    w[: max(0, int(early_bins))] = float(early_w)
+    return w
+
+
+def poly_through_zero(
+    x: np.ndarray,
+    y: np.ndarray,
+    deg: int,
+    *,
+    w: Optional[np.ndarray] = None,
+) -> np.ndarray:
+    deg = int(deg)
+    if deg < 1:
+        raise ValueError("deg must be >= 1")
+    x = np.asarray(x, dtype=float).reshape(-1)
+    y = np.asarray(y, dtype=float).reshape(-1)
+    A = np.column_stack([x ** k for k in range(1, deg + 1)])
+    if w is None:
+        coef, *_ = np.linalg.lstsq(A, y, rcond=None)
+    else:
+        sw = np.sqrt(np.asarray(w, dtype=float).reshape(-1))
+        coef, *_ = np.linalg.lstsq(A * sw[:, None], y * sw, rcond=None)
+    return coef
+
+
+def eval_through_zero(x: np.ndarray, coef: np.ndarray) -> np.ndarray:
+    x = np.asarray(x, dtype=float)
+    y = np.zeros_like(x, dtype=float)
+    for k, c in enumerate(np.asarray(coef, dtype=float).reshape(-1), start=1):
+        y = y + c * (x ** k)
+    return y
+
+
+def moving_average(y: np.ndarray, win: int) -> np.ndarray:
+    """Centered boxcar; odd win; edge replicate. Chip cost O(N·W)."""
+    y = np.asarray(y, dtype=float).reshape(-1)
+    w = int(win)
+    if w < 3:
+        return y.copy()
+    if w % 2 == 0:
+        w += 1
+    pad = w // 2
+    yp = np.pad(y, (pad, pad), mode="edge")
+    ker = np.ones(w, dtype=float) / float(w)
+    return np.convolve(yp, ker, mode="valid")
+
+
+def _interp_exclude(y: np.ndarray, exclude: Iterable[int]) -> np.ndarray:
+    """Replace excluded indices by linear interpolation from neighbors."""
+    out = np.asarray(y, dtype=float).copy()
+    n = out.size
+    good = np.ones(n, dtype=bool)
+    for e in exclude:
+        if 0 <= int(e) < n:
+            good[int(e)] = False
+    if not np.any(good):
+        return out
+    x = np.arange(n, dtype=float)
+    out[~good] = np.interp(x[~good], x[good], out[good])
+    return out
+
+
+def fit_lut_phase0(
+    lut_i: Sequence[float],
+    lut_q: Sequence[float],
+    *,
+    method: str = DEFAULT_METHOD,
+    deg_amp: int = DEFAULT_DEG_AMP,
+    deg_ph: int = DEFAULT_DEG_PH,
+    ma_win: int = DEFAULT_MA_WIN,
+    exclude: Iterable[int] = DEFAULT_EXCLUDE,
+    force_index1_real: bool = True,
+    early_bins: int = DEFAULT_EARLY_BINS,
+    early_w: float = DEFAULT_EARLY_W,
+    late_w: float = DEFAULT_LATE_W,
+) -> dict:
+    """
+    Smooth amp/phase and force phase through 0; rebuild fixed-point I/Q.
+
+    method
+      * ``ma``   — moving average (recommended on chip)
+      * ``poly`` — no-constant weighted polynomial (PC / offline)
+    """
+    method_l = str(method).strip().lower()
+    if method_l not in ("ma", "poly"):
+        raise ValueError(f"unknown method={method!r} (use ma|poly)")
+
+    ii = np.asarray(lut_i, dtype=float).reshape(-1)
+    qq = np.asarray(lut_q, dtype=float).reshape(-1)
+    if ii.size != qq.size:
+        raise ValueError("lut_i / lut_q length mismatch")
+    n = int(ii.size)
+    z = ii + 1j * qq
+    amp = np.abs(z)
+    ph = np.unwrap(np.angle(z))
+    x = np.arange(n, dtype=float)
+    excl = sorted({int(e) for e in exclude if 0 <= int(e) < n})
+
+    amp_w = _interp_exclude(amp, excl)
+    ph_w = _interp_exclude(ph, excl)
+
+    coef_amp = coef_ph = None
+    if method_l == "ma":
+        amp_fit = moving_average(amp_w, int(ma_win))
+        ph_fit = moving_average(ph_w, int(ma_win))
+    else:
+        fit_mask = np.array([(k not in set(excl)) and (amp[k] > 0.0) for k in range(n)])
+        if int(np.count_nonzero(fit_mask)) < max(deg_amp, deg_ph) + 1:
+            raise ValueError("too few fit points for poly degree")
+        w_full = default_weights(n, early_bins=early_bins, early_w=early_w, late_w=late_w)
+        xf = x[fit_mask]
+        ww = w_full[fit_mask]
+        coef_amp = poly_through_zero(xf, amp[fit_mask], deg_amp, w=ww)
+        coef_ph = poly_through_zero(xf, ph[fit_mask], deg_ph, w=ww)
+        amp_fit = eval_through_zero(x, coef_amp)
+        ph_fit = eval_through_zero(x, coef_ph)
+
+    # Force through origin
+    amp_fit = np.maximum(amp_fit, 0.0)
+    amp_fit[0] = 0.0
+    ph_fit = ph_fit - float(ph_fit[0])  # phase(0)=0 (also for MA)
+
+    z_new = amp_fit * np.exp(1j * ph_fit)
+    # Keep near-zero bins at origin (typical slave LUT low indices)
+    near0 = amp_fit < 1.0
+    z_new[near0] = 0.0
+
+    do_force1 = bool(force_index1_real) and n > 1 and (amp_fit[1] >= 1.0)
+    if do_force1:
+        z_new[1] = abs(z_new[1]) + 0j
+
+    i_out = np.rint(np.real(z_new)).astype(int)
+    q_out = np.rint(np.imag(z_new)).astype(int)
+    i_out[0] = 0
+    q_out[0] = 0
+    if do_force1:
+        q_out[1] = 0
+
+    return {
+        "n_pts": n,
+        "method": method_l,
+        "i_out": i_out,
+        "q_out": q_out,
+        "amp_orig": amp,
+        "phase_orig": ph,
+        "amp_fit": amp_fit,
+        "phase_fit": ph_fit,
+        "coef_amp": coef_amp,
+        "coef_ph": coef_ph,
+        "exclude": excl,
+        "ma_win": int(ma_win) if method_l == "ma" else None,
+        "force_index1_real": do_force1,
+    }
+
+
+# ---------------------------------------------------------------------------
+# Plot / run
+# ---------------------------------------------------------------------------
 
 def plot_fit_result(result: dict, save_path: PathLike, *, title: str = "") -> Path:
     import matplotlib
@@ -293,11 +352,10 @@ def plot_fit_result(result: dict, save_path: PathLike, *, title: str = "") -> Pa
     fig, axes = plt.subplots(2, 2, figsize=(11, 8))
     ax = axes[0, 0]
     ax.plot(x, result["amp_orig"], "o:", label="orig amp")
-    ax.plot(x, result["amp_fit"], "-", lw=2, label="fit amp")
+    ax.plot(x, result["amp_fit"], "-", lw=2, label=f"fit amp ({result['method']})")
     ax.plot(x, amp_out, "s-", ms=3, label="out amp")
     for e in result["exclude"]:
-        if 0 <= e < n:
-            ax.scatter([e], [result["amp_orig"][e]], c="r", s=60, zorder=5)
+        ax.scatter([e], [result["amp_orig"][e]], c="r", s=60, zorder=5)
     ax.set_title("AM vs LUT index")
     ax.grid(True, alpha=0.35)
     ax.legend(fontsize=8)
@@ -311,8 +369,6 @@ def plot_fit_result(result: dict, save_path: PathLike, *, title: str = "") -> Pa
     ax.grid(True, alpha=0.35)
     ax.legend(fontsize=8)
 
-    # recover orig i/q from amp/phase for plot — use complex from fit inputs
-    # Caller may not pass orig i/q; reconstruct from amp/phase only for phase plot.
     ax = axes[1, 0]
     ax.plot(x, np.real(result["amp_orig"] * np.exp(1j * result["phase_orig"])), "o:", label="orig I")
     ax.plot(x, i_out, "s-", ms=3, label="new I")
@@ -342,29 +398,65 @@ def run_file(
     *,
     lut_sel: int = 0,
     map_name: Optional[str] = None,
+    method: str = DEFAULT_METHOD,
     deg_amp: int = DEFAULT_DEG_AMP,
     deg_ph: int = DEFAULT_DEG_PH,
+    ma_win: int = DEFAULT_MA_WIN,
     exclude: Sequence[int] = DEFAULT_EXCLUDE,
+    force_index1_real: bool = True,
     plot: bool = True,
+    copy_only: bool = False,
 ) -> dict:
-    """Load map → fit → write ``*_phase0fit.txt`` / csv / optional png."""
+    """Load one map → fit (or copy) → write outputs."""
     inp = Path(input_path)
     out_dir = Path(output_dir)
     out_dir.mkdir(parents=True, exist_ok=True)
 
     lut_map = load_lut_data_map(inp, map_name=map_name)
     ii, qq = map_to_arrays(lut_map)
-    result = fit_lut_phase0(
-        ii, qq, deg_amp=deg_amp, deg_ph=deg_ph, exclude=exclude
-    )
 
-    stem = inp.stem + "_phase0fit"
-    header = [
-        f"# Optimized by lut_phase0_fit.py from {inp.name}",
-        "# phase forced through 0: amp/phase polyfit vs LUT index, no constant term",
-        f"# exclude={list(result['exclude'])}; index1 Q forced 0; "
-        f"deg_amp={deg_amp} deg_ph={deg_ph}",
-    ]
+    if copy_only:
+        i_out = np.rint(ii).astype(int)
+        q_out = np.rint(qq).astype(int)
+        result = {
+            "n_pts": int(ii.size),
+            "method": "copy",
+            "i_out": i_out,
+            "q_out": q_out,
+            "amp_orig": np.abs(ii + 1j * qq),
+            "phase_orig": np.unwrap(np.angle(ii + 1j * qq)),
+            "amp_fit": np.abs(ii + 1j * qq),
+            "phase_fit": np.unwrap(np.angle(ii + 1j * qq)),
+            "coef_amp": None,
+            "coef_ph": None,
+            "exclude": [],
+            "ma_win": None,
+            "force_index1_real": False,
+        }
+        stem = inp.stem + "_passthrough"
+        header = [
+            f"# Passthrough (not smoothed) from {inp.name}",
+            f"# scope skipped this lut_sel={lut_sel}",
+        ]
+    else:
+        result = fit_lut_phase0(
+            ii,
+            qq,
+            method=method,
+            deg_amp=deg_amp,
+            deg_ph=deg_ph,
+            ma_win=ma_win,
+            exclude=exclude,
+            force_index1_real=force_index1_real,
+        )
+        stem = inp.stem + f"_phase0_{result['method']}"
+        header = [
+            f"# Optimized by lut_phase0_fit.py from {inp.name}",
+            f"# method={result['method']}; phase forced through 0",
+            f"# exclude={list(result['exclude'])}; ma_win={result['ma_win']}; "
+            f"deg_amp={deg_amp} deg_ph={deg_ph}; force_i1_real={result['force_index1_real']}",
+        ]
+
     txt_path = write_lut_data_map(
         out_dir / f"{stem}.txt",
         result["i_out"],
@@ -374,46 +466,115 @@ def run_file(
     )
     csv_path = write_iq_csv(out_dir / f"{stem}.csv", result["i_out"], result["q_out"])
     png_path = None
-    if plot:
+    if plot and not copy_only:
         png_path = plot_fit_result(
-            result,
-            out_dir / f"{stem}.png",
-            title=f"LUT phase0 fit  ({inp.name})",
+            result, out_dir / f"{stem}.png", title=f"{inp.name}  [{result['method']}]"
         )
 
-    print(f"[OK] map  → {txt_path}")
-    print(f"[OK] csv  → {csv_path}")
-    if png_path:
-        print(f"[OK] plot → {png_path}")
-    print(
-        f"[OK] phase@0={np.degrees(np.angle(complex(result['i_out'][0], result['q_out'][0]))):.3f} deg, "
-        f"phase@1={np.degrees(np.angle(complex(result['i_out'][1], result['q_out'][1]))):.3f} deg"
-    )
+    print(f"[OK] lut{lut_sel} method={result['method']} → {txt_path.name}")
     result["txt_path"] = txt_path
     result["csv_path"] = csv_path
     result["png_path"] = png_path
+    result["lut_sel"] = int(lut_sel)
     return result
+
+
+def run_multi(
+    input_path: PathLike,
+    output_dir: PathLike,
+    *,
+    method: str = DEFAULT_METHOD,
+    master_lut: Optional[int] = None,
+    scope: str = "all",
+    deg_amp: int = DEFAULT_DEG_AMP,
+    deg_ph: int = DEFAULT_DEG_PH,
+    ma_win: int = DEFAULT_MA_WIN,
+    exclude: Sequence[int] = DEFAULT_EXCLUDE,
+    plot: bool = True,
+) -> List[dict]:
+    """
+    Process one file or a directory of ``lut_data_map_lut*.txt``.
+
+    scope
+      * ``all`` — smooth every discovered LUT
+      * ``master_only`` — smooth only ``master_lut``; others passthrough
+    """
+    scope_l = str(scope).strip().lower()
+    if scope_l not in ("all", "master_only"):
+        raise ValueError("scope must be all|master_only")
+    if scope_l == "master_only" and master_lut is None:
+        raise ValueError("master_lut is required when scope=master_only")
+
+    items = discover_lut_maps(input_path)
+    out_dir = Path(output_dir)
+    results: List[dict] = []
+    for path, sel in items:
+        do_copy = scope_l == "master_only" and int(sel) != int(master_lut)
+        # Only force index1 real on master (or when master not specified)
+        force1 = (master_lut is None) or (int(sel) == int(master_lut))
+        r = run_file(
+            path,
+            out_dir,
+            lut_sel=sel,
+            method=method,
+            deg_amp=deg_amp,
+            deg_ph=deg_ph,
+            ma_win=ma_win,
+            exclude=exclude,
+            force_index1_real=force1 and not do_copy,
+            plot=plot,
+            copy_only=do_copy,
+        )
+        r["master_lut"] = master_lut
+        r["scope"] = scope_l
+        results.append(r)
+
+    # Combined map file for convenience
+    combined = out_dir / f"lut_data_map_all_phase0_{method}.txt"
+    lines = [
+        f"# Combined LUT maps after phase0 fit  method={method} scope={scope_l} "
+        f"master_lut={master_lut}",
+        "",
+    ]
+    for r in results:
+        lines.append(Path(r["txt_path"]).read_text(encoding="utf-8").rstrip())
+        lines.append("")
+    combined.write_text("\n".join(lines) + "\n", encoding="utf-8")
+    print(f"[OK] combined → {combined}")
+    return results
 
 
 def build_parser() -> argparse.ArgumentParser:
     p = argparse.ArgumentParser(
-        description="Fit DPD LUT so AM-PM phase passes through 0 (no-constant poly)."
+        description="LUT phase-through-0 smooth (ma|poly); multi-LUT / master optional."
     )
-    p.add_argument("input", help="lut_data_map_lut*.txt (or .py) from dpd_lut_read")
+    p.add_argument("input", help="lut_data_map txt OR directory with lut_data_map_lut*.txt")
+    p.add_argument("-o", "--output-dir", default="", help="output dir (default: input dir)")
     p.add_argument(
-        "-o",
-        "--output-dir",
-        default="",
-        help="output directory (default: same as input)",
+        "--method",
+        choices=["ma", "poly"],
+        default=DEFAULT_METHOD,
+        help="ma=moving-average (chip-friendly, default); poly=offline LS",
     )
-    p.add_argument("--lut-sel", type=int, default=0, help="lut_data_map_lut{N} name index")
-    p.add_argument("--map-name", default="", help="optional exact dict name to parse")
+    p.add_argument("--ma-win", type=int, default=DEFAULT_MA_WIN, help="MA window (odd, default 5)")
     p.add_argument("--deg-amp", type=int, default=DEFAULT_DEG_AMP)
     p.add_argument("--deg-ph", type=int, default=DEFAULT_DEG_PH)
     p.add_argument(
         "--exclude",
         default=",".join(str(x) for x in DEFAULT_EXCLUDE),
-        help="comma-separated LUT indices to exclude (default: 2)",
+        help="comma-separated indices to replace before smooth (default 2)",
+    )
+    p.add_argument(
+        "--master-lut",
+        type=int,
+        default=None,
+        help="optional master LUT index (reg_dpd_master_lut)",
+    )
+    p.add_argument(
+        "--scope",
+        choices=["all", "master_only"],
+        default="all",
+        help="all=smooth every LUT; master_only=smooth only --master-lut",
     )
     p.add_argument("--no-plot", action="store_true")
     return p
@@ -422,15 +583,17 @@ def build_parser() -> argparse.ArgumentParser:
 def main(argv: Optional[Sequence[str]] = None) -> int:
     args = build_parser().parse_args(argv)
     inp = Path(args.input)
-    out_dir = Path(args.output_dir) if args.output_dir else inp.parent
+    out_dir = Path(args.output_dir) if args.output_dir else (inp if inp.is_dir() else inp.parent)
     exclude = [int(s) for s in str(args.exclude).split(",") if str(s).strip() != ""]
-    run_file(
+    run_multi(
         inp,
         out_dir,
-        lut_sel=int(args.lut_sel),
-        map_name=(args.map_name or None),
+        method=args.method,
+        master_lut=args.master_lut,
+        scope=args.scope,
         deg_amp=int(args.deg_amp),
         deg_ph=int(args.deg_ph),
+        ma_win=int(args.ma_win),
         exclude=exclude,
         plot=not args.no_plot,
     )

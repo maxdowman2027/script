@@ -1,179 +1,162 @@
-# lut_phase0_fit — LUT 相位强制过 0 点拟合优化
+# lut_phase0_fit — 多 LUT / Master LUT 相位过 0 平滑
 
-将硬件读回的 DPD LUT（`lut_data_map` 格式 I/Q）做 **AM-PM 过原点** 平滑，生成可回写的新系数表。
+对硬件读回的 DPD `lut_data_map` I/Q 做 **AM-PM 过原点** 平滑。支持：
+
+- **单 LUT 文件**或**目录内多组** `lut_data_map_lut*.txt`
+- 可选 **`master_lut`**（对应 `reg_dpd_master_lut`）与 **`scope`**
+- 两种算法：`ma`（芯片软件推荐）/ `poly`（PC 离线）
 
 | 文件 | 说明 |
 |------|------|
-| `dpd/lut_phase0_fit.py` | Python 库 + CLI（推荐日常使用，含绘图） |
-| `dpd/lut_phase0_fit.c` | C 参考实现（嵌入式 / 离线工具链对照） |
-| `skill/lut_phase0_fit.skill` | 短技能摘要 |
+| `dpd/lut_phase0_fit.py` | Python 库 + CLI |
+| `dpd/lut_phase0_fit.c` | C 参考（单表；`ma`/`poly`） |
+| `skill/lut_phase0_fit.skill` | 短摘要 |
 
 ---
 
-## 1. 问题背景
+## 1. 背景
 
-`wifi_dpd_test_wifi7.dpd_lut_read` 读回的 `lut_data_map_lut*.txt` 中，常见：
+`dpd_lut_read` 读回表常有：
 
-- 低索引出现 **幅度塌陷 / 相位跳变**（例如 index=2）
-- Q 分量噪声导致 AM-PM 曲线不光滑
-- 希望 LUT 相位特性满足 **φ(0)=0**（过 0 点），便于与 PA AM-PM / 校准约定一致
+- 低索引坏点（如 index=2 幅度塌陷）
+- Q 噪声导致相位毛刺
+- 多 LUT 时仅 **master** 承载主路径增益，其余为记忆抽头
 
-MATLAB 侧同类思路见 `dpd/polyfit_for_lut.m` + `wlsEst.m`：对 I/Q 做加权多项式，且可通过 `orderVec` 跳过常数项使曲线过原点。本工具改为在 **幅度 / 相位极坐标** 上显式约束过 0。
+需要：平滑 + **φ(0)=0**，且算法在芯片上可跑、不太费时。
 
 ---
 
 ## 2. 算法
 
-输入：长度 \(N\) 的定点 I/Q（默认 \(N=33\)，index 0 为零垫）。
+### 2.1 公共步骤（`ma` / `poly`）
 
-1. **极坐标**  
-   \[
-   a_k = |I_k + j Q_k|,\quad
-   \varphi_k = \mathrm{unwrap}\angle(I_k + j Q_k)
-   \]
+1. \(a_k=|I+jQ|\)，\(\varphi_k=\mathrm{unwrap}\angle(\cdot)\)
+2. 剔除/插值 `exclude` 索引（默认 `2`）
+3. 平滑得到 \(a'(k),\varphi'(k)\)
+4. **过 0**：\(a'(0)=0\)，\(\varphi'\leftarrow\varphi'-\varphi'(0)\)
+5. \(z=a'e^{j\varphi'}\)；近零幅度点置 `(0,0)`
+6. **仅 master**（且 \(a'(1)\ge1\)）：index1 强制 Q=0
+7. 四舍五入写回定点 I/Q
 
-2. **剔点**  
-   默认排除 index `2`（读回常见坏点）；`a_k=0` 的点不参与拟合。
+### 2.2 `ma` — 芯片推荐（默认）
 
-3. **过原点加权多项式**（无常数项）  
-   \[
-   a(x)\approx\sum_{p=1}^{d_a} c_p\, x^{p},\qquad
-   \varphi(x)\approx\sum_{p=1}^{d_\varphi} b_p\, x^{p}
-   \]
-   其中 \(x\) 为 LUT **索引** \(0..N-1\)。  
-   因此 \(a(0)=0\)、\(\varphi(0)=0\)。
+对 \(a,\varphi\) 各做一次 **奇数窗居中滑动平均**（默认窗长 **5**）：
 
-4. **权重**（对齐 `polyfit_for_lut.m` 的 \(Q\) 对角线思想）  
-   - 前 `early_bins=3` 个点：权重 `1`  
-   - 其余点：权重 `200`  
-   → 更信任中高幅度区形状。
+- 复杂度 **O(N·W)**，N=33、W=5 → 约几百次加减，无矩阵求逆
+- 边沿用边界复制
+- 适合 training 后 / application 前在固件里轻量修表
 
-5. **重建**  
-   \[
-   z_k = a(k)\,e^{j\varphi(k)}
-   \]
-   - index `0` → `(I,Q)=(0,0)`  
-   - index `1` → **强制 Q=0**（首有效点相位 0°），\(I=\mathrm{round}|z_1|\)  
-   - 其余点对 \(\Re z,\Im z\) 四舍五入为整数
+### 2.3 `poly` — PC 离线
 
-6. **输出**  
-   - `*_phase0fit.txt`：`lut_data_map_lutN = {...}`  
-   - `*_phase0fit.csv`：`index,i,q`（给 C 工具 / 表格）  
-   - `*_phase0fit.png`：原曲线 / 拟合 / 输出对比（仅 Python）
+无常数项加权多项式（对齐早期 `polyfit_for_lut` 思想）：
+
+\[
+a(x)=\sum_{p=1}^{d_a}c_p x^p,\quad
+\varphi(x)=\sum_{p=1}^{d_\varphi}b_p x^p
+\]
+
+权重：前 3 点=1，其余=200。阶数默认 4。条件数更高，更适合离线。
+
+### 2.4 多 LUT / master
+
+| 参数 | 含义 |
+|------|------|
+| `--master-lut N` | 对应 `reg_dpd_master_lut`（如 0） |
+| `--scope all` | 每组 LUT 都平滑（默认） |
+| `--scope master_only` | **只平滑 master**；其它组原样写出（passthrough） |
+
+Master 才强制 index1 实部；slave 常在低索引接近 0，不强行钉相位。
 
 ---
 
 ## 3. Python 用法
 
-仓库根：`D:\users\gxu\scripts`。
-
 ```powershell
-# 默认：deg_amp=4, deg_ph=4, exclude=2，输出写到输入同目录
-python dpd/lut_phase0_fit.py `
-  "D:\chip_test\dev\xian_test\Xian-Esp-Test-Scripts\py_script_fpga_tx_wifi7\Log\dpd_lut_fig_wifi7\20260821\1lut\dig_gain1_66\lut_data_map_lut0.txt"
+cd D:\users\gxu\scripts
 
-# 指定输出目录与参数
-python dpd/lut_phase0_fit.py INPUT.txt -o OUT_DIR --deg-amp 4 --deg-ph 4 --exclude 2
-python dpd/lut_phase0_fit.py INPUT.txt --exclude 2,3 --no-plot
+# 目录：3 组 LUT，芯片友好 MA，全部平滑，master=0
+python dpd/lut_phase0_fit.py `
+  "D:\test_data\AP\260821_dpd\3lut_test\dynamic_multi_frame_training" `
+  -o "D:\users\gxu\scripts\dpd\output\260821\3lut_phase0_ma" `
+  --method ma --ma-win 5 --master-lut 0 --scope all
+
+# 只修 master
+python dpd/lut_phase0_fit.py DIR -o OUT --method ma --master-lut 0 --scope master_only
+
+# 离线 poly
+python dpd/lut_phase0_fit.py DIR -o OUT --method poly --deg-amp 4 --deg-ph 4 --exclude 2
+
+# 单文件
+python dpd/lut_phase0_fit.py PATH\lut_data_map_lut0.txt -o OUT --method ma
 ```
 
-### 库 API
+产物（每组）：
+
+- `lut_data_map_lutK_phase0_ma.txt` / `_poly.txt`
+- 同名 `.csv`、`.png`
+- `lut_data_map_all_phase0_<method>.txt`（合并）
+
+### API
 
 ```python
-from dpd.lut_phase0_fit import load_lut_data_map, map_to_arrays, fit_lut_phase0, write_lut_data_map
+from dpd.lut_phase0_fit import run_multi, fit_lut_phase0
 
-m = load_lut_data_map(r"path\lut_data_map_lut0.txt")
-ii, qq = map_to_arrays(m)
-r = fit_lut_phase0(ii, qq, deg_amp=4, deg_ph=4, exclude=[2])
-write_lut_data_map(r"out\lut_data_map_lut0_phase0fit.txt", r["i_out"], r["q_out"], lut_sel=0)
+run_multi(r"D:\path\to\maps", r"D:\out", method="ma", master_lut=0, scope="all")
 ```
 
 ---
 
-## 4. C 用法
+## 4. C 用法（单表）
 
-### 编译
-
-```powershell
-gcc -O2 -o dpd/lut_phase0_fit.exe dpd/lut_phase0_fit.c -lm
-# 或 cl /O2 dpd\lut_phase0_fit.c
+```text
+lut_phase0_fit.exe in.csv out.csv
+lut_phase0_fit.exe in.csv out.csv ma 5 2
+lut_phase0_fit.exe in.csv out.csv poly 4 4 2
 ```
 
-### 运行
+固件可只移植 `lut_phase0_fit_run()` 的 **MA 路径**（`moving_average` + unwrap + 过 0 + 重建）。多 LUT 时对每个 `lut_sel` 调一次；`is_master` 仅对 master 置 1。
 
-输入须为 CSV（可用 Python 先从 map 导出，或直接用 Python 生成的 `*_phase0fit.csv` 的**原始**旁路：Python `run_file` 会写出拟合后的 csv；若要对原始 I/Q 跑 C，先：
-
-```powershell
-python -c "from pathlib import Path; from dpd.lut_phase0_fit import load_lut_data_map, map_to_arrays, write_iq_csv; m=load_lut_data_map(r'IN.txt'); i,q=map_to_arrays(m); write_iq_csv(r'IN_raw.csv', i.astype(int), q.astype(int))"
-```
-
-更简单：Python 拟合时已写出结果 csv；要用 C **复现同一算法**，应对 **原始** I/Q CSV：
-
-```powershell
-# 由 map 导出原始 CSV（index,i,q）
-python -c "from dpd.lut_phase0_fit import load_lut_data_map, map_to_arrays, write_iq_csv; import numpy as np; m=load_lut_data_map(r'D:\path\lut_data_map_lut0.txt'); i,q=map_to_arrays(m); write_iq_csv(r'D:\path\lut_raw.csv', np.rint(i).astype(int), np.rint(q).astype(int))"
-
-.\dpd\lut_phase0_fit.exe D:\path\lut_raw.csv D:\path\lut_c_out.csv 4 4 2
-```
-
-参数：`deg_amp deg_ph exclude`（`exclude<0` 表示不删点）。  
-成功时额外写同名 `.txt` 的 `lut_data_map`。
-
-### C API（可嵌入）
-
-```c
-LutPhase0Fit fit;
-memset(&fit, 0, sizeof(fit));
-fit.n = 33;
-fit.deg_amp = 4;
-fit.deg_ph = 4;
-fit.exclude = 2;
-/* fill fit.i_in[] / fit.q_in[] */
-int rc = lut_phase0_fit_run(&fit);
-/* fit.i_out[] / fit.q_out[] */
-```
+样例 CSV：`dpd/testdata/lut_phase0_fit/sample_lut_raw.csv`
 
 ---
 
-## 5. 参数建议
+## 5. 与训练流程关系
+
+```text
+训练 / 读回 → lut_data_map_lut0..K.txt
+       ↓
+lut_phase0_fit (ma, scope=all|master_only)
+       ↓
+写回 dpd_mem_write / itera LUT
+```
+
+不替代 RLS/静态训练；只做 **表后处理**。
+
+---
+
+## 6. 参数速查
 
 | 参数 | 默认 | 说明 |
 |------|------|------|
-| `deg_amp` / `deg_ph` | 4 | 过高易在高端振荡；过低抹平真实 AM-PM |
-| `exclude` | `2` | 按读回坏点调整；无坏点可 `--exclude` 空（Python 传无有效数字）或 C 用 `-1` |
-| `force_index1_real` | 开 | 首有效点相位钉在 0° |
-
-验收：输出 `phase@0`、`phase@1` 应为 **0°**；AM 曲线应单调光滑（相对原表去掉塌陷点）。
-
----
-
-## 6. 与训练流水线关系
-
-| 步骤 | 工具 |
-|------|------|
-| 训练估 LUT | `dpd/xian_static_dpd_main1.py`（含 iQxel PN） |
-| 写板 / 读回 | `wifi_dpd_test_wifi7.py` `dpd_mem_write` / `dpd_lut_read` |
-| **读回后修相** | **`lut_phase0_fit`（本工具）** |
-| 再写板 | 将 `*_phase0fit.txt` 贴回 `lut_data_map_lut*` |
-
-本工具 **不替代** 逆模型训练；只优化 **已有定点 LUT 表** 的相位过 0 与平滑。
+| `--method` | `ma` | `ma` / `poly` |
+| `--ma-win` | 5 | 奇数窗；越大越钝 |
+| `--master-lut` | 无 | `reg_dpd_master_lut` |
+| `--scope` | `all` | `all` / `master_only` |
+| `--exclude` | `2` | 平滑前插值替换的坏点 |
 
 ---
 
-## 7. 例：dig_gain1_66 / 1lut
+## 7. 例：260821 3lut dynamic_multi_frame_training
 
-输入：
+目录含 `lut_data_map_lut0/1/2.txt`，CSV 中 `reg_dpd_master_lut=0`。
 
-`...\Log\dpd_lut_fig_wifi7\20260821\1lut\dig_gain1_66\lut_data_map_lut0.txt`
+推荐：
 
-典型现象：index=2 幅度异常偏低、相位 ~46°。  
-拟合后 index2 被平滑，相位从 0 连续爬升，可用于上板对比。
+```powershell
+python dpd/lut_phase0_fit.py `
+  "D:\test_data\AP\260821_dpd\3lut_test\dynamic_multi_frame_training" `
+  -o "...\output\260821\3lut_phase0_ma" `
+  --method ma --master-lut 0 --scope all
+```
 
----
-
-## 8. 限制
-
-- 单组 LUT（一次处理一个 `lut_data_map_lutN`）；多 LUT 请分别跑。  
-- C 版默认只支持 **一个** exclude 索引；多点剔除用 Python。  
-- 横轴为 **LUT index**，不是物理幅度轴；若需按 `|z|` 拟合，需另扩展。  
-- 加权 LS 在极端病态数据下可能失败（C 返回负码）；可降阶或改 exclude。
+验收：`phase@0≈0°`；master 的 `phase@1≈0°`；index2 不再塌陷。
