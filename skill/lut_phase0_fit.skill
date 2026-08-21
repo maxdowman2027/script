@@ -1,0 +1,21 @@
+# lut_phase0_fit — LUT phase-through-0 smooth
+
+## 功能
+对 `lut_data_map` 格式的 DPD LUT I/Q：剔除异常点 → 幅度/相位相对 LUT index 做**无常数项**加权多项式（强制 φ(0)=0、amp(0)=0）→ 重建定点表；index1 强制 Q=0。
+
+## 入口
+```bash
+cd D:\users\gxu\scripts
+python dpd/lut_phase0_fit.py PATH\lut_data_map_lut0.txt -o OUT_DIR
+python dpd/lut_phase0_fit.py PATH\lut_data_map_lut0.txt --deg-amp 4 --deg-ph 4 --exclude 2
+
+# C（先准备 index,i,q CSV）
+gcc -O2 -o dpd/lut_phase0_fit.exe dpd/lut_phase0_fit.c -lm
+dpd\lut_phase0_fit.exe IN.csv OUT.csv 4 4 2
+```
+
+## 产物
+`*_phase0fit.txt`（lut_data_map）、`*_phase0fit.csv`、`*_phase0fit.png`（Python）
+
+## 文档
+`skill/lut_phase0_fit_Skill.md`
