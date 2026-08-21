@@ -1,20 +1,22 @@
 # xian_static_dpd — Xian static DPD MATLAB→Python port
 
 ## 功能
-读 ILA CSV（**feedback/ref** 或 **dac** 布局；可选 `--dac-csv`）→ 速率匹配（OSR）→ 包络粗对齐 → 增益 → CFO → DC → 分数时延 → LUT / `lut_data_map` / AM 图。
+读 ILA CSV（**feedback/ref** 或 **dac** 布局；可选 `--dac-csv`）→ 速率匹配（OSR）→ 包络粗对齐 → 增益 → CFO → **(iQxel) 相位噪声补偿** → DC → 分数时延 → LUT / `lut_data_map` / AM 图。
+
+iQxel dump 默认在估 LUT 前去掉仪器/LO 慢变公共相位（TX 参考）；`--rx feedback` / `dac` 默认跳过。
 
 ## 入口（常用）
 ```bash
 cd D:\users\gxu\scripts
 
-# DAC vs iQxel（dac_iladata.csv: adc_* + dac_*）
+# DAC vs iQxel（dac_iladata.csv: adc_* + dac_*）；默认 --pn-comp auto
 python dpd/xian_static_dpd_main1.py --csv PATH\dac_iladata.csv --txt PATH\iqxel.txt --tx-source dac --rx txt -o OUT
 
 # 发送 tone：DAC 节点 vs iQxel（自动识别 CW，复数/去直流对齐 + 频谱图）
 python dpd/xian_static_dpd_main1.py --csv PATH\tone\dac_iladata.csv --txt PATH\tone\iqxel_2412_tone.txt --tx-source dac --rx txt -o OUT
 # 可强制：--signal-mode tone  --fs 80e6
 
-# ref CSV vs dac CSV（双文件；--dac-csv 用全局包络对齐）
+# ref CSV vs dac CSV（双文件；--dac-csv 用全局包络对齐；无 PN）
 python dpd/xian_static_dpd_main1.py --csv PATH\feedback_ref_iladata.csv --tx-source ref --dac-csv PATH\dac_iladata.csv --rx dac -o OUT
 
 # ref(4x ILA) vs pkt_out dac（模块名 2x，ILA 同采样钟 → 默认两侧 decimate=2 + 全局对齐）
@@ -23,11 +25,16 @@ python dpd/xian_static_dpd_main1.py --csv PATH\feedback_ref_iladata.csv --tx-sou
 # 真·半速率 dump 与 4x：显式 OSR 重采样到 work_osr
 python dpd/xian_static_dpd_main1.py --csv PATH\ref.csv --csv-osr 4 --dac-csv PATH\pkt.csv --dac-csv-osr 2 --work-osr 2 --tx-source ref --rx dac -o OUT
 
-# ref vs iQxel（全局自动找 RX 起点）
+# ref vs iQxel（全局自动找 RX 起点；自动 PN）
 python dpd/xian_static_dpd_main1.py --csv PATH\iladata.csv --txt PATH\iqxel.txt --rx txt --tx-source ref -o OUT
 
-# ILA 片上：ref vs feedback
+# ILA 片上：ref vs feedback（默认跳过 PN）
 python dpd/xian_static_dpd_main1.py --csv PATH\iladata.csv --rx feedback --tx-source ref -o OUT
+
+# PN 开关 / 窗长
+python dpd/xian_static_dpd_main1.py ... --rx txt --pn-comp auto
+python dpd/xian_static_dpd_main1.py ... --pn-comp off
+python dpd/xian_static_dpd_main1.py ... --pn-comp on --pn-smooth-win 513 --pn-amp-ratio 0.3
 ```
 
 ## TX / RX / 速率
@@ -38,6 +45,8 @@ python dpd/xian_static_dpd_main1.py --csv PATH\iladata.csv --rx feedback --tx-so
 | `--dac-csv` | 第二份含 `dac_i/q` 的 CSV（配合 `--rx dac`，**全局**包络对齐） |
 | `--csv-osr` / `--dac-csv-osr` / `--work-osr` | 过采样标注与工作速率（可选；真半速率时用） |
 | `--csv-decimate` / `--dac-csv-decimate` | 行抽稀（默认 2；设 OSR 时忽略） |
+| `--pn-comp` | `auto`（仅 iQxel）/ `on` / `off` |
+| `--pn-smooth-win` / `--pn-amp-ratio` | PN 滑窗（默认 257）/ 高幅度锚点比例（默认 0.25） |
 
 CSV 按表头自动识别：`feedback_ref` 或 `dac`。
 

@@ -10,6 +10,7 @@
 - **双文件对比**：`--csv`（ref）+ `--dac-csv`（dac）→ `--rx dac`
 - **OSR 速率匹配**：`--csv-osr` / `--dac-csv-osr` / `--work-osr`（真 2x vs 4x dump）
 - `--tx-source ref|dac|adc|auto` 与仪器 / 片上 / DAC RX 对比
+- **iQxel 相位噪声补偿**（CFO 之后、LUT 之前）：去掉仪器/LO 慢变公共相位，减轻对 AM-PM / LUT 的污染
 
 入口：`dpd/xian_static_dpd_main1.py`。
 
@@ -21,9 +22,31 @@
   → 可选 resample_iq_to_osr → 共同 work_osr
   → TX：--tx-source ref|dac|adc|auto
   → RX：txt/mat（全局）| feedback（±lag）| dac（--dac-csv → 全局包络）
-  → align_time_domain → gain → CFO → DC → frac delay
+  → align_time_domain → gain → CFO → (iQxel) PN → DC → frac delay
   → LUT / lut_data_map.py / amamplot
 ```
+
+## iQxel 相位噪声补偿（PN）
+
+仪器 dump（`--rx txt|mat`）相对片上 feedback 常带 **LO/相位噪声慢游走**。线性 CFO 只去掉一次项后，残差相位仍含公共 PN + PA AM-PM。估 LUT 前若把 PN 留在 RX 上，会污染 AM-PM 与记忆多项式系数。
+
+### 算法（`dpd/phase_noise_compensation.py`）
+
+1. 对齐且 CFO 后：`φ(n) = unwrap∠(TX · conj(RX))`
+2. 在高幅度锚点（`|TX| ≥ pn_amp_ratio · peak`）上对 `|TX|` 拟合 AM-PM 多项式（默认 2 阶）并扣除
+3. 对残差做滑动平均（`--pn-smooth-win`，默认 257 @ ~80 MHz ≈ 3.2 µs）→ `PN(n)`
+4. `RX ← RX · exp(j · PN)`，再进入 DC / 分数时延 / `static_dpd_memory`
+
+### 何时启用
+
+| `--pn-comp` | 行为 |
+|-------------|------|
+| `auto`（默认） | 仅当 `rx_label` 为 iQxel（`txt`/`mat`/`iqxel`）时启用 |
+| `on` | 强制启用（含 feedback/dac，一般不推荐） |
+| `off` | 强制关闭 |
+
+日志：`[PN] smooth_win=… anchors=… pn_rms=…`；关闭时 `[PN] skipped`。  
+诊断图：`pn_iter*_phase.png/.pdf`（原始相位、AM-PM 拟合、PN 估计、补偿后残差）。
 
 ## CSV 布局
 
@@ -163,6 +186,9 @@ python dpd/xian_static_dpd_main1.py ... --coarse-search-len 800000
 python dpd/xian_static_dpd_main1.py ... --coarse-local-only --rx-slice-start 1596
 python dpd/xian_static_dpd_main1.py ... --no-coarse-align --rx-slice-start 287
 python dpd/xian_static_dpd_main1.py ... --no-cfo --lut-map-scale 128 --txt-stride 0
+python dpd/xian_static_dpd_main1.py ... --rx txt --pn-comp auto
+python dpd/xian_static_dpd_main1.py ... --pn-comp off
+python dpd/xian_static_dpd_main1.py ... --pn-comp on --pn-smooth-win 513 --pn-amp-ratio 0.3
 ```
 
 ### 6) 默认仓库数据 / 从 npz 写字典
@@ -198,6 +224,9 @@ write_lut_data_map(z["table_y"], Path(r"OUT/lut_data_map.py"), scale=128)
 | `--coarse-max-lag` | `512` | feedback / local 半径 |
 | `--coarse-local-only` / `--no-coarse-align` | off | 对齐模式 |
 | `--lut-map-scale` | `128` | 字典定点 |
+| `--pn-comp` | `auto` | 相位噪声补偿：`auto`=仅 iQxel / `on` / `off` |
+| `--pn-smooth-win` | `257` | PN 滑动平均窗长（采样点） |
+| `--pn-amp-ratio` | `0.25` | 高 \|TX\| 锚点阈值（相对峰值） |
 | `--no-cfo` / `--no-plot` / `-o` | — | CFO / 少图 / 输出 |
 
 ## 产物（`-o`）
@@ -208,6 +237,7 @@ write_lut_data_map(z["table_y"], Path(r"OUT/lut_data_map.py"), scale=128)
 | `align_time_domain.png/.pdf` | 与 `pre_gain_time_domain` **同一张图**（兼容旧文件名） |
 | `tone_spectrum.*` | CW tone 模式：TX/RX \|FFT\| 叠画 |
 | `cfo_iter*_before/after.*` | CFO 相位 |
+| `pn_iter*_phase.*` | iQxel PN：相位 / AM-PM 拟合 / PN 估计 / 补偿后 |
 | `lut_table.npz` / `lut_*.txt` / `lut_data_map.py` | LUT |
 | `PA-Rx_amam/ampm.*` | AM-AM / AM-PM |
 
@@ -246,7 +276,8 @@ DAC 数字基带 vs iQxel 下变频之间存在**未知载波相位**（混频�
 | 模块 | 作用 |
 |------|------|
 | `read_data.py` | 双布局 CSV + `load_iqxel_txt` |
-| `xian_static_dpd_main1.py` | 主流程 / 自动对齐 / 时域与 tone 图 / `write_lut_data_map` |
+| `xian_static_dpd_main1.py` | 主流程 / 自动对齐 / 时域与 tone 图 / PN 开关 / `write_lut_data_map` |
+| `phase_noise_compensation.py` | iQxel TX 参考 PN：扣 AM-PM 后滑窗估计并补偿 RX |
 | `gain_compensation.py` 等 | 增益 / CFO / DC / 分数时延 / LUT / 绘图 |
 
 ## 注意点
@@ -256,4 +287,5 @@ DAC 数字基带 vs iQxel 下变频之间存在**未知载波相位**（混频�
 3. `dac` 布局无 ref/feedback 时不要用 `--rx feedback`。  
 4. **双文件都是 dac 布局**时：`--csv` 取 TX 的 `dac_*`，`--dac-csv` 只作 RX；主文件名含 `ref` 时 TX 标签可为 `ref`。同文件勿让 TX/RX 抢同一份 dac。  
 5. `pkt_out` 标 2x、`ref` 标 4x 时，先按**同 ILA 钟**默认抽稀对比；仅确认半速率 dump 再用 `--*-osr`。  
-6. 看 `pre_gain_time_domain` / `align_time_domain` 与日志 `score=` 确认包络是否重合；I/Q 叠画已用正确 `a/|a|` 相位对齐。
+6. 看 `pre_gain_time_domain` / `align_time_domain` 与日志 `score=` 确认包络是否重合；I/Q 叠画已用正确 `a/|a|` 相位对齐。  
+7. **iQxel 估 LUT 默认开 PN**（`--pn-comp auto`）；片上 feedback / dac 对比默认关。窗过短会抠掉部分 AM-PM，过长跟不上 PN；先看 `pn_iter*_phase` 与 `pn_rms`。

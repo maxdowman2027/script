@@ -6,7 +6,10 @@ Xian static DPD training pipeline — Python port of xian_static_DPD_main1.m.
 Aligned with ``dpd/20260804_3_data/xian_static_DPD_main1.m``:
 
   read_data(CSV) → TX (ref / dac / adc) → RX (iqxel / feedback)
-  → auto envelope align → gain → CFO → DC → frac delay → LUT / amamplot
+  → auto envelope align → gain → CFO → (iQxel) PN → DC → frac delay → LUT
+
+  iQxel dump: residual phase noise is low-pass removed (TX-referenced) before
+  LUT estimation so instrument LO wander does not bias AM-PM / LUT coeffs.
 
 DAC vs iQxel (OFDM or CW tone; tone auto-detected)::
 
@@ -60,6 +63,11 @@ from dc_compensation import dc_compensation  # noqa: E402
 from fractional_delay_estimation import fractional_delay_estimation  # noqa: E402
 from frequency_offset_estimation import frequency_offset_estimation  # noqa: E402
 from gain_compensation import gain_compensation  # noqa: E402
+from phase_noise_compensation import (  # noqa: E402
+    DEFAULT_AMP_RATIO as PN_AMP_RATIO_DEFAULT,
+    DEFAULT_SMOOTH_WIN as PN_SMOOTH_WIN_DEFAULT,
+    phase_noise_compensation,
+)
 from read_data import load_iqxel_txt, read_data, resample_iq_to_osr  # noqa: E402
 from static_dpd_memory import static_dpd_memory  # noqa: E402
 
@@ -101,6 +109,12 @@ TONE_CV_MAX = 0.05
 DPD_TRIM_START = 1000  # MATLAB (1000:end) 1-based → Python 999:
 AMP_THRESH = 800.0
 CFO_CORR_LEN = 5000
+
+# Phase-noise compensation (iQxel TX-referenced residual phase low-pass)
+# "auto" → enable only when RX is iQxel (txt/mat); True/False force on/off.
+PN_COMP = "auto"
+PN_SMOOTH_WIN = PN_SMOOTH_WIN_DEFAULT
+PN_AMP_RATIO = PN_AMP_RATIO_DEFAULT
 
 MAX_TABLE_VALUE = 1023
 NUM_LUT = 1
@@ -748,6 +762,9 @@ def run_pipeline(
     amp_thresh: float = AMP_THRESH,
     cfo_corr_len: int = CFO_CORR_LEN,
     enable_cfo: bool = True,
+    pn_comp: Union[str, bool] = PN_COMP,
+    pn_smooth_win: int = PN_SMOOTH_WIN,
+    pn_amp_ratio: float = PN_AMP_RATIO,
     tx_slice_start: int = TX_SLICE_START,
     rx_slice_start: int = RX_SLICE_START,
     slice_len: int = SLICE_LEN,
@@ -1204,8 +1221,38 @@ def run_pipeline(
             pa_cfo = rx_gain
             print("[CFO] skipped (--no-cfo)")
 
-        # DC: raw sliced TX + CFO-compensated PA (MATLAB quirk)
-        tx_dc, rx_dc = dc_compensation(tx_data, pa_cfo)
+        # iQxel: strip slow common phase noise before DC / frac / LUT
+        pn_mode = pn_comp
+        if isinstance(pn_mode, str):
+            pn_mode_l = pn_mode.strip().lower()
+            if pn_mode_l in ("auto", ""):
+                do_pn = rx_label in ("iqxel", "txt", "mat")
+            elif pn_mode_l in ("1", "true", "yes", "on"):
+                do_pn = True
+            elif pn_mode_l in ("0", "false", "no", "off"):
+                do_pn = False
+            else:
+                raise ValueError(f"unknown pn_comp={pn_comp!r} (use auto|on|off)")
+        else:
+            do_pn = bool(pn_mode)
+
+        if do_pn:
+            pa_pn, _pn = phase_noise_compensation(
+                tx_gain,
+                pa_cfo,
+                smooth_win=int(pn_smooth_win),
+                amp_ratio=float(pn_amp_ratio),
+                plot=True,
+                save_dir=out_dir,
+                tag=f"pn_iter{it + 1}",
+                show=show,
+            )
+        else:
+            pa_pn = pa_cfo
+            print("[PN] skipped")
+
+        # DC: raw sliced TX + PN/CFO-compensated PA (MATLAB quirk on TX)
+        tx_dc, rx_dc = dc_compensation(tx_data, pa_pn)
 
         # Fractional delay
         rx_after_frac = fractional_delay_estimation(tx_dc, rx_dc, plot=plot)
@@ -1431,6 +1478,24 @@ def build_parser() -> argparse.ArgumentParser:
         action="store_true",
         help="skip CFO (as in draft .m~ with CFO commented out)",
     )
+    p.add_argument(
+        "--pn-comp",
+        default=str(PN_COMP),
+        choices=["auto", "on", "off"],
+        help="phase-noise compensation before LUT: auto=iQxel only (default), on, off",
+    )
+    p.add_argument(
+        "--pn-smooth-win",
+        type=int,
+        default=PN_SMOOTH_WIN,
+        help="PN moving-average window in samples (default 257 @ ~80 MHz)",
+    )
+    p.add_argument(
+        "--pn-amp-ratio",
+        type=float,
+        default=PN_AMP_RATIO,
+        help="high-|TX| fraction of peak used as PN anchors (default 0.25)",
+    )
     return p
 
 
@@ -1459,6 +1524,9 @@ def main(argv=None) -> int:
         amp_thresh=args.amp_thresh,
         cfo_corr_len=args.cfo_corr_len,
         enable_cfo=not args.no_cfo,
+        pn_comp=args.pn_comp,
+        pn_smooth_win=args.pn_smooth_win,
+        pn_amp_ratio=args.pn_amp_ratio,
         tx_source=args.tx_source,
         tx_slice_start=args.tx_slice_start,
         rx_slice_start=args.rx_slice_start,
