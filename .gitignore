@@ -28,6 +28,8 @@ __pycache__/
 
 # Default Xian static DPD training sample (ILA dump)
 !dpd/gain168_test_data_3.csv
+# Sample I/Q for lut_phase0_fit.c
+!dpd/testdata/lut_phase0_fit/*.csv
 
 # GUI program temporary files
 *.pyc
