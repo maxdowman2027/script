@@ -1,18 +1,17 @@
 # lut_phase0_fit — multi-LUT phase-through-0 repair
 
 ## 功能
-对 `lut_data_map` I/Q：**自动检坏点** → **`repair`（默认，只修坏点+master 相位对齐，保 DPD）** / `ma` / `poly` → 写出 HW 同名 `lut_data_map_lutN.txt`。多 LUT 时 slave **不**独立旋相位。
+对 `lut_data_map` I/Q：**自动检坏点**（`exclude=auto`）→ 默认 **`repair`**（只修坏点 + **仅 master** 全局相位对齐，保 DPD；勿默认全表 `ma`）→ 写出 HW 同名 `lut_data_map_lutN.txt`。slave 不独立旋相位。
 
 ## 入口
 ```bash
 cd D:\users\gxu\scripts
 
-# 推荐（DPD 保真）
+# 推荐（DPD 保真，method 默认 repair）
 python dpd/lut_phase0_fit.py DIR -o OUT --master-lut 0 --scope all
 
-# 显式 repair / 可选重平滑
-python dpd/lut_phase0_fit.py DIR -o OUT --method repair --master-lut 0
-python dpd/lut_phase0_fit.py DIR -o OUT --method ma --ma-win 5   # 易伤 EVM
+# 可选重平滑（易伤 EVM，仅调试）
+python dpd/lut_phase0_fit.py DIR -o OUT --method ma --ma-win 5 --master-lut 0
 
 # C
 # lut_phase0_fit.exe in.csv out.csv
@@ -20,4 +19,4 @@ python dpd/lut_phase0_fit.py DIR -o OUT --method ma --ma-win 5   # 易伤 EVM
 ```
 
 ## 文档
-`skill/lut_phase0_fit_Skill.md`
+`skill/lut_phase0_fit_Skill.md`（含变更说明 / Changelog）

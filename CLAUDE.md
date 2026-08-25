@@ -124,6 +124,7 @@
 | 主题 | 代表性脚本 / 说明 |
 |------|-------------------|
 | 发射 / EVM | `txAnalyse.py`、`txAnalyse_wifi7.py`、`txAnalyse_compatible.py`、`evm_comparison.py`、**`bin_to_64bit_csv.py`**（`.bin` → 64-bit `#dump_data` CSV）、`tx_adcdump_data_parse.py`、`fake_tb_para.py`、`tx_test.py` |
+| DPD / LUT | **`dpd/xian_static_dpd_main1.py`**（静态/记忆 DPD 训练）；**`dpd/lut_phase0_fit.py`**（读回表后处理：默认 **`repair`** 自动坏点+master 相位对齐，勿默认全表 MA）；C 参考 `dpd/lut_phase0_fit.c`；见 **`skill/lut_phase0_fit_Skill.md`** |
 | 功率 / Mag Track | `tx_mag_tracking_test.py`、`txmagtrk_analyse.py`（E22）、`mag_track_rls4_fpga_analyse.py`（RLS4 FPGA，`mag_track_test_res` → EVM vs `tx_pwr` PDF，同 chan 基线）、`analyze_mag_track_test_res.py`（汇总/HTML）、`clac_pwr_for_ofdm_signal.py`、`compare_avg_pwr.py`、`compare_avg_pwr_ABCD.py` |
 | 杂散 / 频谱 / PSD | **陷波与杂散流水线、脚本关系见下文「Notch & Spur」**；通用绘图仍含 `psd_plot.py`、`psd_plot_1kHz.py`、`plot_spectrum.py`、`plot_spectrum_2462.py`、`plot_psd_2462.py`、`plot_csv_data.py`、`pwelch.py`；**`parse_48bit_dump_iq.py`**（160M AXI 48-bit I/Q 从 64-bit `#dump_data` 拆包） |
 | 接收 / 灵敏度 | **`find_csv_in_matched_folders.py`** + **`wifi_rx_sensitivity.py`**（rftest_data 按文件夹通配找 RX CSV、灵敏度 CSV、**mld_en 对比雷达图**）；**`organize_sensitivity_mld_diff.py`**（`*_result.csv` → mld_en0/1 宽表 + 差值 xlsx 着色）；`wifiRxPlot.py`、`calculate_sensitivity_and_plot.py`；杂散见 **`spur_notch/wifiRxProcess.py`**（「Notch & Spur」） |
@@ -368,7 +369,7 @@ python organize_sensitivity_mld_diff.py --input_dir ./output/sensitivity_out/res
 #### skill/
 - **位置**: `./skill/`
 - **内容**: Claude Code 技能（`*.skill`）与各脚本配套的 `*_Skill.md`
-- **常见技能文件**: `txAnalyse.skill`、`evm_comparison.skill`、`txmagtrk_analyse.skill`、`mag_track_rls4_fpga_analyse.skill`、`analyze_mag_track_test_res.skill`、`spur_scan_process.skill`、`spur_diff_and_mark_red.skill`、`merge_csv_to_xlsx_skill.md`、`organize_sensitivity_mld_diff.skill`、`bin_to_64bit_csv.skill`、`parse_48bit_dump_iq.skill`、`process_ila_files.skill`、`my_ag.skill` 等（完整列表以目录为准）
+- **常见技能文件**: `txAnalyse.skill`、`evm_comparison.skill`、`txmagtrk_analyse.skill`、`mag_track_rls4_fpga_analyse.skill`、`analyze_mag_track_test_res.skill`、`spur_scan_process.skill`、`spur_diff_and_mark_red.skill`、`merge_csv_to_xlsx_skill.md`、`organize_sensitivity_mld_diff.skill`、`bin_to_64bit_csv.skill`、`parse_48bit_dump_iq.skill`、`lut_phase0_fit.skill`、`process_ila_files.skill`、`my_ag.skill` 等（完整列表以目录为准）
 - **`spur_scan_process`**（杂散扫描主流程）:
   - **`spur_scan_process.skill`** — 三步流水线、输入格式、配置项
   - **`spur_scan_process_Skill.md`** — PSD 检测规则、信道筛选、陷波定点、产物路径、API
@@ -389,6 +390,10 @@ python organize_sensitivity_mld_diff.py --input_dir ./output/sensitivity_out/res
   - **`parse_48bit_dump_iq.skill`** — 拆包规则、merge-iq、目录批量、指向完整 MD
   - **`parse_48bit_dump_iq_Skill.md`** — 3×uint64→4×uint48、`dump_data_48` 列、8-bit I/Q 位域、CLI/API
   - 对应脚本：根目录 `parse_48bit_dump_iq.py`；输入 `bin_to_64bit` 的 `*_data.csv`；输出可接 `plot_psd_2462.py`
+- **`lut_phase0_fit`**（DPD LUT 读回表后处理）:
+  - **`lut_phase0_fit.skill`** — 默认 `repair`、多 LUT / master、指向完整 MD
+  - **`lut_phase0_fit_Skill.md`** — 自动坏点、`repair` vs `ma`/`poly`、slave 相位约束、HW 写回产物、变更说明
+  - 对应脚本：`dpd/lut_phase0_fit.py`、`dpd/lut_phase0_fit.c`
 - **子目录 `merged_tx_result_analysis/`**: 合并 TX 结果分析相关说明脚本与 `generate_report.py` 等，与根目录 `generate_report.py`、`analyze_merged_tx_result.py` 等配合使用
 
 ### 常用命令示例
@@ -464,6 +469,9 @@ python bin_to_64bit_csv.py input.bin -o output.csv --style full
 python parse_48bit_dump_iq.py "D:\path\to\espwifi_modem_dump.*_data.csv"
 python parse_48bit_dump_iq.py "D:\path\to\axi_dump_csv_folder" --merge-iq
 
+# DPD LUT 读回表后处理（默认 repair=自动坏点+master 相位对齐；勿默认 --method ma）
+python dpd/lut_phase0_fit.py "D:\path\to\original_coefficients" -o "D:\path\to\fit_coefficients" --master-lut 0 --scope all
+
 # Notch / spur（在仓库根目录执行；脚本位于 spur_notch/）
 python spur_notch/spur_scan_process.py   # 改脚本底部 INPUT_DIR/FS/SPUR_THR/Q 等
 python spur_notch/wifiRxProcess.py
@@ -479,6 +487,7 @@ python spur_notch/move_spur_scan_result_csvs.py
 /skill organize_sensitivity_mld_diff  # 灵敏度 result CSV → mld_en 宽表与差值 xlsx
 /skill bin_to_64bit_csv  # espwifi_modem_dump / FPGA .bin → 64-bit #dump_data CSV
 /skill parse_48bit_dump_iq  # 160M AXI *_data.csv → 48-bit 拆包 + I/Q（可 merge 连续流）
+/skill lut_phase0_fit  # DPD lut_data_map 坏点修复 + 相位过 0（默认 repair）
 /skill spur_scan_process           # 杂散扫描：PSD→coef→pwr 三步流水线
 ```
 

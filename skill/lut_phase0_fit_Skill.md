@@ -7,6 +7,7 @@
 | `dpd/lut_phase0_fit.py` | Python 库 + CLI |
 | `dpd/lut_phase0_fit.c` | C 参考（`repair`/`ma`/`poly` + auto exclude） |
 | `skill/lut_phase0_fit.skill` | 短摘要 |
+| `dpd/testdata/lut_phase0_fit/` | C 用样例 CSV（含 index=2 塌陷） |
 
 ---
 
@@ -14,7 +15,7 @@
 
 读回表常有低索引坏点（如 index=2 幅度塌陷）。早期默认 **`ma` 全表滑动平均** 会大幅改写整表 I/Q（实测 mean|Δz| 可到数千），板上 **maxerr 明显变差**（例：21→60）。
 
-因此默认改为 **`repair`（DPD-safe）**：只修坏点 + master 全局相位对齐；**不要**默认跑全表 MA/poly。
+因此默认改为 **`repair`（DPD-safe）**：只修坏点 + master 全局相位对齐；**不要**默认跑全表 MA/poly。芯片侧应全自动（`exclude=auto`），无需人工指定坏点索引。
 
 ---
 
@@ -33,7 +34,15 @@
 
 ### 2.2 自动坏点检测（O(N)）
 
-两侧邻居幅度均 ≥200 才检测；相对邻域均值塌陷/尖峰（+可选相位跳变）则标记。阈值见 `AUTO_AMP_*` / `LUT_PHASE0_AUTO_*`。
+两侧邻居幅度均 ≥200 才检测（避免 slave 低索引真实 0 误报）；相对邻域均值塌陷/尖峰（+可选相位跳变）则标记。一次标出后统一插值。
+
+| 常量（Py / C 对齐） | 典型值 | 含义 |
+|---------------------|--------|------|
+| `AUTO_AMP_NEIGH_MIN` | 200 | 两侧邻居最小幅度才检测 |
+| `AUTO_AMP_REL_THR` | 0.40 | 相对邻域均值残差门限 |
+| `AUTO_AMP_DIP_FACTOR` | 0.60 | 塌陷：低于 `min(邻居)×因子` |
+| `AUTO_AMP_SPIKE_FACTOR` | 1.80 | 尖峰：高于 `max(邻居)×因子` |
+| `AUTO_PHASE_THR_RAD` | 40° | 相位跳变辅助门限 |
 
 | `--exclude` | 含义 |
 |-------------|------|
@@ -87,7 +96,7 @@ python dpd/lut_phase0_fit.py DIR -o OUT --method ma --ma-win 5 --master-lut 0
 ### API
 
 ```python
-from dpd.lut_phase0_fit import run_multi, fit_lut_phase0
+from dpd.lut_phase0_fit import run_multi, fit_lut_phase0, detect_lut_outliers
 
 run_multi(r"D:\path\to\maps", r"D:\out", method="repair", master_lut=0, scope="all")
 ```
@@ -138,7 +147,44 @@ fit_coefficients/lut_data_map_lut*.txt → dpd_mem_write
 
 `original_coefficients` → `fit_coefficients`：
 
-- lut0：`auto→[2]`，修塌陷 + master 相位对齐
+- lut0：`auto→[2]`，修塌陷 + master 相位对齐（若 index1 已为实部则旋转角≈0）
 - lut1/2：无坏点则 **I/Q 不变**（保记忆相位）
 
 验收：相对原表畸变应远小于 `ma`；板上 EVM/maxerr 应接近原训练表，且 index2 不再塌陷。
+
+---
+
+## 8. 变更说明（Changelog）
+
+### 8.1 自动坏点（替代硬编码 `--exclude 2`）
+
+**动机**：坏点位置不固定；芯片软件必须按当前 LUT 自检，不能依赖人工配置。
+
+**改动**：
+
+- 新增 `detect_lut_outliers` / C `lut_phase0_detect_outliers`（邻域均值塌陷/尖峰，O(N)）
+- CLI/API 默认 `--exclude auto`；仍支持 `none` 与逗号索引调试
+- 日志/头注释输出 `exclude_mode` 与实际检出索引（如 `auto→[2]`）
+
+### 8.2 默认方法改为 `repair`（DPD 保真）
+
+**动机**：默认 `ma` 全表平滑重写训练 AM/PM，板上 maxerr 恶化（例 21→60）；mean|Δz| 可达数千。
+
+**改动**：
+
+| 项 | 旧行为 | 新行为 |
+|----|--------|--------|
+| 默认 `--method` | `ma` | **`repair`** |
+| 好点 I/Q | 被 MA/poly 改写 | **原样保留** |
+| 坏点 | 插值后仍进全表 MA | 仅插值替换 |
+| master 相位 | MA 后再减 `φ(0)` / 钉 Q1 | 全局乘 \(e^{-j\arg(z_1)}\)，钉 Q1 |
+| slave 相位 | 各自对齐（破坏记忆相干） | **不旋转**，只修坏点 |
+| 输出 | 仅 `*_phase0_ma.txt` | 额外 **`lut_data_map_lutN.txt`**（HW 同名） |
+
+**保留**：`--method ma|poly` 供离线/调试；文档明确易伤 EVM。
+
+### 8.3 相关提交
+
+- `ea86095` — Auto-detect LUT bad bins（`exclude=auto`）
+- `a3a7d21` — Default to DPD-safe `repair`（非全表 MA）
+- 本文档 + `CLAUDE.md` 索引 — 汇总用法与设计约束
