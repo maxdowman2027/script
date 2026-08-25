@@ -1,9 +1,10 @@
 /**
- * lut_phase0_fit.c — Chip-friendly DPD LUT phase-through-0 smooth (C).
+ * lut_phase0_fit.c — Chip-friendly DPD LUT phase-through-0 fit (C).
  *
  * Methods (match dpd/lut_phase0_fit.py):
- *   ma   — moving average on amp/phase  [DEFAULT, O(N*W), for on-chip SW]
- *   poly — weighted no-constant poly LS [optional / offline]
+ *   repair — outlier fix + master global phase align [DEFAULT, DPD-safe]
+ *   ma     — moving average on amp/phase (optional; can hurt EVM)
+ *   poly   — weighted no-constant poly LS [optional / offline]
  *
  * Bad bins (match Python):
  *   exclude mode AUTO (default): detect amp dip/spike vs neighbor mean,
@@ -15,10 +16,8 @@
  *
  * Usage::
  *   lut_phase0_fit.exe in.csv out.csv
- *   lut_phase0_fit.exe in.csv out.csv ma 5
+ *   lut_phase0_fit.exe in.csv out.csv repair
  *   lut_phase0_fit.exe in.csv out.csv ma 5 auto
- *   lut_phase0_fit.exe in.csv out.csv ma 5 none
- *   lut_phase0_fit.exe in.csv out.csv ma 5 2
  *   lut_phase0_fit.exe in.csv out.csv poly 4 4 auto
  */
 
@@ -49,8 +48,9 @@
 #define LUT_PHASE0_AUTO_PHASE_REL_THR   0.25
 
 typedef enum {
-    LUT_METHOD_MA = 0,
-    LUT_METHOD_POLY = 1
+    LUT_METHOD_REPAIR = 0,
+    LUT_METHOD_MA = 1,
+    LUT_METHOD_POLY = 2
 } LutPhase0Method;
 
 typedef struct {
@@ -308,12 +308,14 @@ int lut_phase0_fit_run(LutPhase0Fit *fit)
     double ph[LUT_PHASE0_MAX_N];
     double amp_w[LUT_PHASE0_MAX_N];
     double ph_w[LUT_PHASE0_MAX_N];
+    double zr_arr[LUT_PHASE0_MAX_N];
+    double zi_arr[LUT_PHASE0_MAX_N];
     double xf[LUT_PHASE0_MAX_N];
     double ampf[LUT_PHASE0_MAX_N];
     double phf[LUT_PHASE0_MAX_N];
     double wf[LUT_PHASE0_MAX_N];
-    int n, k, m, rc;
-    double a, p, zr, zi, ph0;
+    int n, k, m, rc, do_force1;
+    double a, p, zr, zi, ph_ref, c, s;
 
     if (fit == NULL) {
         return -1;
@@ -328,9 +330,59 @@ int lut_phase0_fit_run(LutPhase0Fit *fit)
         ph_raw[k] = atan2(fit->q_in[k], fit->i_in[k]);
     }
     lut_phase0_unwrap(ph_raw, ph, n);
+    lut_phase0_build_exclude_mask(fit, amp, ph);
+
+    if (fit->method == LUT_METHOD_REPAIR) {
+        /* Keep good bins; replace outliers via amp/phase interp. */
+        memcpy(amp_w, amp, sizeof(double) * (size_t)n);
+        memcpy(ph_w, ph, sizeof(double) * (size_t)n);
+        lut_phase0_interp_mask(amp_w, n, fit->exclude_mask);
+        lut_phase0_interp_mask(ph_w, n, fit->exclude_mask);
+        for (k = 0; k < n; ++k) {
+            if (fit->exclude_mask[k]) {
+                zr_arr[k] = amp_w[k] * cos(ph_w[k]);
+                zi_arr[k] = amp_w[k] * sin(ph_w[k]);
+            } else {
+                zr_arr[k] = fit->i_in[k];
+                zi_arr[k] = fit->q_in[k];
+            }
+        }
+        zr_arr[0] = 0.0;
+        zi_arr[0] = 0.0;
+        do_force1 = (fit->force_index1_real && fit->is_master && n > 1
+                     && hypot(zr_arr[1], zi_arr[1]) >= 1.0) ? 1 : 0;
+        if (do_force1) {
+            ph_ref = atan2(zi_arr[1], zr_arr[1]);
+            c = cos(-ph_ref);
+            s = sin(-ph_ref);
+            for (k = 0; k < n; ++k) {
+                zr = zr_arr[k] * c - zi_arr[k] * s;
+                zi = zr_arr[k] * s + zi_arr[k] * c;
+                zr_arr[k] = zr;
+                zi_arr[k] = zi;
+            }
+            zr_arr[1] = fabs(hypot(zr_arr[1], zi_arr[1]));
+            zi_arr[1] = 0.0;
+        }
+        for (k = 0; k < n; ++k) {
+            fit->amp_fit[k] = hypot(zr_arr[k], zi_arr[k]);
+            fit->phase_fit[k] = atan2(zi_arr[k], zr_arr[k]);
+            fit->i_out[k] = (int)llround(zr_arr[k]);
+            fit->q_out[k] = (int)llround(zi_arr[k]);
+        }
+        fit->i_out[0] = 0;
+        fit->q_out[0] = 0;
+        if (do_force1) {
+            fit->q_out[1] = 0;
+            if (fit->i_out[1] < 0) {
+                fit->i_out[1] = -fit->i_out[1];
+            }
+        }
+        return 0;
+    }
+
     memcpy(amp_w, amp, sizeof(double) * (size_t)n);
     memcpy(ph_w, ph, sizeof(double) * (size_t)n);
-    lut_phase0_build_exclude_mask(fit, amp, ph);
     lut_phase0_interp_mask(amp_w, n, fit->exclude_mask);
     lut_phase0_interp_mask(ph_w, n, fit->exclude_mask);
 
@@ -369,13 +421,17 @@ int lut_phase0_fit_run(LutPhase0Fit *fit)
         }
     }
 
-    /* Force through 0 */
-    ph0 = fit->phase_fit[0];
+    /* Master-only phase align (preserve slave absolute phase for memory DPD). */
+    do_force1 = (fit->force_index1_real && fit->is_master && n > 1
+                 && fit->amp_fit[1] >= 1.0) ? 1 : 0;
+    ph_ref = do_force1 ? fit->phase_fit[1] : 0.0;
     for (k = 0; k < n; ++k) {
         if (fit->amp_fit[k] < 0.0) {
             fit->amp_fit[k] = 0.0;
         }
-        fit->phase_fit[k] -= ph0;
+        if (do_force1) {
+            fit->phase_fit[k] -= ph_ref;
+        }
     }
     fit->amp_fit[0] = 0.0;
     fit->phase_fit[0] = 0.0;
@@ -390,7 +446,7 @@ int lut_phase0_fit_run(LutPhase0Fit *fit)
         }
         zr = a * cos(p);
         zi = a * sin(p);
-        if (k == 1 && fit->force_index1_real && fit->is_master) {
+        if (k == 1 && do_force1) {
             zr = fabs(a);
             zi = 0.0;
         }
@@ -399,7 +455,7 @@ int lut_phase0_fit_run(LutPhase0Fit *fit)
     }
     fit->i_out[0] = 0;
     fit->q_out[0] = 0;
-    if (n > 1 && fit->force_index1_real && fit->is_master && fit->amp_fit[1] >= 1.0) {
+    if (do_force1) {
         fit->q_out[1] = 0;
     }
     return 0;
@@ -476,7 +532,8 @@ static int lut_phase0_write_map_txt(const char *path, const LutPhase0Fit *fit, i
         emode = "manual";
     }
     fprintf(fp, "# Optimized by lut_phase0_fit.c method=%s\n",
-            (fit->method == LUT_METHOD_MA) ? "ma" : "poly");
+            (fit->method == LUT_METHOD_REPAIR) ? "repair"
+            : (fit->method == LUT_METHOD_MA) ? "ma" : "poly");
     fprintf(fp, "# phase through 0; ma_win=%d deg_amp=%d deg_ph=%d exclude_mode=%s master=%d\n",
             fit->ma_win, fit->deg_amp, fit->deg_ph, emode, fit->is_master);
     fprintf(fp, "# exclude_mask=");
@@ -517,7 +574,7 @@ int main(int argc, char **argv)
     size_t L;
 
     memset(&fit, 0, sizeof(fit));
-    fit.method = LUT_METHOD_MA;
+    fit.method = LUT_METHOD_REPAIR;
     fit.ma_win = 5;
     fit.deg_amp = 4;
     fit.deg_ph = 4;
@@ -529,9 +586,10 @@ int main(int argc, char **argv)
         fprintf(stderr,
                 "Usage:\n"
                 "  %s in.csv out.csv\n"
+                "  %s in.csv out.csv repair [exclude=auto|none|N]\n"
                 "  %s in.csv out.csv ma [ma_win] [exclude=auto|none|N]\n"
                 "  %s in.csv out.csv poly [deg_amp] [deg_ph] [exclude=auto|none|N]\n",
-                argv[0], argv[0], argv[0]);
+                argv[0], argv[0], argv[0], argv[0]);
         return 1;
     }
     if (argc >= 4) {
@@ -546,26 +604,28 @@ int main(int argc, char **argv)
             if (argc >= 7) {
                 fit.exclude = lut_phase0_parse_exclude_arg(argv[6]);
             }
-        } else {
-            /* ma or numeric legacy */
+        } else if (strcmp(argv[3], "ma") == 0) {
             fit.method = LUT_METHOD_MA;
-            if (strcmp(argv[3], "ma") == 0) {
-                if (argc >= 5) {
-                    fit.ma_win = atoi(argv[4]);
-                }
-                if (argc >= 6) {
-                    fit.exclude = lut_phase0_parse_exclude_arg(argv[5]);
-                }
-            } else {
-                /* legacy: deg_amp deg_ph exclude → poly */
-                fit.method = LUT_METHOD_POLY;
-                fit.deg_amp = atoi(argv[3]);
-                if (argc >= 5) {
-                    fit.deg_ph = atoi(argv[4]);
-                }
-                if (argc >= 6) {
-                    fit.exclude = lut_phase0_parse_exclude_arg(argv[5]);
-                }
+            if (argc >= 5) {
+                fit.ma_win = atoi(argv[4]);
+            }
+            if (argc >= 6) {
+                fit.exclude = lut_phase0_parse_exclude_arg(argv[5]);
+            }
+        } else if (strcmp(argv[3], "repair") == 0) {
+            fit.method = LUT_METHOD_REPAIR;
+            if (argc >= 5) {
+                fit.exclude = lut_phase0_parse_exclude_arg(argv[4]);
+            }
+        } else {
+            /* legacy: deg_amp deg_ph exclude → poly */
+            fit.method = LUT_METHOD_POLY;
+            fit.deg_amp = atoi(argv[3]);
+            if (argc >= 5) {
+                fit.deg_ph = atoi(argv[4]);
+            }
+            if (argc >= 6) {
+                fit.exclude = lut_phase0_parse_exclude_arg(argv[5]);
             }
         }
     }
@@ -592,13 +652,15 @@ int main(int argc, char **argv)
     }
     lut_phase0_write_map_txt(map_path, &fit, 0);
     printf("[OK] method=%s n=%d exclude=",
-           (fit.method == LUT_METHOD_MA) ? "ma" : "poly", fit.n);
+           (fit.method == LUT_METHOD_REPAIR) ? "repair"
+           : (fit.method == LUT_METHOD_MA) ? "ma" : "poly",
+           fit.n);
     if (fit.exclude == LUT_PHASE0_EXCLUDE_AUTO) {
-        printf("auto→");
+        printf("auto->");
     } else if (fit.exclude == LUT_PHASE0_EXCLUDE_NONE) {
         printf("none");
     } else {
-        printf("manual→");
+        printf("manual->");
     }
     for (k = 0; k < fit.n; ++k) {
         if (fit.exclude_mask[k]) {

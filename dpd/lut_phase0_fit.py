@@ -3,16 +3,18 @@
 """
 DPD LUT phase-through-0 smooth (single / multi LUT, optional master).
 
-Two methods
------------
-* ``ma``   — moving-average on amp/phase (chip-friendly, O(N·W), default)
-* ``poly`` — weighted no-constant polynomial (offline / higher quality)
+Methods
+-------
+* ``repair`` — **default / DPD-safe**: auto-fix bad bins only, then global
+  complex rotation so a reference bin is real (phase through 0). Keeps the
+  trained AM/PM shape; does **not** run full-table MA/poly (those often hurt EVM).
+* ``ma``     — moving-average on amp/phase (optional extra smooth, O(N·W))
+* ``poly``   — weighted no-constant polynomial (offline)
 
 Bad bins
 --------
 By default ``exclude=auto``: detect amp dip/spike vs neighbor mean (and optional
-phase jump), then interpolate before smooth. No manual ``--exclude 2`` needed
-for chip SW automation. Override with ``--exclude none`` or ``--exclude 2,5``.
+phase jump), then interpolate before smooth/align. No manual ``--exclude 2``.
 
 Multi-LUT
 ---------
@@ -21,9 +23,9 @@ Process a directory of ``lut_data_map_lut*.txt``, optionally only the
 
 CLI::
 
-  python dpd/lut_phase0_fit.py INPUT.txt -o OUT --method ma
-  python dpd/lut_phase0_fit.py DIR_WITH_MAPS -o OUT --method ma --master-lut 0 --scope all
-  python dpd/lut_phase0_fit.py DIR -o OUT --method poly --deg-amp 4
+  python dpd/lut_phase0_fit.py INPUT.txt -o OUT
+  python dpd/lut_phase0_fit.py DIR -o OUT --method repair --master-lut 0 --scope all
+  python dpd/lut_phase0_fit.py DIR -o OUT --method ma --ma-win 5
 """
 
 from __future__ import annotations
@@ -47,7 +49,9 @@ DEFAULT_EARLY_W = 1.0
 DEFAULT_LATE_W = 200.0
 DEFAULT_EARLY_BINS = 3
 DEFAULT_MA_WIN = 5
-DEFAULT_METHOD = "ma"
+# repair = outlier fix + global phase align (preserves DPD; default)
+# ma/poly = heavier smooth (can hurt EVM if overused)
+DEFAULT_METHOD = "repair"
 
 # Auto outlier thresholds (must match lut_phase0_fit.c)
 AUTO_AMP_NEIGH_MIN = 200.0
@@ -335,6 +339,18 @@ def resolve_exclude(
     return detected, "auto"
 
 
+def _pick_phase_ref(amp: np.ndarray, *, prefer_index: int = 1, amp_min: float = 1.0) -> int:
+    """Reference bin for global phase align (prefer index1 on master)."""
+    n = int(amp.size)
+    pref = int(prefer_index)
+    if 0 <= pref < n and float(amp[pref]) >= amp_min:
+        return pref
+    for k in range(n):
+        if float(amp[k]) >= amp_min:
+            return k
+    return 0
+
+
 def fit_lut_phase0(
     lut_i: Sequence[float],
     lut_q: Sequence[float],
@@ -350,11 +366,12 @@ def fit_lut_phase0(
     late_w: float = DEFAULT_LATE_W,
 ) -> dict:
     """
-    Smooth amp/phase and force phase through 0; rebuild fixed-point I/Q.
+    Repair/smooth LUT and force phase through 0; rebuild fixed-point I/Q.
 
     method
-      * ``ma``   — moving average (recommended on chip)
-      * ``poly`` — no-constant weighted polynomial (PC / offline)
+      * ``repair`` — outlier replace + global phase rotate (default, preserves DPD)
+      * ``ma``     — moving average on amp/phase (extra smooth; may hurt EVM)
+      * ``poly``   — no-constant weighted polynomial (PC / offline)
 
     exclude
       * ``\"auto\"`` (default) — detect bad bins then interpolate
@@ -362,8 +379,8 @@ def fit_lut_phase0(
       * indices / ``\"2,5\"`` — manual override
     """
     method_l = str(method).strip().lower()
-    if method_l not in ("ma", "poly"):
-        raise ValueError(f"unknown method={method!r} (use ma|poly)")
+    if method_l not in ("repair", "ma", "poly"):
+        raise ValueError(f"unknown method={method!r} (use repair|ma|poly)")
 
     ii = np.asarray(lut_i, dtype=float).reshape(-1)
     qq = np.asarray(lut_q, dtype=float).reshape(-1)
@@ -376,40 +393,60 @@ def fit_lut_phase0(
     x = np.arange(n, dtype=float)
     excl_raw, excl_mode = resolve_exclude(exclude, amp, ph)
     excl = sorted({int(e) for e in excl_raw if 0 <= int(e) < n})
-
-    amp_w = _interp_exclude(amp, excl)
-    ph_w = _interp_exclude(ph, excl)
+    excl_set = set(excl)
 
     coef_amp = coef_ph = None
-    if method_l == "ma":
-        amp_fit = moving_average(amp_w, int(ma_win))
-        ph_fit = moving_average(ph_w, int(ma_win))
+    ma_win_out = None
+
+    if method_l == "repair":
+        # Keep good bins byte-exact; only rewrite auto/manual outliers.
+        z_new = z.copy()
+        if excl:
+            amp_w = _interp_exclude(amp, excl)
+            ph_w = _interp_exclude(ph, excl)
+            for e in excl:
+                z_new[e] = amp_w[e] * np.exp(1j * ph_w[e])
+        z_new[0] = 0.0 + 0.0j
+        do_force1 = bool(force_index1_real) and n > 1 and (float(np.abs(z_new[1])) >= 1.0)
+        # Global phase rotate ONLY on master (or single-LUT). Independent
+        # rotate on each memory tap destroys cross-LUT phase coherence.
+        if do_force1:
+            z_new = z_new * np.exp(-1j * np.angle(z_new[1]))
+            z_new[1] = abs(z_new[1]) + 0j
+        amp_fit = np.abs(z_new)
+        ph_fit = np.unwrap(np.angle(z_new))
     else:
-        excl_set = set(excl)
-        fit_mask = np.array([(k not in excl_set) and (amp[k] > 0.0) for k in range(n)])
-        if int(np.count_nonzero(fit_mask)) < max(deg_amp, deg_ph) + 1:
-            raise ValueError("too few fit points for poly degree")
-        w_full = default_weights(n, early_bins=early_bins, early_w=early_w, late_w=late_w)
-        xf = x[fit_mask]
-        ww = w_full[fit_mask]
-        coef_amp = poly_through_zero(xf, amp[fit_mask], deg_amp, w=ww)
-        coef_ph = poly_through_zero(xf, ph[fit_mask], deg_ph, w=ww)
-        amp_fit = eval_through_zero(x, coef_amp)
-        ph_fit = eval_through_zero(x, coef_ph)
+        amp_w = _interp_exclude(amp, excl)
+        ph_w = _interp_exclude(ph, excl)
+        if method_l == "ma":
+            ma_win_out = int(ma_win)
+            amp_fit = moving_average(amp_w, ma_win_out)
+            ph_fit = moving_average(ph_w, ma_win_out)
+        else:
+            fit_mask = np.array([(k not in excl_set) and (amp[k] > 0.0) for k in range(n)])
+            if int(np.count_nonzero(fit_mask)) < max(deg_amp, deg_ph) + 1:
+                raise ValueError("too few fit points for poly degree")
+            w_full = default_weights(n, early_bins=early_bins, early_w=early_w, late_w=late_w)
+            xf = x[fit_mask]
+            ww = w_full[fit_mask]
+            coef_amp = poly_through_zero(xf, amp[fit_mask], deg_amp, w=ww)
+            coef_ph = poly_through_zero(xf, ph[fit_mask], deg_ph, w=ww)
+            amp_fit = eval_through_zero(x, coef_amp)
+            ph_fit = eval_through_zero(x, coef_ph)
 
-    # Force through origin
-    amp_fit = np.maximum(amp_fit, 0.0)
-    amp_fit[0] = 0.0
-    ph_fit = ph_fit - float(ph_fit[0])  # phase(0)=0 (also for MA)
-
-    z_new = amp_fit * np.exp(1j * ph_fit)
-    # Keep near-zero bins at origin (typical slave LUT low indices)
-    near0 = amp_fit < 1.0
-    z_new[near0] = 0.0
-
-    do_force1 = bool(force_index1_real) and n > 1 and (amp_fit[1] >= 1.0)
-    if do_force1:
-        z_new[1] = abs(z_new[1]) + 0j
+        amp_fit = np.maximum(amp_fit, 0.0)
+        amp_fit[0] = 0.0
+        do_force1 = bool(force_index1_real) and n > 1 and (amp_fit[1] >= 1.0)
+        # Phase-align only when master; slaves keep absolute phase.
+        if do_force1:
+            ph_fit = ph_fit - float(ph_fit[1] if amp_fit[1] >= 1.0 else ph_fit[0])
+        z_new = amp_fit * np.exp(1j * ph_fit)
+        near0 = amp_fit < 1.0
+        z_new[near0] = 0.0
+        if do_force1:
+            z_new[1] = abs(z_new[1]) + 0j
+            amp_fit = np.abs(z_new)
+            ph_fit = np.unwrap(np.angle(z_new))
 
     i_out = np.rint(np.real(z_new)).astype(int)
     q_out = np.rint(np.imag(z_new)).astype(int)
@@ -417,6 +454,7 @@ def fit_lut_phase0(
     q_out[0] = 0
     if do_force1:
         q_out[1] = 0
+        i_out[1] = int(abs(i_out[1]))
 
     return {
         "n_pts": n,
@@ -425,13 +463,13 @@ def fit_lut_phase0(
         "q_out": q_out,
         "amp_orig": amp,
         "phase_orig": ph,
-        "amp_fit": amp_fit,
-        "phase_fit": ph_fit,
+        "amp_fit": np.abs(i_out.astype(float) + 1j * q_out.astype(float)),
+        "phase_fit": np.unwrap(np.angle(i_out.astype(float) + 1j * q_out.astype(float))),
         "coef_amp": coef_amp,
         "coef_ph": coef_ph,
         "exclude": excl,
         "exclude_mode": excl_mode,
-        "ma_win": int(ma_win) if method_l == "ma" else None,
+        "ma_win": ma_win_out,
         "force_index1_real": do_force1,
     }
 
@@ -511,6 +549,7 @@ def run_file(
     force_index1_real: bool = True,
     plot: bool = True,
     copy_only: bool = False,
+    write_hw_names: bool = True,
 ) -> dict:
     """Load one map → fit (or copy) → write outputs."""
     inp = Path(input_path)
@@ -558,7 +597,7 @@ def run_file(
         stem = inp.stem + f"_phase0_{result['method']}"
         header = [
             f"# Optimized by lut_phase0_fit.py from {inp.name}",
-            f"# method={result['method']}; phase forced through 0",
+            f"# method={result['method']}; phase through 0 (global rotate / smooth)",
             f"# exclude_mode={result['exclude_mode']} exclude={list(result['exclude'])}; "
             f"ma_win={result['ma_win']}; deg_amp={deg_amp} deg_ph={deg_ph}; "
             f"force_i1_real={result['force_index1_real']}",
@@ -572,6 +611,16 @@ def run_file(
         header_lines=header,
     )
     csv_path = write_iq_csv(out_dir / f"{stem}.csv", result["i_out"], result["q_out"])
+    hw_path = None
+    if write_hw_names:
+        hw_header = list(header) + [f"# HW-ready copy: lut_data_map_lut{int(lut_sel)}.txt"]
+        hw_path = write_lut_data_map(
+            out_dir / f"lut_data_map_lut{int(lut_sel)}.txt",
+            result["i_out"],
+            result["q_out"],
+            lut_sel=lut_sel,
+            header_lines=hw_header,
+        )
     png_path = None
     if plot and not copy_only:
         png_path = plot_fit_result(
@@ -584,8 +633,11 @@ def run_file(
         else "passthrough"
     )
     print(f"[OK] lut{lut_sel} method={result['method']} {excl_note} -> {txt_path.name}")
+    if hw_path is not None:
+        print(f"     HW map -> {hw_path.name}")
     result["txt_path"] = txt_path
     result["csv_path"] = csv_path
+    result["hw_path"] = hw_path
     result["png_path"] = png_path
     result["lut_sel"] = int(lut_sel)
     return result
@@ -603,13 +655,14 @@ def run_multi(
     ma_win: int = DEFAULT_MA_WIN,
     exclude: Union[str, int, Iterable[int], None] = DEFAULT_EXCLUDE,
     plot: bool = True,
+    write_hw_names: bool = True,
 ) -> List[dict]:
     """
     Process one file or a directory of ``lut_data_map_lut*.txt``.
 
     scope
-      * ``all`` — smooth every discovered LUT
-      * ``master_only`` — smooth only ``master_lut``; others passthrough
+      * ``all`` — process every discovered LUT
+      * ``master_only`` — process only ``master_lut``; others passthrough
     """
     scope_l = str(scope).strip().lower()
     if scope_l not in ("all", "master_only"):
@@ -636,6 +689,7 @@ def run_multi(
             force_index1_real=force1 and not do_copy,
             plot=plot,
             copy_only=do_copy,
+            write_hw_names=write_hw_names,
         )
         r["master_lut"] = master_lut
         r["scope"] = scope_l
@@ -658,15 +712,15 @@ def run_multi(
 
 def build_parser() -> argparse.ArgumentParser:
     p = argparse.ArgumentParser(
-        description="LUT phase-through-0 smooth (ma|poly); multi-LUT / master optional."
+        description="LUT phase-through-0 fit (repair|ma|poly); multi-LUT / master optional."
     )
     p.add_argument("input", help="lut_data_map txt OR directory with lut_data_map_lut*.txt")
     p.add_argument("-o", "--output-dir", default="", help="output dir (default: input dir)")
     p.add_argument(
         "--method",
-        choices=["ma", "poly"],
+        choices=["repair", "ma", "poly"],
         default=DEFAULT_METHOD,
-        help="ma=moving-average (chip-friendly, default); poly=offline LS",
+        help="repair=outlier+phase align (default, DPD-safe); ma/poly=heavier smooth",
     )
     p.add_argument("--ma-win", type=int, default=DEFAULT_MA_WIN, help="MA window (odd, default 5)")
     p.add_argument("--deg-amp", type=int, default=DEFAULT_DEG_AMP)
@@ -686,9 +740,14 @@ def build_parser() -> argparse.ArgumentParser:
         "--scope",
         choices=["all", "master_only"],
         default="all",
-        help="all=smooth every LUT; master_only=smooth only --master-lut",
+        help="all=process every LUT; master_only=process only --master-lut",
     )
     p.add_argument("--no-plot", action="store_true")
+    p.add_argument(
+        "--no-hw-names",
+        action="store_true",
+        help="do not also write lut_data_map_lutN.txt (HW-ready names)",
+    )
     return p
 
 
@@ -707,6 +766,7 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
         ma_win=int(args.ma_win),
         exclude=str(args.exclude),
         plot=not args.no_plot,
+        write_hw_names=not args.no_hw_names,
     )
     return 0
 
