@@ -5,27 +5,21 @@ DPD LUT phase-through-0 smooth (single / multi LUT, optional master).
 
 Methods
 -------
-* ``repair`` — **default / DPD-safe**: auto-fix bad bins only, then global
-  complex rotation so a reference bin is real (phase through 0). Keeps the
-  trained AM/PM shape; does **not** run full-table MA/poly (those often hurt EVM).
-* ``ma``     — moving-average on amp/phase (optional extra smooth, O(N·W))
-* ``poly``   — weighted no-constant polynomial (offline)
+* ``smooth`` — **default**: auto-fix bad bins + blended MA (phase more than amp)
+  with amp deviation clamp. Smoother than ``repair``, less destructive than full ``ma``.
+* ``repair`` — outlier fix + master phase align only (max preserve, less smooth)
+* ``ma``     — full moving-average on amp/phase (optional; can hurt EVM)
+* ``poly``   — amp/phase no-constant weighted polynomial (offline)
+* ``iqpoly`` — I/Q through-zero poly (MATLAB ``polyfit_for_lut`` style; master-friendly)
 
 Bad bins
 --------
-By default ``exclude=auto``: detect amp dip/spike vs neighbor mean (and optional
-phase jump), then interpolate before smooth/align. No manual ``--exclude 2``.
-
-Multi-LUT
----------
-Process a directory of ``lut_data_map_lut*.txt``, optionally only the
-``master_lut`` (``scope=master_only``) or all LUTs (``scope=all``).
+By default ``exclude=auto``. No manual ``--exclude 2``.
 
 CLI::
 
-  python dpd/lut_phase0_fit.py INPUT.txt -o OUT
-  python dpd/lut_phase0_fit.py DIR -o OUT --method repair --master-lut 0 --scope all
-  python dpd/lut_phase0_fit.py DIR -o OUT --method ma --ma-win 5
+  python dpd/lut_phase0_fit.py DIR -o OUT --master-lut 0 --scope all
+  python dpd/lut_phase0_fit.py DIR -o OUT --method smooth --ma-win 5 --mix-amp 0.5 --mix-ph 0.8
 """
 
 from __future__ import annotations
@@ -49,9 +43,13 @@ DEFAULT_EARLY_W = 1.0
 DEFAULT_LATE_W = 200.0
 DEFAULT_EARLY_BINS = 3
 DEFAULT_MA_WIN = 5
-# repair = outlier fix + global phase align (preserves DPD; default)
-# ma/poly = heavier smooth (can hurt EVM if overused)
-DEFAULT_METHOD = "repair"
+# smooth = blended MA (default): smoother curves while limiting AM/PM rewrite
+DEFAULT_METHOD = "smooth"
+DEFAULT_MIX_AMP_MASTER = 0.50
+DEFAULT_MIX_PH_MASTER = 0.80
+DEFAULT_MIX_AMP_SLAVE = 0.35
+DEFAULT_MIX_PH_SLAVE = 0.65
+DEFAULT_MAX_AMP_DEV = 0.10  # max |amp-amp_rep|/amp_rep after blend
 
 # Auto outlier thresholds (must match lut_phase0_fit.c)
 AUTO_AMP_NEIGH_MIN = 200.0
@@ -351,6 +349,35 @@ def _pick_phase_ref(amp: np.ndarray, *, prefer_index: int = 1, amp_min: float = 
     return 0
 
 
+def _clamp_amp_dev(amp_fit: np.ndarray, amp_ref: np.ndarray, max_rel: float) -> np.ndarray:
+    """Limit relative amp change vs reference (repaired) curve."""
+    out = np.asarray(amp_fit, dtype=float).copy()
+    ref = np.asarray(amp_ref, dtype=float)
+    max_rel = float(max_rel)
+    if max_rel <= 0.0:
+        return out
+    for k in range(out.size):
+        r = float(ref[k])
+        if r < 1.0:
+            continue
+        lo = r * (1.0 - max_rel)
+        hi = r * (1.0 + max_rel)
+        if out[k] < lo:
+            out[k] = lo
+        elif out[k] > hi:
+            out[k] = hi
+    return out
+
+
+def _apply_master_phase_align(z_new: np.ndarray, *, do_force1: bool) -> np.ndarray:
+    z = np.asarray(z_new, dtype=complex).copy()
+    z[0] = 0.0 + 0.0j
+    if do_force1 and z.size > 1 and abs(z[1]) >= 1.0:
+        z = z * np.exp(-1j * np.angle(z[1]))
+        z[1] = abs(z[1]) + 0j
+    return z
+
+
 def fit_lut_phase0(
     lut_i: Sequence[float],
     lut_q: Sequence[float],
@@ -364,23 +391,21 @@ def fit_lut_phase0(
     early_bins: int = DEFAULT_EARLY_BINS,
     early_w: float = DEFAULT_EARLY_W,
     late_w: float = DEFAULT_LATE_W,
+    mix_amp: Optional[float] = None,
+    mix_ph: Optional[float] = None,
+    max_amp_dev: float = DEFAULT_MAX_AMP_DEV,
 ) -> dict:
     """
     Repair/smooth LUT and force phase through 0; rebuild fixed-point I/Q.
 
     method
-      * ``repair`` — outlier replace + global phase rotate (default, preserves DPD)
-      * ``ma``     — moving average on amp/phase (extra smooth; may hurt EVM)
-      * ``poly``   — no-constant weighted polynomial (PC / offline)
-
-    exclude
-      * ``\"auto\"`` (default) — detect bad bins then interpolate
-      * ``\"none\"`` — no replacement
-      * indices / ``\"2,5\"`` — manual override
+      * ``smooth`` — blended MA (default): smoother + limited rewrite
+      * ``repair`` — outlier + master phase align only
+      * ``ma`` / ``poly`` / ``iqpoly`` — stronger / offline
     """
     method_l = str(method).strip().lower()
-    if method_l not in ("repair", "ma", "poly"):
-        raise ValueError(f"unknown method={method!r} (use repair|ma|poly)")
+    if method_l not in ("smooth", "repair", "ma", "poly", "iqpoly"):
+        raise ValueError(f"unknown method={method!r} (use smooth|repair|ma|poly|iqpoly)")
 
     ii = np.asarray(lut_i, dtype=float).reshape(-1)
     qq = np.asarray(lut_q, dtype=float).reshape(-1)
@@ -397,27 +422,70 @@ def fit_lut_phase0(
 
     coef_amp = coef_ph = None
     ma_win_out = None
+    mix_amp_out = mix_ph_out = None
+
+    is_master = bool(force_index1_real)
+    if mix_amp is None:
+        mix_amp_v = DEFAULT_MIX_AMP_MASTER if is_master else DEFAULT_MIX_AMP_SLAVE
+    else:
+        mix_amp_v = float(mix_amp)
+    if mix_ph is None:
+        mix_ph_v = DEFAULT_MIX_PH_MASTER if is_master else DEFAULT_MIX_PH_SLAVE
+    else:
+        mix_ph_v = float(mix_ph)
+    mix_amp_v = min(max(mix_amp_v, 0.0), 1.0)
+    mix_ph_v = min(max(mix_ph_v, 0.0), 1.0)
+
+    amp_w = _interp_exclude(amp, excl)
+    ph_w = _interp_exclude(ph, excl)
+    do_force1 = bool(force_index1_real) and n > 1 and (float(amp_w[1]) >= 1.0)
 
     if method_l == "repair":
-        # Keep good bins byte-exact; only rewrite auto/manual outliers.
         z_new = z.copy()
-        if excl:
-            amp_w = _interp_exclude(amp, excl)
-            ph_w = _interp_exclude(ph, excl)
-            for e in excl:
-                z_new[e] = amp_w[e] * np.exp(1j * ph_w[e])
-        z_new[0] = 0.0 + 0.0j
-        do_force1 = bool(force_index1_real) and n > 1 and (float(np.abs(z_new[1])) >= 1.0)
-        # Global phase rotate ONLY on master (or single-LUT). Independent
-        # rotate on each memory tap destroys cross-LUT phase coherence.
-        if do_force1:
-            z_new = z_new * np.exp(-1j * np.angle(z_new[1]))
-            z_new[1] = abs(z_new[1]) + 0j
+        for e in excl:
+            z_new[e] = amp_w[e] * np.exp(1j * ph_w[e])
+        z_new = _apply_master_phase_align(z_new, do_force1=do_force1)
         amp_fit = np.abs(z_new)
         ph_fit = np.unwrap(np.angle(z_new))
+
+    elif method_l == "smooth":
+        ma_win_out = int(ma_win)
+        mix_amp_out, mix_ph_out = mix_amp_v, mix_ph_v
+        amp_s = moving_average(amp_w, ma_win_out)
+        ph_s = moving_average(ph_w, ma_win_out)
+        amp_fit = (1.0 - mix_amp_v) * amp_w + mix_amp_v * amp_s
+        ph_fit = (1.0 - mix_ph_v) * ph_w + mix_ph_v * ph_s
+        amp_fit = _clamp_amp_dev(amp_fit, amp_w, float(max_amp_dev))
+        amp_fit = np.maximum(amp_fit, 0.0)
+        amp_fit[0] = 0.0
+        # Keep master index1 amplitude (often HW gain anchor); phase still aligned below.
+        if do_force1:
+            amp_fit[1] = float(amp_w[1])
+        z_new = amp_fit * np.exp(1j * ph_fit)
+        z_new = _apply_master_phase_align(z_new, do_force1=do_force1)
+        amp_fit = np.abs(z_new)
+        ph_fit = np.unwrap(np.angle(z_new))
+
+    elif method_l == "iqpoly":
+        ii_w = _interp_exclude(ii, excl)
+        qq_w = _interp_exclude(qq, excl)
+        fit_mask = np.array([k not in excl_set for k in range(n)], dtype=bool)
+        if int(np.count_nonzero(fit_mask)) < int(deg_amp) + 1:
+            raise ValueError("too few fit points for iqpoly degree")
+        w_full = default_weights(n, early_bins=early_bins, early_w=early_w, late_w=late_w)
+        xf = x[fit_mask]
+        ww = w_full[fit_mask]
+        deg = max(int(deg_amp), int(deg_ph), 1)
+        coef_amp = poly_through_zero(xf, ii_w[fit_mask], deg, w=ww)
+        coef_ph = poly_through_zero(xf, qq_w[fit_mask], deg, w=ww)
+        i_fit = eval_through_zero(x, coef_amp)
+        q_fit = eval_through_zero(x, coef_ph)
+        z_new = i_fit + 1j * q_fit
+        z_new = _apply_master_phase_align(z_new, do_force1=do_force1)
+        amp_fit = np.abs(z_new)
+        ph_fit = np.unwrap(np.angle(z_new))
+
     else:
-        amp_w = _interp_exclude(amp, excl)
-        ph_w = _interp_exclude(ph, excl)
         if method_l == "ma":
             ma_win_out = int(ma_win)
             amp_fit = moving_average(amp_w, ma_win_out)
@@ -436,8 +504,6 @@ def fit_lut_phase0(
 
         amp_fit = np.maximum(amp_fit, 0.0)
         amp_fit[0] = 0.0
-        do_force1 = bool(force_index1_real) and n > 1 and (amp_fit[1] >= 1.0)
-        # Phase-align only when master; slaves keep absolute phase.
         if do_force1:
             ph_fit = ph_fit - float(ph_fit[1] if amp_fit[1] >= 1.0 else ph_fit[0])
         z_new = amp_fit * np.exp(1j * ph_fit)
@@ -445,8 +511,8 @@ def fit_lut_phase0(
         z_new[near0] = 0.0
         if do_force1:
             z_new[1] = abs(z_new[1]) + 0j
-            amp_fit = np.abs(z_new)
-            ph_fit = np.unwrap(np.angle(z_new))
+        amp_fit = np.abs(z_new)
+        ph_fit = np.unwrap(np.angle(z_new))
 
     i_out = np.rint(np.real(z_new)).astype(int)
     q_out = np.rint(np.imag(z_new)).astype(int)
@@ -470,6 +536,9 @@ def fit_lut_phase0(
         "exclude": excl,
         "exclude_mode": excl_mode,
         "ma_win": ma_win_out,
+        "mix_amp": mix_amp_out,
+        "mix_ph": mix_ph_out,
+        "max_amp_dev": float(max_amp_dev) if method_l == "smooth" else None,
         "force_index1_real": do_force1,
     }
 
@@ -547,6 +616,9 @@ def run_file(
     ma_win: int = DEFAULT_MA_WIN,
     exclude: Union[str, int, Iterable[int], None] = DEFAULT_EXCLUDE,
     force_index1_real: bool = True,
+    mix_amp: Optional[float] = None,
+    mix_ph: Optional[float] = None,
+    max_amp_dev: float = DEFAULT_MAX_AMP_DEV,
     plot: bool = True,
     copy_only: bool = False,
     write_hw_names: bool = True,
@@ -593,13 +665,17 @@ def run_file(
             ma_win=ma_win,
             exclude=exclude,
             force_index1_real=force_index1_real,
+            mix_amp=mix_amp,
+            mix_ph=mix_ph,
+            max_amp_dev=max_amp_dev,
         )
         stem = inp.stem + f"_phase0_{result['method']}"
         header = [
             f"# Optimized by lut_phase0_fit.py from {inp.name}",
             f"# method={result['method']}; phase through 0 (global rotate / smooth)",
             f"# exclude_mode={result['exclude_mode']} exclude={list(result['exclude'])}; "
-            f"ma_win={result['ma_win']}; deg_amp={deg_amp} deg_ph={deg_ph}; "
+            f"ma_win={result['ma_win']}; mix_amp={result.get('mix_amp')} mix_ph={result.get('mix_ph')}; "
+            f"max_amp_dev={result.get('max_amp_dev')}; deg_amp={deg_amp} deg_ph={deg_ph}; "
             f"force_i1_real={result['force_index1_real']}",
         ]
 
@@ -654,6 +730,9 @@ def run_multi(
     deg_ph: int = DEFAULT_DEG_PH,
     ma_win: int = DEFAULT_MA_WIN,
     exclude: Union[str, int, Iterable[int], None] = DEFAULT_EXCLUDE,
+    mix_amp: Optional[float] = None,
+    mix_ph: Optional[float] = None,
+    max_amp_dev: float = DEFAULT_MAX_AMP_DEV,
     plot: bool = True,
     write_hw_names: bool = True,
 ) -> List[dict]:
@@ -687,6 +766,9 @@ def run_multi(
             ma_win=ma_win,
             exclude=exclude,
             force_index1_real=force1 and not do_copy,
+            mix_amp=mix_amp,
+            mix_ph=mix_ph,
+            max_amp_dev=max_amp_dev,
             plot=plot,
             copy_only=do_copy,
             write_hw_names=write_hw_names,
@@ -712,17 +794,35 @@ def run_multi(
 
 def build_parser() -> argparse.ArgumentParser:
     p = argparse.ArgumentParser(
-        description="LUT phase-through-0 fit (repair|ma|poly); multi-LUT / master optional."
+        description="LUT phase-through-0 fit (smooth|repair|ma|poly|iqpoly); multi-LUT / master."
     )
     p.add_argument("input", help="lut_data_map txt OR directory with lut_data_map_lut*.txt")
     p.add_argument("-o", "--output-dir", default="", help="output dir (default: input dir)")
     p.add_argument(
         "--method",
-        choices=["repair", "ma", "poly"],
+        choices=["smooth", "repair", "ma", "poly", "iqpoly"],
         default=DEFAULT_METHOD,
-        help="repair=outlier+phase align (default, DPD-safe); ma/poly=heavier smooth",
+        help="smooth=blended MA (default); repair=outliers only; ma/poly/iqpoly=heavier",
     )
     p.add_argument("--ma-win", type=int, default=DEFAULT_MA_WIN, help="MA window (odd, default 5)")
+    p.add_argument(
+        "--mix-amp",
+        type=float,
+        default=None,
+        help="smooth: amp blend toward MA (default master 0.50 / slave 0.35)",
+    )
+    p.add_argument(
+        "--mix-ph",
+        type=float,
+        default=None,
+        help="smooth: phase blend toward MA (default master 0.80 / slave 0.65)",
+    )
+    p.add_argument(
+        "--max-amp-dev",
+        type=float,
+        default=DEFAULT_MAX_AMP_DEV,
+        help="smooth: max relative amp deviation vs repaired (default 0.10)",
+    )
     p.add_argument("--deg-amp", type=int, default=DEFAULT_DEG_AMP)
     p.add_argument("--deg-ph", type=int, default=DEFAULT_DEG_PH)
     p.add_argument(
@@ -765,6 +865,9 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
         deg_ph=int(args.deg_ph),
         ma_win=int(args.ma_win),
         exclude=str(args.exclude),
+        mix_amp=args.mix_amp,
+        mix_ph=args.mix_ph,
+        max_amp_dev=float(args.max_amp_dev),
         plot=not args.no_plot,
         write_hw_names=not args.no_hw_names,
     )
