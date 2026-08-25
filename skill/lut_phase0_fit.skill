@@ -1,23 +1,25 @@
 # lut_phase0_fit — multi-LUT phase-through-0 smooth
 
 ## 功能
-对 `lut_data_map` I/Q：坏点插值 → **ma（滑动平均，默认/芯片）** 或 **poly（无常数项 LS）** → 强制 φ(0)=0 → 重建定点表。支持目录多 LUT、`--master-lut`、`--scope all|master_only`。
+对 `lut_data_map` I/Q：**自动检测坏点**（默认，无需人工 `--exclude 2`）→ 插值 → **ma（滑动平均，默认/芯片）** 或 **poly（无常数项 LS）** → 强制 φ(0)=0 → 重建定点表。支持目录多 LUT、`--master-lut`、`--scope all|master_only`。
 
 ## 入口
 ```bash
 cd D:\users\gxu\scripts
 
-# 3 LUT 目录，芯片友好 MA
+# 3 LUT 目录，芯片友好 MA（坏点 auto）
 python dpd/lut_phase0_fit.py DIR_WITH_lut_data_map -o OUT --method ma --master-lut 0 --scope all
 
 # 只平滑 master
 python dpd/lut_phase0_fit.py DIR -o OUT --method ma --master-lut 0 --scope master_only
 
-# 离线 poly
-python dpd/lut_phase0_fit.py DIR -o OUT --method poly --exclude 2
+# 离线 poly / 调试 exclude
+python dpd/lut_phase0_fit.py DIR -o OUT --method poly
+python dpd/lut_phase0_fit.py DIR -o OUT --method ma --exclude none
 
-# C（单表 CSV）
-# lut_phase0_fit.exe in.csv out.csv ma 5 2
+# C（单表 CSV；默认 auto）
+# lut_phase0_fit.exe in.csv out.csv ma 5
+# lut_phase0_fit.exe in.csv out.csv ma 5 auto|none|2
 ```
 
 ## 文档

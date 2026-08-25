@@ -8,6 +8,12 @@ Two methods
 * ``ma``   — moving-average on amp/phase (chip-friendly, O(N·W), default)
 * ``poly`` — weighted no-constant polynomial (offline / higher quality)
 
+Bad bins
+--------
+By default ``exclude=auto``: detect amp dip/spike vs neighbor mean (and optional
+phase jump), then interpolate before smooth. No manual ``--exclude 2`` needed
+for chip SW automation. Override with ``--exclude none`` or ``--exclude 2,5``.
+
 Multi-LUT
 ---------
 Process a directory of ``lut_data_map_lut*.txt``, optionally only the
@@ -17,13 +23,14 @@ CLI::
 
   python dpd/lut_phase0_fit.py INPUT.txt -o OUT --method ma
   python dpd/lut_phase0_fit.py DIR_WITH_MAPS -o OUT --method ma --master-lut 0 --scope all
-  python dpd/lut_phase0_fit.py DIR -o OUT --method poly --deg-amp 4 --exclude 2
+  python dpd/lut_phase0_fit.py DIR -o OUT --method poly --deg-amp 4
 """
 
 from __future__ import annotations
 
 import argparse
 import ast
+import math
 import re
 from pathlib import Path
 from typing import Dict, Iterable, List, Optional, Sequence, Tuple, Union
@@ -35,12 +42,21 @@ PathLike = Union[str, Path]
 DEFAULT_N_PTS = 33
 DEFAULT_DEG_AMP = 4
 DEFAULT_DEG_PH = 4
-DEFAULT_EXCLUDE = (2,)
+DEFAULT_EXCLUDE = "auto"  # auto | none | comma indices
 DEFAULT_EARLY_W = 1.0
 DEFAULT_LATE_W = 200.0
 DEFAULT_EARLY_BINS = 3
 DEFAULT_MA_WIN = 5
 DEFAULT_METHOD = "ma"
+
+# Auto outlier thresholds (must match lut_phase0_fit.c)
+AUTO_AMP_NEIGH_MIN = 200.0
+AUTO_AMP_REL_THR = 0.40
+AUTO_AMP_DIP_FACTOR = 0.60
+AUTO_AMP_SPIKE_FACTOR = 1.80
+AUTO_PHASE_THR_RAD = math.radians(40.0)
+AUTO_AMP_MIN_FOR_PHASE = 300.0
+AUTO_PHASE_REL_THR = 0.25
 
 
 # ---------------------------------------------------------------------------
@@ -238,6 +254,87 @@ def _interp_exclude(y: np.ndarray, exclude: Iterable[int]) -> np.ndarray:
     return out
 
 
+def detect_lut_outliers(
+    amp: Sequence[float],
+    phase: Sequence[float],
+    *,
+    amp_neigh_min: float = AUTO_AMP_NEIGH_MIN,
+    amp_rel_thr: float = AUTO_AMP_REL_THR,
+    amp_dip_factor: float = AUTO_AMP_DIP_FACTOR,
+    amp_spike_factor: float = AUTO_AMP_SPIKE_FACTOR,
+    phase_thr_rad: float = AUTO_PHASE_THR_RAD,
+    amp_min_for_phase: float = AUTO_AMP_MIN_FOR_PHASE,
+    phase_rel_thr: float = AUTO_PHASE_REL_THR,
+) -> List[int]:
+    """
+    Auto-detect bad LUT bins (chip-friendly, O(N)).
+
+    For each interior index ``k``, require both neighbors to have amplitude
+    ``>= amp_neigh_min`` (avoids false hits on slave early zeros). Flag when
+    amp is a dip/spike vs neighbor mean beyond ``amp_rel_thr``, optionally
+    reinforced by a large unwrapped phase jump.
+    """
+    a = np.asarray(amp, dtype=float).reshape(-1)
+    p = np.asarray(phase, dtype=float).reshape(-1)
+    if a.size != p.size:
+        raise ValueError("amp / phase length mismatch")
+    n = int(a.size)
+    bad: List[int] = []
+    for k in range(1, n - 1):
+        a_l = float(a[k - 1])
+        a_c = float(a[k])
+        a_r = float(a[k + 1])
+        if a_l < amp_neigh_min or a_r < amp_neigh_min:
+            continue
+        pred = 0.5 * (a_l + a_r)
+        rel = abs(a_c - pred) / max(pred, 1.0)
+        is_dip = a_c < amp_dip_factor * min(a_l, a_r)
+        is_spike = a_c > amp_spike_factor * max(a_l, a_r)
+        ph_err = abs(float(p[k]) - 0.5 * (float(p[k - 1]) + float(p[k + 1])))
+        is_ph = ph_err > phase_thr_rad and pred >= amp_min_for_phase
+        if (is_dip or is_spike) and rel >= amp_rel_thr:
+            bad.append(k)
+        elif is_ph and rel >= phase_rel_thr and (is_dip or is_spike):
+            bad.append(k)
+    return bad
+
+
+def resolve_exclude(
+    exclude: Union[str, int, Iterable[int], None],
+    amp: Sequence[float],
+    phase: Sequence[float],
+) -> Tuple[List[int], str]:
+    """
+    Resolve exclude spec → (indices, mode_label).
+
+    * ``\"auto\"`` / ``None`` → ``detect_lut_outliers``
+    * ``\"none\"`` / empty → no exclude
+    * int / iterable of int → manual list
+    * ``\"2,5\"`` → manual list from CSV string
+    """
+    if exclude is None:
+        mode = "auto"
+    elif isinstance(exclude, str):
+        s = exclude.strip().lower()
+        if s in ("", "none", "off", "disable", "disabled"):
+            return [], "none"
+        if s in ("auto", "detect", "default"):
+            mode = "auto"
+        else:
+            idxs = sorted({int(x) for x in s.split(",") if str(x).strip() != ""})
+            return idxs, "manual"
+    elif isinstance(exclude, (int, np.integer)):
+        return [int(exclude)], "manual"
+    else:
+        idxs = sorted({int(e) for e in exclude})
+        if not idxs:
+            return [], "none"
+        return idxs, "manual"
+
+    detected = detect_lut_outliers(amp, phase)
+    return detected, "auto"
+
+
 def fit_lut_phase0(
     lut_i: Sequence[float],
     lut_q: Sequence[float],
@@ -246,7 +343,7 @@ def fit_lut_phase0(
     deg_amp: int = DEFAULT_DEG_AMP,
     deg_ph: int = DEFAULT_DEG_PH,
     ma_win: int = DEFAULT_MA_WIN,
-    exclude: Iterable[int] = DEFAULT_EXCLUDE,
+    exclude: Union[str, int, Iterable[int], None] = DEFAULT_EXCLUDE,
     force_index1_real: bool = True,
     early_bins: int = DEFAULT_EARLY_BINS,
     early_w: float = DEFAULT_EARLY_W,
@@ -258,6 +355,11 @@ def fit_lut_phase0(
     method
       * ``ma``   — moving average (recommended on chip)
       * ``poly`` — no-constant weighted polynomial (PC / offline)
+
+    exclude
+      * ``\"auto\"`` (default) — detect bad bins then interpolate
+      * ``\"none\"`` — no replacement
+      * indices / ``\"2,5\"`` — manual override
     """
     method_l = str(method).strip().lower()
     if method_l not in ("ma", "poly"):
@@ -272,7 +374,8 @@ def fit_lut_phase0(
     amp = np.abs(z)
     ph = np.unwrap(np.angle(z))
     x = np.arange(n, dtype=float)
-    excl = sorted({int(e) for e in exclude if 0 <= int(e) < n})
+    excl_raw, excl_mode = resolve_exclude(exclude, amp, ph)
+    excl = sorted({int(e) for e in excl_raw if 0 <= int(e) < n})
 
     amp_w = _interp_exclude(amp, excl)
     ph_w = _interp_exclude(ph, excl)
@@ -282,7 +385,8 @@ def fit_lut_phase0(
         amp_fit = moving_average(amp_w, int(ma_win))
         ph_fit = moving_average(ph_w, int(ma_win))
     else:
-        fit_mask = np.array([(k not in set(excl)) and (amp[k] > 0.0) for k in range(n)])
+        excl_set = set(excl)
+        fit_mask = np.array([(k not in excl_set) and (amp[k] > 0.0) for k in range(n)])
         if int(np.count_nonzero(fit_mask)) < max(deg_amp, deg_ph) + 1:
             raise ValueError("too few fit points for poly degree")
         w_full = default_weights(n, early_bins=early_bins, early_w=early_w, late_w=late_w)
@@ -326,6 +430,7 @@ def fit_lut_phase0(
         "coef_amp": coef_amp,
         "coef_ph": coef_ph,
         "exclude": excl,
+        "exclude_mode": excl_mode,
         "ma_win": int(ma_win) if method_l == "ma" else None,
         "force_index1_real": do_force1,
     }
@@ -402,7 +507,7 @@ def run_file(
     deg_amp: int = DEFAULT_DEG_AMP,
     deg_ph: int = DEFAULT_DEG_PH,
     ma_win: int = DEFAULT_MA_WIN,
-    exclude: Sequence[int] = DEFAULT_EXCLUDE,
+    exclude: Union[str, int, Iterable[int], None] = DEFAULT_EXCLUDE,
     force_index1_real: bool = True,
     plot: bool = True,
     copy_only: bool = False,
@@ -430,6 +535,7 @@ def run_file(
             "coef_amp": None,
             "coef_ph": None,
             "exclude": [],
+            "exclude_mode": "none",
             "ma_win": None,
             "force_index1_real": False,
         }
@@ -453,8 +559,9 @@ def run_file(
         header = [
             f"# Optimized by lut_phase0_fit.py from {inp.name}",
             f"# method={result['method']}; phase forced through 0",
-            f"# exclude={list(result['exclude'])}; ma_win={result['ma_win']}; "
-            f"deg_amp={deg_amp} deg_ph={deg_ph}; force_i1_real={result['force_index1_real']}",
+            f"# exclude_mode={result['exclude_mode']} exclude={list(result['exclude'])}; "
+            f"ma_win={result['ma_win']}; deg_amp={deg_amp} deg_ph={deg_ph}; "
+            f"force_i1_real={result['force_index1_real']}",
         ]
 
     txt_path = write_lut_data_map(
@@ -471,7 +578,12 @@ def run_file(
             result, out_dir / f"{stem}.png", title=f"{inp.name}  [{result['method']}]"
         )
 
-    print(f"[OK] lut{lut_sel} method={result['method']} → {txt_path.name}")
+    excl_note = (
+        f"exclude={result.get('exclude_mode', '?')}->{list(result.get('exclude', []))}"
+        if not copy_only
+        else "passthrough"
+    )
+    print(f"[OK] lut{lut_sel} method={result['method']} {excl_note} -> {txt_path.name}")
     result["txt_path"] = txt_path
     result["csv_path"] = csv_path
     result["png_path"] = png_path
@@ -489,7 +601,7 @@ def run_multi(
     deg_amp: int = DEFAULT_DEG_AMP,
     deg_ph: int = DEFAULT_DEG_PH,
     ma_win: int = DEFAULT_MA_WIN,
-    exclude: Sequence[int] = DEFAULT_EXCLUDE,
+    exclude: Union[str, int, Iterable[int], None] = DEFAULT_EXCLUDE,
     plot: bool = True,
 ) -> List[dict]:
     """
@@ -540,7 +652,7 @@ def run_multi(
         lines.append(Path(r["txt_path"]).read_text(encoding="utf-8").rstrip())
         lines.append("")
     combined.write_text("\n".join(lines) + "\n", encoding="utf-8")
-    print(f"[OK] combined → {combined}")
+    print(f"[OK] combined -> {combined}")
     return results
 
 
@@ -561,8 +673,8 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("--deg-ph", type=int, default=DEFAULT_DEG_PH)
     p.add_argument(
         "--exclude",
-        default=",".join(str(x) for x in DEFAULT_EXCLUDE),
-        help="comma-separated indices to replace before smooth (default 2)",
+        default=DEFAULT_EXCLUDE,
+        help="auto (default: detect dips/spikes) | none | comma indices e.g. 2,5",
     )
     p.add_argument(
         "--master-lut",
@@ -584,7 +696,6 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
     args = build_parser().parse_args(argv)
     inp = Path(args.input)
     out_dir = Path(args.output_dir) if args.output_dir else (inp if inp.is_dir() else inp.parent)
-    exclude = [int(s) for s in str(args.exclude).split(",") if str(s).strip() != ""]
     run_multi(
         inp,
         out_dir,
@@ -594,7 +705,7 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
         deg_amp=int(args.deg_amp),
         deg_ph=int(args.deg_ph),
         ma_win=int(args.ma_win),
-        exclude=exclude,
+        exclude=str(args.exclude),
         plot=not args.no_plot,
     )
     return 0
