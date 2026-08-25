@@ -5,12 +5,15 @@ DPD LUT phase-through-0 smooth (single / multi LUT, optional master).
 
 Methods
 -------
-* ``smooth`` — **default**: auto-fix bad bins + blended MA (phase more than amp)
-  with amp deviation clamp. Smoother than ``repair``, less destructive than full ``ma``.
-* ``repair`` — outlier fix + master phase align only (max preserve, less smooth)
-* ``ma``     — full moving-average on amp/phase (optional; can hurt EVM)
-* ``poly``   — amp/phase no-constant weighted polynomial (offline)
-* ``iqpoly`` — I/Q through-zero poly (MATLAB ``polyfit_for_lut`` style; master-friendly)
+* ``poly``   — **default**: amp no-constant weighted poly + **preserve phase trend**
+  (only interpolate excluded bins; do not poly-fit phase — through-zero phase poly
+  warps mid-band when trained φ sits at ~3–8°). Multi-LUT: slaves default
+  **passthrough**; keep master ``|z[1]|``. Judge by EVM, not maxerr.
+* ``iqpoly`` — I/Q through-zero poly (MATLAB ``polyfit_for_lut`` style)
+* ``smooth`` — blended MA (phase more than amp) + amp clamp
+* ``repair`` — outlier fix + master phase align only
+* ``ma``     — full moving-average on amp/phase
+* ``poly_ph`` — legacy: amp+phase both no-constant poly (260821 1lut style)
 
 Bad bins
 --------
@@ -19,7 +22,8 @@ By default ``exclude=auto``. No manual ``--exclude 2``.
 CLI::
 
   python dpd/lut_phase0_fit.py DIR -o OUT --master-lut 0 --scope all
-  python dpd/lut_phase0_fit.py DIR -o OUT --method smooth --ma-win 5 --mix-amp 0.5 --mix-ph 0.8
+  python dpd/lut_phase0_fit.py DIR -o OUT --method poly --deg-amp 4
+  python dpd/lut_phase0_fit.py DIR -o OUT --method poly_ph --deg-amp 4 --deg-ph 4
 """
 
 from __future__ import annotations
@@ -43,8 +47,8 @@ DEFAULT_EARLY_W = 1.0
 DEFAULT_LATE_W = 200.0
 DEFAULT_EARLY_BINS = 3
 DEFAULT_MA_WIN = 5
-# smooth = blended MA (default): smoother curves while limiting AM/PM rewrite
-DEFAULT_METHOD = "smooth"
+# poly = 260821 Cursor fit (amp/phase no-constant WLS); default for board EVM gain
+DEFAULT_METHOD = "poly"
 DEFAULT_MIX_AMP_MASTER = 0.50
 DEFAULT_MIX_PH_MASTER = 0.80
 DEFAULT_MIX_AMP_SLAVE = 0.35
@@ -399,13 +403,15 @@ def fit_lut_phase0(
     Repair/smooth LUT and force phase through 0; rebuild fixed-point I/Q.
 
     method
-      * ``smooth`` — blended MA (default): smoother + limited rewrite
-      * ``repair`` — outlier + master phase align only
-      * ``ma`` / ``poly`` / ``iqpoly`` — stronger / offline
+      * ``poly``    — amp poly + preserve phase trend (default)
+      * ``poly_ph`` — amp+phase both through-zero poly (legacy 1lut)
+      * ``iqpoly`` / ``smooth`` / ``repair`` / ``ma`` — alternatives
     """
     method_l = str(method).strip().lower()
-    if method_l not in ("smooth", "repair", "ma", "poly", "iqpoly"):
-        raise ValueError(f"unknown method={method!r} (use smooth|repair|ma|poly|iqpoly)")
+    if method_l not in ("smooth", "repair", "ma", "poly", "poly_ph", "iqpoly"):
+        raise ValueError(
+            f"unknown method={method!r} (use smooth|repair|ma|poly|poly_ph|iqpoly)"
+        )
 
     ii = np.asarray(lut_i, dtype=float).reshape(-1)
     qq = np.asarray(lut_q, dtype=float).reshape(-1)
@@ -482,6 +488,13 @@ def fit_lut_phase0(
         q_fit = eval_through_zero(x, coef_ph)
         z_new = i_fit + 1j * q_fit
         z_new = _apply_master_phase_align(z_new, do_force1=do_force1)
+        if do_force1 and abs(z[1]) >= 1.0:
+            z_new[1] = abs(z[1]) + 0j
+        elif not do_force1:
+            keep_zero_thr = 50.0
+            for k in range(n):
+                if float(amp[k]) < keep_zero_thr:
+                    z_new[k] = z[k]
         amp_fit = np.abs(z_new)
         ph_fit = np.unwrap(np.angle(z_new))
 
@@ -490,10 +503,11 @@ def fit_lut_phase0(
             ma_win_out = int(ma_win)
             amp_fit = moving_average(amp_w, ma_win_out)
             ph_fit = moving_average(ph_w, ma_win_out)
-        else:
+        elif method_l == "poly_ph":
+            # Legacy: amp + phase both no-constant poly (ok when mid φ≈0)
             fit_mask = np.array([(k not in excl_set) and (amp[k] > 0.0) for k in range(n)])
             if int(np.count_nonzero(fit_mask)) < max(deg_amp, deg_ph) + 1:
-                raise ValueError("too few fit points for poly degree")
+                raise ValueError("too few fit points for poly_ph degree")
             w_full = default_weights(n, early_bins=early_bins, early_w=early_w, late_w=late_w)
             xf = x[fit_mask]
             ww = w_full[fit_mask]
@@ -501,16 +515,42 @@ def fit_lut_phase0(
             coef_ph = poly_through_zero(xf, ph[fit_mask], deg_ph, w=ww)
             amp_fit = eval_through_zero(x, coef_amp)
             ph_fit = eval_through_zero(x, coef_ph)
+        else:
+            # poly (default): amp through-zero poly; keep repaired phase trend.
+            # Through-zero phase poly systematically pulls mid-band down when the
+            # trained AM-PM sits at ~3–8° (260825 3lut lut0).
+            fit_mask = np.array([(k not in excl_set) and (amp[k] > 0.0) for k in range(n)])
+            if int(np.count_nonzero(fit_mask)) < int(deg_amp) + 1:
+                raise ValueError("too few fit points for poly amp degree")
+            w_full = default_weights(n, early_bins=early_bins, early_w=early_w, late_w=late_w)
+            xf = x[fit_mask]
+            ww = w_full[fit_mask]
+            coef_amp = poly_through_zero(xf, amp[fit_mask], deg_amp, w=ww)
+            amp_fit = eval_through_zero(x, coef_amp)
+            # Keep repaired phase exactly (no MA) — mid-band trend is trained DPD
+            ph_fit = ph_w.copy()
 
         amp_fit = np.maximum(amp_fit, 0.0)
         amp_fit[0] = 0.0
         if do_force1:
+            # Subtract φ[1] so index1 is real; preserves relative phase shape
             ph_fit = ph_fit - float(ph_fit[1] if amp_fit[1] >= 1.0 else ph_fit[0])
         z_new = amp_fit * np.exp(1j * ph_fit)
         near0 = amp_fit < 1.0
         z_new[near0] = 0.0
         if do_force1:
-            z_new[1] = abs(z_new[1]) + 0j
+            if abs(z[1]) >= 1.0:
+                z_new[1] = abs(z[1]) + 0j
+            else:
+                z_new[1] = abs(z_new[1]) + 0j
+            if abs(z_new[1]) >= 1.0 and abs(np.angle(z_new[1])) > 1e-12:
+                z_new = z_new * np.exp(-1j * np.angle(z_new[1]))
+                z_new[1] = abs(z_new[1]) + 0j
+        else:
+            keep_zero_thr = 50.0
+            for k in range(n):
+                if float(amp[k]) < keep_zero_thr:
+                    z_new[k] = z[k]
         amp_fit = np.abs(z_new)
         ph_fit = np.unwrap(np.angle(z_new))
 
@@ -520,7 +560,11 @@ def fit_lut_phase0(
     q_out[0] = 0
     if do_force1:
         q_out[1] = 0
-        i_out[1] = int(abs(i_out[1]))
+        # Prefer exact original index1 amp after rounding
+        if abs(z[1]) >= 1.0:
+            i_out[1] = int(round(abs(z[1])))
+        else:
+            i_out[1] = int(abs(i_out[1]))
 
     return {
         "n_pts": n,
@@ -726,6 +770,7 @@ def run_multi(
     method: str = DEFAULT_METHOD,
     master_lut: Optional[int] = None,
     scope: str = "all",
+    slave_method: Optional[str] = None,
     deg_amp: int = DEFAULT_DEG_AMP,
     deg_ph: int = DEFAULT_DEG_PH,
     ma_win: int = DEFAULT_MA_WIN,
@@ -742,6 +787,11 @@ def run_multi(
     scope
       * ``all`` — process every discovered LUT
       * ``master_only`` — process only ``master_lut``; others passthrough
+
+    slave_method (when ``master_lut`` set and scope=all)
+      * ``None`` / auto — for heavy methods (poly/iqpoly/ma) use ``passthrough``
+        so memory taps are not rewritten; otherwise same as ``method``
+      * ``passthrough`` / ``repair`` / ``smooth`` / ``poly`` / ... — explicit
     """
     scope_l = str(scope).strip().lower()
     if scope_l not in ("all", "master_only"):
@@ -749,18 +799,36 @@ def run_multi(
     if scope_l == "master_only" and master_lut is None:
         raise ValueError("master_lut is required when scope=master_only")
 
+    method_l = str(method).strip().lower()
+    if slave_method is None:
+        if master_lut is not None and method_l in ("poly", "poly_ph", "iqpoly", "ma"):
+            slave_method_l = "passthrough"
+        else:
+            slave_method_l = "same"
+    else:
+        slave_method_l = str(slave_method).strip().lower()
+
     items = discover_lut_maps(input_path)
     out_dir = Path(output_dir)
     results: List[dict] = []
     for path, sel in items:
-        do_copy = scope_l == "master_only" and int(sel) != int(master_lut)
+        is_master = (master_lut is None) or (int(sel) == int(master_lut))
+        do_copy = (scope_l == "master_only" and not is_master) or (
+            (not is_master) and slave_method_l == "passthrough"
+        )
+        if is_master or do_copy:
+            method_use = method_l
+        elif slave_method_l == "same":
+            method_use = method_l
+        else:
+            method_use = slave_method_l
         # Only force index1 real on master (or when master not specified)
-        force1 = (master_lut is None) or (int(sel) == int(master_lut))
+        force1 = is_master
         r = run_file(
             path,
             out_dir,
             lut_sel=sel,
-            method=method,
+            method=method_use,
             deg_amp=deg_amp,
             deg_ph=deg_ph,
             ma_win=ma_win,
@@ -781,7 +849,7 @@ def run_multi(
     combined = out_dir / f"lut_data_map_all_phase0_{method}.txt"
     lines = [
         f"# Combined LUT maps after phase0 fit  method={method} scope={scope_l} "
-        f"master_lut={master_lut}",
+        f"master_lut={master_lut} slave_method={slave_method_l}",
         "",
     ]
     for r in results:
@@ -800,9 +868,10 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("-o", "--output-dir", default="", help="output dir (default: input dir)")
     p.add_argument(
         "--method",
-        choices=["smooth", "repair", "ma", "poly", "iqpoly"],
+        choices=["smooth", "repair", "ma", "poly", "poly_ph", "iqpoly"],
         default=DEFAULT_METHOD,
-        help="smooth=blended MA (default); repair=outliers only; ma/poly/iqpoly=heavier",
+        help="poly=amp poly + keep phase trend (default); poly_ph=amp+phase poly; "
+        "iqpoly/smooth/repair/ma alternatives",
     )
     p.add_argument("--ma-win", type=int, default=DEFAULT_MA_WIN, help="MA window (odd, default 5)")
     p.add_argument(
@@ -842,6 +911,12 @@ def build_parser() -> argparse.ArgumentParser:
         default="all",
         help="all=process every LUT; master_only=process only --master-lut",
     )
+    p.add_argument(
+        "--slave-method",
+        default="",
+        help="when --master-lut set: passthrough|repair|smooth|poly|same|auto. "
+        "auto (default): passthrough for poly/iqpoly/ma (protect memory taps)",
+    )
     p.add_argument("--no-plot", action="store_true")
     p.add_argument(
         "--no-hw-names",
@@ -861,6 +936,7 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
         method=args.method,
         master_lut=args.master_lut,
         scope=args.scope,
+        slave_method=(None if not str(args.slave_method).strip() else str(args.slave_method).strip()),
         deg_amp=int(args.deg_amp),
         deg_ph=int(args.deg_ph),
         ma_win=int(args.ma_win),

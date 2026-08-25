@@ -1,23 +1,17 @@
-# lut_phase0_fit — multi-LUT phase-through-0 smooth
+# lut_phase0_fit — multi-LUT phase-through-0 fit
 
 ## 功能
-对 `lut_data_map` I/Q：**自动检坏点** → 默认 **`smooth`**（坏点修复 + 混合 MA：相位多、幅度少 + amp 偏差钳位）→ 写出 HW 同名 `lut_data_map_lutN.txt`。slave 不独立旋相位。
+默认 **`poly`**：**幅度**无常数项多项式；**相位保留训练趋势**（仅坏点插值）。  
+`--master-lut` 时 slave 默认 **passthrough**（保护记忆支路）。勿用 maxerr 评判。
 
-备选：`repair`（只修坏点）、`ma`/`poly`/`iqpoly`（更强平滑，易伤 EVM）。
+备选：`poly_ph`（旧 amp+phase 双 poly）、`smooth` / `repair` / `iqpoly` / `ma`。
 
 ## 入口
 ```bash
 cd D:\users\gxu\scripts
-
-# 推荐（默认 smooth）
 python dpd/lut_phase0_fit.py DIR -o OUT --master-lut 0 --scope all
-
-# 调混合强度
-python dpd/lut_phase0_fit.py DIR -o OUT --method smooth --ma-win 5 --mix-amp 0.5 --mix-ph 0.8 --max-amp-dev 0.10
-
-# 仅修坏点 / 全表 MA（调试）
-python dpd/lut_phase0_fit.py DIR -o OUT --method repair --master-lut 0
-python dpd/lut_phase0_fit.py DIR -o OUT --method ma --ma-win 5
+python dpd/fit_lut_custom_phase0.py
+python dpd/lut_phase0_fit.py DIR -o OUT --method poly_ph --master-lut 0
 ```
 
 ## 文档
