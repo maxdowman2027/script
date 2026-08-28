@@ -76,6 +76,11 @@ parsed_data.csv
 # Bat and PowerShell files
 *.bat
 *.ps1
+!ashare_query/*.bat
 
 # Requirements file
 requirements.txt
+!ashare_query/requirements.txt
+
+# A-share quote cache (runtime snapshot, do not commit)
+ashare_query/cache/
