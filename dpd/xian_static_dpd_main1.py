@@ -116,10 +116,11 @@ PN_COMP = "auto"
 PN_SMOOTH_WIN = PN_SMOOTH_WIN_DEFAULT
 PN_AMP_RATIO = PN_AMP_RATIO_DEFAULT
 
-MAX_TABLE_VALUE = 1023
+MAX_TABLE_VALUE = 1023  
 NUM_LUT = 1
 EST_DELAY = 0
 ORDER = 3
+ODD_ORDER_ONLY = False
 NITER = 1
 
 OUTPUT_DIR = _THIS_DIR / "output" / "xian_static_dpd"
@@ -759,6 +760,7 @@ def run_pipeline(
     num_lut: int = NUM_LUT,
     est_delay: int = EST_DELAY,
     order: int = ORDER,
+    odd_order_only: bool = ODD_ORDER_ONLY,
     amp_thresh: float = AMP_THRESH,
     cfo_corr_len: int = CFO_CORR_LEN,
     enable_cfo: bool = True,
@@ -1269,22 +1271,75 @@ def run_pipeline(
     rx_dpd = rx_after_frac[t_dpd:, :]
     print(f"[DPD] trim 1000:end → N={tx_dpd.size}")
 
-    table_x, table_y = static_dpd_memory(
+    from static_dpd_memory import poly_orders
+
+    orders_used = poly_orders(order, odd_only=odd_order_only)
+    print(
+        f"[DPD] poly orders={orders_used}  "
+        f"({'odd-only' if odd_order_only else 'full 1..order'})  "
+        f"num_lut={num_lut}  est_delay={est_delay}"
+    )
+
+    table_x, table_y, coef_est, orders_used = static_dpd_memory(
         max_table_value,
         tx_dpd,
         rx_dpd,
         num_lut=num_lut,
         est_delay=est_delay,
         order=order,
+        odd_only=odd_order_only,
+        return_coef=True,
     )
 
     # Save LUT
     lut_path = out_dir / "lut_table.npz"
-    np.savez(lut_path, table_x=table_x, table_y=table_y)
+    np.savez(
+        lut_path,
+        table_x=table_x,
+        table_y=table_y,
+        coef_est=coef_est,
+        poly_orders=np.asarray(orders_used, dtype=int),
+        num_lut=int(num_lut),
+        est_delay=int(est_delay),
+        order=int(order),
+        odd_only=bool(odd_order_only),
+    )
     np.savetxt(out_dir / "lut_real.txt", np.real(table_y), fmt="%.10e")
     np.savetxt(out_dir / "lut_imag.txt", np.imag(table_y), fmt="%.10e")
     np.savetxt(out_dir / "lut_x.txt", table_x, fmt="%.10e")
     print(f"[LUT] saved {lut_path}")
+
+    # Polynomial coefficients: coef_est[(k-1)*n_term + ti] for LUT k, order m
+    n_term = len(orders_used)
+    coef_lines = [
+        "# DPD memory polynomial coefficients (LS: X ≈ sum_k sum_m c[k,m] * y_k * |y_k|^(m-1))",
+        f"# order={order} odd_only={odd_order_only} orders={orders_used}",
+        f"# num_lut={num_lut} est_delay={est_delay}",
+        "lut_idx,mem_tap,poly_order_m,coef_real,coef_imag,coef_abs,coef_phase_deg",
+    ]
+    for k in range(1, int(num_lut) + 1):
+        for ti, m in enumerate(orders_used):
+            c = complex(coef_est[(k - 1) * n_term + ti])
+            coef_lines.append(
+                f"{k-1},{k-1},{m},{c.real:.10e},{c.imag:.10e},"
+                f"{abs(c):.10e},{np.degrees(np.angle(c)):.6f}"
+            )
+    coef_csv = out_dir / "poly_coefficients.csv"
+    coef_csv.write_text("\n".join(coef_lines) + "\n", encoding="utf-8")
+    np.savetxt(
+        out_dir / "poly_coefficients_complex.txt",
+        np.column_stack([np.real(coef_est), np.imag(coef_est)]),
+        fmt="%.10e",
+        header="coef_real coef_imag  (column-major: lut0 m=orders..., lut1 ...)",
+        comments="# ",
+    )
+    print(f"[POLY] coefficients → {coef_csv}")
+    for k in range(1, int(num_lut) + 1):
+        parts = []
+        for ti, m in enumerate(orders_used):
+            c = complex(coef_est[(k - 1) * n_term + ti])
+            parts.append(f"m={m}: {c.real:+.6e}{c.imag:+.6e}j")
+        print(f"[POLY] lut{k-1} (mem tap {k-1}): " + " | ".join(parts))
 
     lut_map_path = write_lut_data_map(
         table_y,
@@ -1306,6 +1361,8 @@ def run_pipeline(
     return {
         "table_x": table_x,
         "table_y": table_y,
+        "coef_est": coef_est,
+        "poly_orders": orders_used,
         "tx_dpd": tx_dpd,
         "rx_dpd": rx_dpd,
         "output_dir": out_dir,
@@ -1462,6 +1519,11 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("--show", action="store_true", help="interactive matplotlib windows")
     p.add_argument("--niter", type=int, default=NITER)
     p.add_argument("--order", type=int, default=ORDER)
+    p.add_argument(
+        "--odd-order-only",
+        action="store_true",
+        help="use only odd polynomial degrees m=1,3,...,<=order (drop even terms)",
+    )
     p.add_argument("--num-lut", type=int, default=NUM_LUT)
     p.add_argument("--est-delay", type=int, default=EST_DELAY)
     p.add_argument("--max-table", type=float, default=MAX_TABLE_VALUE)
@@ -1521,6 +1583,7 @@ def main(argv=None) -> int:
         num_lut=args.num_lut,
         est_delay=args.est_delay,
         order=args.order,
+        odd_order_only=args.odd_order_only,
         amp_thresh=args.amp_thresh,
         cfo_corr_len=args.cfo_corr_len,
         enable_cfo=not args.no_cfo,

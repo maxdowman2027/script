@@ -1,45 +1,18 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 """
-Xian static DPD training pipeline — Python port of xian_static_DPD_main1.m.
+Xian static DPD (RLS / normalized-IQ variant) — based on xian_static_DPD_main1.m.
 
-Aligned with ``dpd/20260804_3_data/xian_static_DPD_main1.m``:
+Same align → gain → CFO → DC → frac delay → LUT flow as
+``xian_static_dpd_main1.py``, with:
 
-  read_data(CSV) → TX (ref / dac / adc) → RX (iqxel / feedback)
-  → auto envelope align → gain → CFO → (iQxel) PN → DC → frac delay → LUT
-
-  iQxel dump: residual phase noise is low-pass removed (TX-referenced) before
-  LUT estimation so instrument LO wander does not bias AM-PM / LUT coeffs.
-
-DAC vs iQxel (OFDM or CW tone; tone auto-detected)::
-
-  python dpd/xian_static_dpd_main1.py --csv dac_iladata.csv --txt iqxel.txt --tx-source dac --rx txt
-
-  python dpd/xian_static_dpd_main1.py --csv tone/dac_iladata.csv --txt tone/iqxel_2412_tone.txt --tx-source dac --rx txt --signal-mode tone
-
-ref (CSV-A) vs dac (CSV-B)::
-
-  python dpd/xian_static_dpd_main1.py --csv feedback_ref_iladata.csv --tx-source ref --dac-csv dac_iladata.csv --rx dac
-
-ref_iladata (dac_* cols as TX) vs dac_iladata (RX)::
-
-  python dpd/xian_static_dpd_main1.py --csv ref_iladata.csv --tx-source dac --dac-csv dac_iladata.csv --rx dac
-
-ref (4x ILA) vs pkt_out dac (label 2x; same ILA clock → keep default OSR, global align)::
-
-  python dpd/xian_static_dpd_main1.py --csv feedback_ref_iladata.csv --tx-source ref --dac-csv pkt_out_iladata.csv --rx dac
-
-True half-rate dump vs 4x (resample to work OSR)::
-
-  python dpd/xian_static_dpd_main1.py --csv feedback_ref.csv --csv-osr 4 --dac-csv pkt_out.csv --dac-csv-osr 2 --work-osr 2 --tx-source ref --rx dac
+  * After CSV load, **ref** and **feedback** I/Q are scaled by ``1/IQ_SCALE``
+    (default **512**) before align / DPD.
+  * Default ``MAX_TABLE_VALUE=2`` for the normalized amplitude axis.
 
 ILA on-chip (ref vs feedback)::
 
-  python dpd/xian_static_dpd_main1.py --csv ... --rx feedback --tx-source ref
-
-iQxel + ref::
-
-  python dpd/xian_static_dpd_main1.py --csv ... --txt ... --rx txt --tx-source ref
+  python dpd/xian_static_rls_dpd_main1.py --csv ... --rx feedback --tx-source ref
 
 All helper modules live in the same directory (dpd/).
 """
@@ -53,7 +26,7 @@ from typing import Optional, Union
 
 import numpy as np
 
-# Allow `python dpd/xian_static_dpd_main1.py` and `python -m` from repo root
+# Allow `python dpd/xian_static_rls_dpd_main1.py` and `python -m` from repo root
 _THIS_DIR = Path(__file__).resolve().parent
 if str(_THIS_DIR) not in sys.path:
     sys.path.insert(0, str(_THIS_DIR))
@@ -107,7 +80,9 @@ FS_HZ = 80e6
 TONE_CV_MAX = 0.05
 
 DPD_TRIM_START = 1000  # MATLAB (1000:end) 1-based → Python 999:
-AMP_THRESH = 800.0
+# Raw ILA counts (~1k) → /IQ_SCALE; amp_thresh scaled from legacy 800.
+IQ_SCALE = 512.0
+AMP_THRESH = 800.0 / IQ_SCALE  # ~1.5625 in normalized units
 CFO_CORR_LEN = 5000
 
 # Phase-noise compensation (iQxel TX-referenced residual phase low-pass)
@@ -116,14 +91,14 @@ PN_COMP = "auto"
 PN_SMOOTH_WIN = PN_SMOOTH_WIN_DEFAULT
 PN_AMP_RATIO = PN_AMP_RATIO_DEFAULT
 
-MAX_TABLE_VALUE = 2  
+MAX_TABLE_VALUE = 2.0  # normalized LUT amplitude axis after /IQ_SCALE
 NUM_LUT = 1
 EST_DELAY = 0
 ORDER = 3
 ODD_ORDER_ONLY = False
 NITER = 1
 
-OUTPUT_DIR = _THIS_DIR / "output" / "xian_static_dpd"
+OUTPUT_DIR = _THIS_DIR / "output" / "xian_static_rls_dpd"
 
 
 def _as_col(z: np.ndarray) -> np.ndarray:
@@ -781,12 +756,15 @@ def run_pipeline(
     coarse_local_only: bool = False,
     signal_mode: str = "auto",
     fs_hz: float = FS_HZ,
+    iq_scale: float = IQ_SCALE,
 ) -> dict:
     """
     Execute the MATLAB main flow; return dict with LUT and intermediate arrays.
 
     tx_source: ref | adc | dac | auto
       auto → ref if energy, else dac, else ADC.
+    iq_scale:
+      Divide CSV **ref** and **feedback** by this factor after load (default 512).
     """
     import matplotlib
 
@@ -849,6 +827,16 @@ def run_pipeline(
         f"[CSV] {Path(csv_path).name}  N={ref_data.size} "
         f"(after decimate={primary_dec})"
     )
+
+    # RLS: normalize ILA ref / feedback counts (default /512)
+    scale = float(iq_scale) if iq_scale and float(iq_scale) != 0.0 else 1.0
+    if scale != 1.0:
+        ref_data = np.asarray(ref_data, dtype=np.complex128) / scale
+        fb_data = np.asarray(fb_data, dtype=np.complex128) / scale
+        print(
+            f"[SCALE] ref & feedback /= {scale:g}  "
+            f"(peaks before peak-print use scaled arrays)"
+        )
 
     # Optional second CSV for DAC RX (keep primary dac for TX when --tx-source dac)
     dac_data = dac_primary
@@ -1372,7 +1360,7 @@ def run_pipeline(
 
 def build_parser() -> argparse.ArgumentParser:
     p = argparse.ArgumentParser(
-        description="Xian static DPD main (port of xian_static_DPD_main1.m)"
+        description="Xian static RLS DPD (ref/feedback /= IQ_SCALE, default 512)"
     )
     p.add_argument(
         "--csv",
@@ -1528,6 +1516,12 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("--est-delay", type=int, default=EST_DELAY)
     p.add_argument("--max-table", type=float, default=MAX_TABLE_VALUE)
     p.add_argument("--amp-thresh", type=float, default=AMP_THRESH)
+    p.add_argument(
+        "--iq-scale",
+        type=float,
+        default=IQ_SCALE,
+        help="divide CSV ref and feedback by this after load (default 512; use 1 to disable)",
+    )
     p.add_argument("--cfo-corr-len", type=int, default=CFO_CORR_LEN)
     p.add_argument(
         "--lut-map-scale",
@@ -1604,6 +1598,7 @@ def main(argv=None) -> int:
         coarse_local_only=args.coarse_local_only,
         signal_mode=args.signal_mode,
         fs_hz=args.fs,
+        iq_scale=args.iq_scale,
     )
     return 0
 
