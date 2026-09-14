@@ -10,7 +10,7 @@
 4. 兼容 Vivado 2025+ waveform.csv 的 Radix 元数据行（HEX/UNSIGNED...）与旧版无该行的格式
 5. 按照ILA文件名进行更名
 6. 可选：保留/重命名列；位域提取为有符号（SIGNED_BIT_FIELDS）或无符号（UNSIGNED_BIT_FIELDS）；
-   或仅改列名不改数据（PASSTHROUGH_RENAME）
+   或仅改列名（PASSTHROUGH_RENAME，可按列选做有符号十进制）
 7. 支持批量处理和进度显示
 """
 
@@ -28,7 +28,7 @@ import sys
 # 配置参数 - 可根据需要修改
 # ===========================================
 # 输入目录：包含.ila文件的目录
-INPUT_DIR = r"D:\test_data\AP\260813_dpd\dac\vht_mcs7_byte30"
+INPUT_DIR = r"D:\test_data\AP\260914_dpd\adc_data"
 
 # 输出目录：用于保存提取后的CSV文件（默认与输入目录相同）
 # 如果需要保存到其他目录，请修改此处
@@ -47,9 +47,10 @@ DELETE_ORIGINAL = False
 # 示例：["Time", "sample_i", "sample_q"]
 # KEEP_COLUMNS = ["adc_q_ch0[11:0]","adc_i_ch0[11:0]"]
 KEEP_COLUMNS = [
-    "chip_top_inst/u_chip_dig_top/u_mp_sys_top/u_hp_peri_top/u_modem_itop/u_modem_wrap/u_modem_top/u_wifi_bb_wrap/u_wifi_bb_top/u_phy_dfx_dump/phy_dump_data_0d[63:0]",
+    # "chip_top_inst/u_chip_dig_top/u_mp_sys_top/u_hp_peri_top/u_modem_itop/u_modem_wrap/u_modem_top/u_wifi_bb_wrap/u_wifi_bb_top/u_phy_dfx_dump/phy_dump_data_0d[63:0]",
     "u_fpga_host_inf/u_host_mux_top_ch1/u_host_data_mux/fpga_modem_mimo_ch1_rx_i_fe[9:0]",
     "u_fpga_host_inf/u_host_mux_top_ch1/u_host_data_mux/fpga_modem_mimo_ch1_rx_q_fe[9:0]",
+    "chip_top_inst/u_chip_dig_top/u_mp_sys_top/u_hp_peri_top/u_modem_itop/u_modem_wrap/u_modem_top/u_wifi_bb_wrap/u_wifi_bb_top/u_txdfe_top/u_txdfe_datapath/u_dpd_ctrl/u_dpd_adap_lut_update/reg_dpd_itera[15:0]",
 ]
 
 # 提取后的CSV列重命名映射（None表示不重命名）
@@ -59,18 +60,26 @@ KEEP_COLUMNS = [
 # 改名应写在 extract 之后的 output，或改用下方 PASSTHROUGH_RENAME。
 RENAME_COLUMNS = None
 
-# 仅改列名、不改单元格数据的列映射（跳过 AUTO_SIGNED / SIGNED / UNSIGNED 位域）
+# 仅改列名的列映射（默认跳过 AUTO_SIGNED / SIGNED / UNSIGNED 位域）
 # 格式同 RENAME_COLUMNS：dict / "old:new,..." / [("old","new"), ...] /
 # 与 KEEP_COLUMNS 子集等长的新列名列表（见 normalize_passthrough_rename）
-# 示例：{"adc_i_ch0[11:0]": "adc_i", "adc_q_ch0[11:0]": "adc_q"}
+# 每项也可为 {"output": "adc_i", "signed": True}，对该源列按列名 [high:low] 转有符号十进制
+# 示例：{"adc_i_ch0[11:0]": "adc_i", "adc_q_ch0[11:0]": {"output": "adc_q", "signed": True}}
 PASSTHROUGH_RENAME = {
     "u_fpga_host_inf/u_host_mux_top_ch1/u_host_data_mux/fpga_modem_mimo_ch1_rx_i_fe[9:0]": "adc_i",
     "u_fpga_host_inf/u_host_mux_top_ch1/u_host_data_mux/fpga_modem_mimo_ch1_rx_q_fe[9:0]": "adc_q",
+    "chip_top_inst/u_chip_dig_top/u_mp_sys_top/u_hp_peri_top/u_modem_itop/u_modem_wrap/u_modem_top/u_wifi_bb_wrap/u_wifi_bb_top/u_txdfe_top/u_txdfe_datapath/u_dpd_ctrl/u_dpd_adap_lut_update/reg_dpd_itera[15:0]": "dpd_itera",
 }
+
+# PASSTHROUGH_RENAME 单元格是否转有符号十进制（列名需含 [high:low]）
+# False/None：保持原单元格（十六进制文本等），仅改列名
+# True：全部 passthrough 源列转有符号
+# 列表/逗号字符串：按源列名或目标列名选择，如 ["adc_i", "adc_q"]（dpd_itera 仍原样）
+PASSTHROUGH_SIGNED = ["adc_i", "adc_q"]
 
 # 指定位域 → 有符号十进制（在 keep/passthrough/rename 流程中对源列操作）
 # True：列名含 [high:low] 时自动按该位宽做有符号转换（如 adc_q_ch0[11:0]）
-# PASSTHROUGH_RENAME 中的源列一律不参与自动/显式位域转换
+# PASSTHROUGH_RENAME 源列不走 AUTO/SIGNED/UNSIGNED 位域；有符号请用 PASSTHROUGH_SIGNED
 AUTO_SIGNED_BIT_FIELDS = True
 
 # 显式位域 → 有符号十进制；每项 dict: column, bits(可选), output(可选)
@@ -102,16 +111,16 @@ SIGNED_BIT_FIELDS = [
     #     "bits": "[27:16]",
     #     "output": "ref_q",
     # },
-    {
-        "column": "chip_top_inst/u_chip_dig_top/u_mp_sys_top/u_hp_peri_top/u_modem_itop/u_modem_wrap/u_modem_top/u_wifi_bb_wrap/u_wifi_bb_top/u_phy_dfx_dump/phy_dump_data_0d[63:0]",
-        "bits": "[11:0]",
-        "output": "dac_i",
-    },
-    {
-        "column": "chip_top_inst/u_chip_dig_top/u_mp_sys_top/u_hp_peri_top/u_modem_itop/u_modem_wrap/u_modem_top/u_wifi_bb_wrap/u_wifi_bb_top/u_phy_dfx_dump/phy_dump_data_0d[63:0]",
-        "bits": "[27:16]",
-        "output": "dac_q",
-    },
+    # {
+    #     "column": "chip_top_inst/u_chip_dig_top/u_mp_sys_top/u_hp_peri_top/u_modem_itop/u_modem_wrap/u_modem_top/u_wifi_bb_wrap/u_wifi_bb_top/u_phy_dfx_dump/phy_dump_data_0d[63:0]",
+    #     "bits": "[11:0]",
+    #     "output": "dac_i",
+    # },
+    # {
+    #     "column": "chip_top_inst/u_chip_dig_top/u_mp_sys_top/u_hp_peri_top/u_modem_itop/u_modem_wrap/u_modem_top/u_wifi_bb_wrap/u_wifi_bb_top/u_phy_dfx_dump/phy_dump_data_0d[63:0]",
+    #     "bits": "[27:16]",
+    #     "output": "dac_q",
+    # },
     # {
     #     "column": "chip_top_inst/u_chip_dig_top/u_mp_sys_top/u_hp_peri_top/u_modem_itop/u_modem_wrap/u_modem_top/u_wifi_bb_wrap/u_wifi_bb_top/u_phy_dfx_dump/phy_dump_data_0d[63:0]",
     #     "bits": "[11:0]",
@@ -136,6 +145,21 @@ SIGNED_BIT_FIELDS = [
     #     "column": "chip_top_inst/u_chip_dig_top/u_mp_sys_top/u_hp_peri_top/u_modem_itop/u_modem_wrap/u_modem_top/u_wifi_bb_wrap/u_wifi_bb_top/u_phy_dfx_dump/phy_dump_data_0d[63:0]",
     #     "bits": "[31:0]",
     #     "output": "vector",
+    # },
+    # {
+    #     "column": "chip_top_inst/u_chip_dig_top/u_mp_sys_top/u_hp_peri_top/u_modem_itop/u_modem_wrap/u_modem_top/u_wifi_bb_wrap/u_wifi_bb_top/u_phy_dfx_dump/phy_dump_data_0d[63:0]",
+    #     "bits": "[28:16]",
+    #     "output": "dpd_rls_err_q",
+    # },
+    # {
+    #     "column": "chip_top_inst/u_chip_dig_top/u_mp_sys_top/u_hp_peri_top/u_modem_itop/u_modem_wrap/u_modem_top/u_wifi_bb_wrap/u_wifi_bb_top/u_phy_dfx_dump/phy_dump_data_0d[63:0]",
+    #     "bits": "[41:29]",
+    #     "output": "dpd_rls_err_i",
+    # },
+    # {
+    #     "column": "chip_top_inst/u_chip_dig_top/u_mp_sys_top/u_hp_peri_top/u_modem_itop/u_modem_wrap/u_modem_top/u_wifi_bb_wrap/u_wifi_bb_top/u_phy_dfx_dump/phy_dump_data_0d[63:0]",
+    #     "bits": "[36:16]",
+    #     "output": "lambda_itera",
     # },
 ]
 
@@ -565,6 +589,51 @@ def apply_signed_bit_fields(df: pd.DataFrame, specs: Sequence[Dict]) -> pd.DataF
     """Alias for apply_bit_fields (specs may mix signed/unsigned via 'signed')."""
     return apply_bit_fields(df, specs)
 
+
+def convert_column_to_signed(series: pd.Series, column: str) -> pd.Series:
+    """Parse ILA cells using column ``[high:low]`` width and return signed ints."""
+    parsed = parse_column_bit_suffix(column)
+    if parsed is None:
+        raise ValueError(
+            f"passthrough signed needs [high:low] in column name, got {column!r}"
+        )
+    _, hi, lo = parsed
+    parse_width = hi + 1
+    return series.map(
+        lambda cell, pw=parse_width, h=hi, l=lo: extract_bit_field(
+            parse_ila_cell_int(cell, bit_width=pw), h, l, signed=True
+        )
+    )
+
+
+def apply_passthrough_signed(
+    df: pd.DataFrame,
+    passthrough_map: Dict[str, str],
+    signed_flags: Optional[Dict[str, bool]],
+    *,
+    file_label: str = "",
+) -> pd.DataFrame:
+    """Convert selected passthrough source columns to signed decimal in-place."""
+    if df is None or df.empty or not passthrough_map or not signed_flags:
+        return df
+    out = df
+    prefix = f"文件 {file_label} 的 " if file_label else ""
+    for src, enabled in signed_flags.items():
+        if not enabled:
+            continue
+        if src not in out.columns:
+            continue
+        if parse_column_bit_suffix(src) is None:
+            log(
+                f"[WARNING] {prefix}passthrough signed 跳过无 [high:low] 的列: {src!r}"
+            )
+            continue
+        if out is df:
+            out = df.copy()
+        out[src] = convert_column_to_signed(out[src], src)
+    return out
+
+
 def process_ila_file(
     ila_path: Path,
     output_dir: Path,
@@ -572,6 +641,7 @@ def process_ila_file(
     keep_columns=None,
     rename_columns=None,
     passthrough_rename=None,
+    passthrough_signed=None,
     signed_bit_fields=None,
     unsigned_bit_fields=None,
     auto_signed_bit_fields: bool = False,
@@ -585,7 +655,8 @@ def process_ila_file(
         keep_original: 是否保留原始ILA文件
         keep_columns: 仅保留的源列名列表
         rename_columns: 列重命名映射（位域提取之后）
-        passthrough_rename: 只改列名、不改单元格；且跳过位域转换
+        passthrough_rename: 只改列名；默认不走位域转换
+        passthrough_signed: 源列 → 是否按 [high:low] 转有符号十进制
         signed_bit_fields: 显式位域 → 有符号十进制
         unsigned_bit_fields: 显式位域 → 无符号十进制
         auto_signed_bit_fields: 列名含 [high:low] 时自动有符号转换
@@ -641,9 +712,17 @@ def process_ila_file(
             or signed_bit_fields
             or unsigned_bit_fields
             or auto_signed_bit_fields
+            or passthrough_signed
         ):
+            any_passthrough_signed = bool(
+                isinstance(passthrough_signed, dict)
+                and any(passthrough_signed.values())
+            )
             needs_bit_fields = bool(
-                signed_bit_fields or unsigned_bit_fields or auto_signed_bit_fields
+                signed_bit_fields
+                or unsigned_bit_fields
+                or auto_signed_bit_fields
+                or any_passthrough_signed
             )
             df, _n_drop = read_ila_waveform_csv(
                 extracted_path,
@@ -740,7 +819,18 @@ def process_ila_file(
             if bit_specs:
                 df = apply_bit_fields(df, bit_specs)
 
-            # 先做只改列名的 passthrough（单元格原样保留）
+            signed_flags = (
+                passthrough_signed if isinstance(passthrough_signed, dict) else {}
+            )
+            if any(signed_flags.get(src) for src in passthrough_map):
+                df = apply_passthrough_signed(
+                    df,
+                    passthrough_map,
+                    signed_flags,
+                    file_label=ila_path.name,
+                )
+
+            # passthrough 改列名；未标 signed 的列单元格原样保留
             if passthrough_map:
                 valid_passthrough = {
                     k: v for k, v in passthrough_map.items() if k in df.columns
@@ -867,14 +957,28 @@ def normalize_rename_columns(value, keep_columns=None):
 
 def normalize_passthrough_rename(value, keep_columns=None):
     """
-    Normalize passthrough rename (header-only, no cell transform) to dict or None.
+    Normalize passthrough rename to dict[str, str] or None.
 
-    Same input formats as normalize_rename_columns. When value is a new-name list
-    shorter than keep_columns, zip against the *tail* of keep_columns so mixed
-    keep+signed+passthrough configs can list only the rename-only new names.
+    Same input formats as normalize_rename_columns. Dict values may be a new
+    name string or ``{"output": "adc_i", "signed": True}``. When value is a
+    new-name list shorter than keep_columns, zip against the *tail* of
+    keep_columns so mixed keep+signed+passthrough configs can list only the
+    rename-only new names.
     """
     if value is None:
         return None
+
+    if isinstance(value, dict):
+        out = {}
+        for k, v in value.items():
+            ks = str(k).strip()
+            if isinstance(v, dict):
+                vs = str(v.get("output") or v.get("name") or "").strip()
+            else:
+                vs = str(v).strip()
+            if ks and vs:
+                out[ks] = vs
+        return out if out else None
 
     if (
         isinstance(value, (list, tuple))
@@ -891,6 +995,80 @@ def normalize_passthrough_rename(value, keep_columns=None):
         }
 
     return normalize_rename_columns(value, keep_columns=keep_columns)
+
+
+def _passthrough_name_tokens(value) -> Optional[List[str]]:
+    """Parse True/False/list/comma-string of passthrough signed selectors."""
+    if value is None:
+        return None
+    if isinstance(value, bool):
+        return None
+    if isinstance(value, str):
+        text = value.strip()
+        if not text or text in ("*", "all", "true", "True", "1"):
+            return None
+        if text.lower() in ("false", "0", "no", "none"):
+            return []
+        return [p.strip() for p in text.split(",") if p.strip()]
+    if isinstance(value, (list, tuple, set)):
+        return [str(x).strip() for x in value if str(x).strip()]
+    return None
+
+
+def normalize_passthrough_signed(
+    value,
+    passthrough_map: Optional[Dict[str, str]] = None,
+    raw_rename=None,
+) -> Optional[Dict[str, bool]]:
+    """
+    Resolve per-source signed flags for PASSTHROUGH_RENAME.
+
+    ``value``:
+      - None/False: only entries with nested ``signed: True``
+      - True / '*' / 'all': every passthrough source
+      - list or comma string: match source or destination names
+    Nested ``{"output": ..., "signed": True/False}`` in ``raw_rename`` always
+    overrides the corresponding source.
+    """
+    passthrough_map = passthrough_map or {}
+    if not passthrough_map and raw_rename is None and value is None:
+        return None
+
+    flags: Dict[str, bool] = {src: False for src in passthrough_map}
+
+    if value is True:
+        flags = {src: True for src in flags}
+    elif isinstance(value, str) and value.strip().lower() in (
+        "*",
+        "all",
+        "true",
+        "1",
+    ):
+        flags = {src: True for src in flags}
+    elif value not in (None, False):
+        names = _passthrough_name_tokens(value)
+        if names is not None:
+            dest_to_src = {dest: src for src, dest in passthrough_map.items()}
+            for name in names:
+                if name in flags:
+                    flags[name] = True
+                elif name in dest_to_src:
+                    flags[dest_to_src[name]] = True
+                else:
+                    log(
+                        f"[WARNING] PASSTHROUGH_SIGNED 未匹配到列: {name!r} "
+                        f"(可用源列或目标列: {list(passthrough_map.items())})"
+                    )
+
+    if isinstance(raw_rename, dict):
+        for src, spec in raw_rename.items():
+            src_key = str(src).strip()
+            if src_key not in flags:
+                continue
+            if isinstance(spec, dict) and "signed" in spec:
+                flags[src_key] = _spec_signed_flag(spec)
+
+    return flags if flags else None
 
 
 def main():
@@ -932,8 +1110,20 @@ def main():
     parser.add_argument(
         "--passthrough-rename",
         help=(
-            "仅改列名、不改单元格，且跳过有符号位域转换；格式 old:new，逗号分隔；"
-            "例: \"long/path/i_fe[9:0]:adc_i,long/path/q_fe[9:0]:adc_q\""
+            "改列名；默认不走 AUTO_SIGNED 位域。格式 old:new，逗号分隔；"
+            "例: \"long/path/i_fe[9:0]:adc_i,long/path/q_fe[9:0]:adc_q\"。"
+            "有符号转换见 --passthrough-signed"
+        ),
+    )
+    parser.add_argument(
+        "--passthrough-signed",
+        nargs="?",
+        const="*",
+        default=None,
+        help=(
+            "将 PASSTHROUGH_RENAME 列按 [high:low] 转为有符号十进制。"
+            "单独开关=全部 passthrough 列；或逗号列出源/目标名，"
+            "例: adc_i,adc_q"
         ),
     )
     parser.add_argument(
@@ -982,6 +1172,7 @@ def main():
     passthrough_rename = normalize_passthrough_rename(
         PASSTHROUGH_RENAME, keep_columns
     )
+    passthrough_signed_cfg = PASSTHROUGH_SIGNED
     if args.passthrough_rename:
         passthrough_rename = normalize_passthrough_rename(
             args.passthrough_rename, keep_columns
@@ -991,6 +1182,13 @@ def main():
                 "[ERROR] --passthrough-rename 参数格式错误，请使用 old:new,old2:new2"
             )
             return
+    if args.passthrough_signed is not None:
+        passthrough_signed_cfg = args.passthrough_signed
+    passthrough_signed = normalize_passthrough_signed(
+        passthrough_signed_cfg,
+        passthrough_rename,
+        PASSTHROUGH_RENAME if args.passthrough_rename is None else None,
+    )
 
     auto_signed_bit_fields = (
         AUTO_SIGNED_BIT_FIELDS if args.auto_signed is None else args.auto_signed
@@ -1039,6 +1237,7 @@ def main():
             keep_columns=keep_columns,
             rename_columns=rename_columns,
             passthrough_rename=passthrough_rename,
+            passthrough_signed=passthrough_signed,
             signed_bit_fields=signed_bit_fields,
             unsigned_bit_fields=unsigned_bit_fields,
             auto_signed_bit_fields=auto_signed_bit_fields,

@@ -241,7 +241,7 @@ python organize_sensitivity_mld_diff.py --input_dir ./output/sensitivity_out/res
 | `find_csv_in_matched_folders.py` | 递归匹配 testcase 文件夹收集 RX CSV；路径 + `testcase_folder` 解析（`mld_en`、`cur_degree`）；灵敏度汇总 CSV；**同配置叠加 mld_en0/1 雷达对比图**；copy/move、list-out、顶部配置区 | `skill/find_csv_in_matched_folders_Skill.md` |
 | `wifi_rx_sensitivity.py` | PER 插值求 `sensitivity_dbm`（同 wifiRxPlot）；`parse_testcase_folder_params`、`plot_sensitivity_radar`（供 find_csv 调用） | `skill/find_csv_in_matched_folders_Skill.md` |
 | `organize_sensitivity_mld_diff.py` | `*_result.csv` 宽表合并 mld_en0/1；差值 en0−en1；`organized/*_mld_wide.csv` + 着色 xlsx | `skill/organize_sensitivity_mld_diff.skill` + `skill/organize_sensitivity_mld_diff_Skill.md` |
-| `process_ila_files.py` | 处理FPGA导出的ILA信号文件，解压缩并提取waveform.csv，按原始文件名重命名 | process_ila_files.skill |
+| `process_ila_files.py` | 处理FPGA导出的ILA信号文件，解压缩并提取waveform.csv，按原始文件名重命名；`PASSTHROUGH_RENAME` 可按列选做有符号十进制（`PASSTHROUGH_SIGNED`） | process_ila_files.skill |
 | `bin_to_64bit_csv.py` | 原始 `.bin`（8B/word）→ `#dump_data` CSV + `_data.csv`（去 4-word delimiter）+ `_delim_report.csv`（帧头丢数 flag） | `skill/bin_to_64bit_csv.skill` + `skill/bin_to_64bit_csv_Skill.md` |
 | `parse_48bit_dump_iq.py` | 64-bit `*_data.csv` → 48-bit 拆包（3×uint64→4×uint48）+ 3 路 8-bit I/Q；输出 `dump_data_48` + 6 列或 `--merge-iq` 连续 `sample_i/q`；**支持目录批量** | `skill/parse_48bit_dump_iq.skill` + `skill/parse_48bit_dump_iq_Skill.md` |
 
