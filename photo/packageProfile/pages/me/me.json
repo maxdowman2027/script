@@ -1,0 +1,8 @@
+{
+  "navigationBarTitleText": "我的作品",
+  "enablePullDownRefresh": true,
+  "usingComponents": {
+    "photo-card": "/components/photo-card/photo-card",
+    "empty-state": "/components/empty-state/empty-state"
+  }
+}

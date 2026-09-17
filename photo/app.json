@@ -1,0 +1,47 @@
+{
+  "pages": [
+    "pages/index/index"
+  ],
+  "subPackages": [
+    {
+      "root": "packageCamera",
+      "name": "camera",
+      "pages": [
+        "pages/camera/camera",
+        "pages/preview/preview"
+      ]
+    },
+    {
+      "root": "packageCommunity",
+      "name": "community",
+      "pages": [
+        "pages/detail/detail"
+      ]
+    },
+    {
+      "root": "packageProfile",
+      "name": "profile",
+      "pages": [
+        "pages/me/me"
+      ]
+    }
+  ],
+  "window": {
+    "navigationBarBackgroundColor": "#0F1115",
+    "navigationBarTitleText": "光影构图",
+    "navigationBarTextStyle": "white",
+    "backgroundColor": "#0F1115",
+    "backgroundTextStyle": "light"
+  },
+  "permission": {
+    "scope.userLocation": {
+      "desc": "用于匹配附近相似拍摄场景"
+    }
+  },
+  "requiredPrivateInfos": [
+    "getLocation"
+  ],
+  "lazyCodeLoading": "requiredComponents",
+  "sitemapLocation": "sitemap.json",
+  "style": "v2"
+}

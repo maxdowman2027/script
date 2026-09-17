@@ -1,0 +1,9 @@
+{
+  "usingComponents": {
+    "photo-card": "/components/photo-card/photo-card",
+    "empty-state": "/components/empty-state/empty-state"
+  },
+  "enablePullDownRefresh": true,
+  "backgroundTextStyle": "light",
+  "navigationBarTitleText": "光影构图"
+}

@@ -1,0 +1,6 @@
+{
+  "navigationBarTitleText": "预览与发布",
+  "usingComponents": {
+    "empty-state": "/components/empty-state/empty-state"
+  }
+}

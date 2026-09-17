@@ -1,0 +1,28 @@
+<view class="page me">
+  <view class="profile card">
+    <view class="name">{{user.nickName || '光影练习生'}}</view>
+    <view class="muted">{{cloudTip}}</view>
+  </view>
+
+  <view class="section-title">我发布的照片</view>
+  <view wx:if="{{fromCache}}" class="muted cache">当前为本地缓存</view>
+
+  <photo-card
+    wx:for="{{list}}"
+    wx:key="_id"
+    item="{{item}}"
+    likeBusy="{{likeBusyMap[item._id]}}"
+    bindopen="onOpenDetail"
+    bindlike="onLike"
+  />
+
+  <empty-state
+    wx:if="{{!loading && !list.length}}"
+    title="还没有作品"
+    desc="拍一张，发布到灵感广场"
+    actionText="去拍摄"
+    bindaction="onShoot"
+  />
+
+  <view wx:if="{{loading}}" class="muted footer">加载中…</view>
+</view>

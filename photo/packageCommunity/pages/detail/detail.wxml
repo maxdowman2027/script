@@ -1,0 +1,45 @@
+<view class="page detail">
+  <empty-state
+    wx:if="{{!loading && !photo}}"
+    title="内容不存在或已下架"
+    desc="可能未通过审核，或链接已失效"
+    actionText="返回广场"
+    bindaction="onBack"
+  />
+
+  <block wx:if="{{photo}}">
+    <view class="hero" style="background: {{photo.coverColor || '#232833'}}">
+      <image
+        wx:if="{{photo.coverUrl || photo.fileID}}"
+        class="hero-img"
+        src="{{photo.coverUrl || photo.fileID}}"
+        mode="aspectFit"
+        binderror="onImgError"
+      />
+      <view wx:else class="hero-title">{{photo.title}}</view>
+    </view>
+    <view class="body">
+      <view class="row">
+        <view>
+          <view class="title">{{photo.title}}</view>
+          <view class="muted">{{photo.authorName || '摄影师'}}</view>
+        </view>
+        <like-button
+          photoId="{{photo._id}}"
+          liked="{{photo.liked}}"
+          likeCount="{{photo.likeCount}}"
+          busy="{{likeBusy}}"
+          bindtoggle="onLike"
+        />
+      </view>
+      <view class="tags">
+        <text class="tag" wx:for="{{photo.tags}}" wx:key="*this">{{item}}</text>
+      </view>
+      <view class="muted scene">场景 {{photo.sceneKey || '通用'}}</view>
+    </view>
+  </block>
+
+  <view wx:if="{{loading}}" class="loading-mask">
+    <view class="loading-box">加载中…</view>
+  </view>
+</view>

@@ -1,0 +1,37 @@
+.preview {
+  padding-bottom: 40rpx;
+}
+
+.photo {
+  width: 100%;
+  height: 720rpx;
+  background: #000;
+  display: block;
+}
+
+.panel {
+  padding: 28rpx var(--spacing-page);
+}
+
+.label {
+  font-size: 26rpx;
+  margin: 12rpx 0 16rpx;
+}
+
+.input {
+  height: 80rpx;
+  padding: 0 24rpx;
+  background: var(--surface);
+  border-radius: 16rpx;
+  color: var(--text);
+  margin-bottom: 24rpx;
+  border: 1rpx solid var(--border);
+}
+
+.chips {
+  margin-bottom: 16rpx;
+}
+
+.btn-primary {
+  margin-top: 32rpx;
+}

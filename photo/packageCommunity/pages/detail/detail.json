@@ -1,0 +1,7 @@
+{
+  "navigationBarTitleText": "作品详情",
+  "usingComponents": {
+    "like-button": "/components/like-button/like-button",
+    "empty-state": "/components/empty-state/empty-state"
+  }
+}

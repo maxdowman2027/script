@@ -1,0 +1,86 @@
+.index {
+  padding: 24rpx var(--spacing-page) 0;
+}
+
+.hero {
+  padding: 12rpx 8rpx 36rpx;
+}
+
+.hero-kicker {
+  color: var(--accent);
+  font-size: 22rpx;
+  letter-spacing: 4rpx;
+  margin-bottom: 16rpx;
+}
+
+.hero-title {
+  font-size: 52rpx;
+  font-weight: 650;
+  line-height: 1.25;
+  margin-bottom: 16rpx;
+}
+
+.hero-desc {
+  color: var(--text-secondary);
+  font-size: 26rpx;
+  line-height: 1.6;
+  margin-bottom: 32rpx;
+}
+
+.hero-actions {
+  display: flex;
+  align-items: center;
+}
+
+.btn-primary {
+  flex: 1;
+}
+
+.me-entry {
+  margin-left: 20rpx;
+  color: var(--text-secondary);
+  font-size: 24rpx;
+}
+
+.plaza-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 20rpx;
+}
+
+.plaza-title {
+  font-size: 32rpx;
+  font-weight: 600;
+}
+
+.sorts {
+  display: flex;
+  background: var(--surface);
+  border-radius: 999rpx;
+  padding: 6rpx;
+  border: 1rpx solid var(--border);
+}
+
+.sort {
+  padding: 8rpx 22rpx;
+  border-radius: 999rpx;
+  color: var(--text-secondary);
+  font-size: 24rpx;
+}
+
+.sort.on {
+  background: var(--accent-dim);
+  color: var(--accent);
+}
+
+.cache-tip {
+  color: var(--accent);
+  font-size: 22rpx;
+  margin-bottom: 16rpx;
+}
+
+.footer {
+  text-align: center;
+  padding: 12rpx 0 32rpx;
+}

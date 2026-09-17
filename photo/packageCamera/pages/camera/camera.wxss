@@ -1,0 +1,133 @@
+.camera-page {
+  width: 100vw;
+  height: 100vh;
+  background: #000;
+}
+
+.cam {
+  width: 100%;
+  height: 100%;
+}
+
+.grid-h,
+.grid-v {
+  position: absolute;
+  background-color: rgba(255, 255, 255, 0.28);
+}
+
+.grid-h {
+  left: 0;
+  right: 0;
+  height: 2rpx;
+}
+
+.h1 { top: 33%; }
+.h2 { top: 66%; }
+
+.grid-v {
+  top: 0;
+  bottom: 180px;
+  width: 2rpx;
+}
+
+.v1 { left: 33%; }
+.v2 { left: 66%; }
+
+.top-hint {
+  position: absolute;
+  top: 16px;
+  left: 16px;
+  color: rgba(245, 245, 245, 0.85);
+  font-size: 12px;
+}
+
+.reco {
+  position: absolute;
+  right: 12px;
+  top: 72px;
+  width: 84px;
+}
+
+.reco-label {
+  color: #E8A54B;
+  font-size: 11px;
+  margin-bottom: 8px;
+}
+
+.reco-item {
+  margin-bottom: 8px;
+  background-color: rgba(15, 17, 21, 0.72);
+  padding: 4px;
+}
+
+.reco-color {
+  width: 76px;
+  height: 54px;
+}
+
+.reco-title {
+  color: #F5F5F5;
+  font-size: 10px;
+  line-height: 16px;
+  overflow: hidden;
+  height: 16px;
+}
+
+.bar {
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  padding: 8px 12px 24px;
+  background-color: rgba(15, 17, 21, 0.42);
+}
+
+.chips {
+  display: flex;
+  flex-direction: row;
+  margin-bottom: 12px;
+}
+
+.chip {
+  margin-right: 8px;
+  padding: 4px 10px;
+  color: #9AA0A6;
+  font-size: 12px;
+  background-color: rgba(35, 40, 51, 0.8);
+}
+
+.chip.on {
+  color: #E8A54B;
+}
+
+.controls {
+  display: flex;
+  flex-direction: row;
+  align-items: center;
+  justify-content: space-between;
+}
+
+.side-btn {
+  width: 64px;
+  height: 32px;
+  line-height: 32px;
+  text-align: center;
+  color: #F5F5F5;
+  font-size: 12px;
+}
+
+.shutter {
+  width: 72px;
+  height: 72px;
+  line-height: 72px;
+  text-align: center;
+  border-radius: 36px;
+  background-color: #E8A54B;
+  color: #1A1408;
+  font-size: 14px;
+  font-weight: 600;
+}
+
+.shutter.busy {
+  background-color: #9AA0A6;
+}

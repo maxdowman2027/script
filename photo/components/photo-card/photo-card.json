@@ -1,0 +1,6 @@
+{
+  "component": true,
+  "usingComponents": {
+    "like-button": "/components/like-button/like-button"
+  }
+}

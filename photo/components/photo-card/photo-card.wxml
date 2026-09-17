@@ -1,0 +1,32 @@
+<view class="card photo-card" bindtap="onOpen">
+  <view class="cover" style="background: {{item.coverColor || '#232833'}}">
+    <image
+      wx:if="{{item.coverUrl || item.thumbFileID || item.fileID}}"
+      class="cover-img"
+      src="{{item.coverUrl || item.thumbFileID || item.fileID}}"
+      mode="aspectFill"
+      lazy-load
+      binderror="onImgError"
+    />
+    <view class="cover-fallback" wx:if="{{(!item.coverUrl && !item.thumbFileID && !item.fileID) || imgFailed}}">
+      <text class="cover-title">{{item.title || '精品摄影'}}</text>
+    </view>
+    <like-button
+      class="like"
+      photoId="{{item._id}}"
+      liked="{{item.liked}}"
+      likeCount="{{item.likeCount}}"
+      busy="{{likeBusy}}"
+      bindtoggle="onLike"
+    />
+  </view>
+  <view class="meta">
+    <view class="title">{{item.title || '未命名作品'}}</view>
+    <view class="sub">
+      <text class="author">{{item.authorName || '摄影师'}}</text>
+      <view class="tags">
+        <text class="tag" wx:for="{{item.tags}}" wx:key="*this">{{item}}</text>
+      </view>
+    </view>
+  </view>
+</view>

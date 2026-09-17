@@ -1,0 +1,32 @@
+{
+  "collections": [
+    {
+      "name": "users",
+      "indexes": [
+        { "keys": { "_openid": 1 }, "unique": true }
+      ]
+    },
+    {
+      "name": "photos",
+      "indexes": [
+        { "keys": { "status": 1, "likeCount": -1, "createdAt": -1 } },
+        { "keys": { "status": 1, "createdAt": -1 } },
+        { "keys": { "sceneKey": 1, "status": 1 } },
+        { "keys": { "geo": "2dsphere" } },
+        { "keys": { "_openid": 1, "createdAt": -1 } }
+      ]
+    },
+    {
+      "name": "likes",
+      "indexes": [
+        { "keys": { "_openid": 1, "photoId": 1 }, "unique": true }
+      ]
+    },
+    {
+      "name": "audit_logs",
+      "indexes": [
+        { "keys": { "createdAt": -1 } }
+      ]
+    }
+  ]
+}

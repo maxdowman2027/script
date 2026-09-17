@@ -1,0 +1,46 @@
+<view class="page index">
+  <view class="hero">
+    <view class="hero-kicker">拍照辅助 · 精品社区</view>
+    <view class="hero-title">把构图，拍成作品</view>
+    <view class="hero-desc">九宫格取景，相似场景范例就在取景框旁。拍完即可发布到灵感广场。</view>
+    <view class="hero-actions">
+      <view class="btn-primary {{shooting ? 'disabled' : ''}}" bindtap="onStartShoot">{{shooting ? '打开中…' : '开始拍照 / 构图引导'}}</view>
+      <view class="me-entry" bindtap="onOpenMe">我的作品</view>
+    </view>
+  </view>
+
+  <view class="plaza">
+    <view class="plaza-head">
+      <view class="plaza-title">社区灵感广场</view>
+      <view class="sorts">
+        <view class="sort {{sort === 'hot' ? 'on' : ''}}" data-sort="hot" bindtap="onSort">热度</view>
+        <view class="sort {{sort === 'new' ? 'on' : ''}}" data-sort="new" bindtap="onSort">最新</view>
+      </view>
+    </view>
+    <view wx:if="{{fromCache}}" class="cache-tip">当前为弱网缓存，下拉可重试</view>
+
+    <photo-card
+      wx:for="{{list}}"
+      wx:key="_id"
+      item="{{item}}"
+      likeBusy="{{likeBusyMap[item._id]}}"
+      bindopen="onOpenDetail"
+      bindlike="onLike"
+    />
+
+    <empty-state
+      wx:if="{{!loading && !list.length}}"
+      title="{{loadError ? '灵感广场加载失败' : '暂无精品照片'}}"
+      desc="{{loadError ? '请检查网络后重试' : '成为第一个发布作品的人'}}"
+      actionText="{{loadError ? '重新加载' : '去拍摄'}}"
+      bindaction="onEmptyAction"
+    />
+
+    <view wx:if="{{loading}}" class="muted footer">加载中…</view>
+    <view wx:elif="{{list.length && !hasMore}}" class="muted footer">已经到底了</view>
+  </view>
+
+  <view wx:if="{{pageBusy}}" class="loading-mask">
+    <view class="loading-box">请稍候…</view>
+  </view>
+</view>

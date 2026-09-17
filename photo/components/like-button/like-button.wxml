@@ -1,0 +1,4 @@
+<view class="like {{liked ? 'on' : ''}} {{busy ? 'busy' : ''}}" catchtap="onTap">
+  <text class="icon">{{liked ? '♥' : '♡'}}</text>
+  <text class="count">{{likeCount}}</text>
+</view>

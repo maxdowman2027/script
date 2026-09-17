@@ -1,0 +1,55 @@
+<view class="camera-page">
+  <camera
+    wx:if="{{cameraOk}}"
+    class="cam"
+    device-position="{{devicePosition}}"
+    flash="off"
+    binderror="onCameraError"
+  >
+    <cover-view class="grid-h h1"></cover-view>
+    <cover-view class="grid-h h2"></cover-view>
+    <cover-view class="grid-v v1"></cover-view>
+    <cover-view class="grid-v v2"></cover-view>
+
+    <cover-view class="reco" wx:if="{{recommends.length}}">
+      <cover-view class="reco-label">相似场景</cover-view>
+      <cover-view
+        class="reco-item"
+        wx:for="{{recommends}}"
+        wx:key="_id"
+        data-id="{{item._id}}"
+        bindtap="onOpenRecommend"
+      >
+        <cover-view class="reco-color" style="background-color: {{item.coverColor || '#232833'}};"></cover-view>
+        <cover-view class="reco-title">{{item.title}}</cover-view>
+      </cover-view>
+    </cover-view>
+
+    <cover-view class="top-hint">九宫格构图线已开启</cover-view>
+
+    <cover-view class="bar">
+      <cover-view class="chips">
+        <cover-view
+          class="chip {{sceneTag === item ? 'on' : ''}}"
+          wx:for="{{sceneTags}}"
+          wx:key="*this"
+          data-tag="{{item}}"
+          bindtap="onSelectTag"
+        >{{item}}</cover-view>
+      </cover-view>
+      <cover-view class="controls">
+        <cover-view class="side-btn" bindtap="onFlip">翻转</cover-view>
+        <cover-view class="shutter {{capturing ? 'busy' : ''}}" bindtap="onShutter">{{capturing ? '处理中' : '拍摄'}}</cover-view>
+        <cover-view class="side-btn" bindtap="onRefreshReco">刷新</cover-view>
+      </cover-view>
+    </cover-view>
+  </camera>
+
+  <empty-state
+    wx:if="{{!cameraOk}}"
+    title="无法使用相机"
+    desc="{{cameraError}}"
+    actionText="去设置"
+    bindaction="onOpenSetting"
+  />
+</view>

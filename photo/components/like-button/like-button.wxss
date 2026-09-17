@@ -1,0 +1,29 @@
+.like {
+  min-width: 92rpx;
+  height: 52rpx;
+  padding: 0 16rpx;
+  border-radius: 999rpx;
+  background: rgba(15, 17, 21, 0.55);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: #F5F5F5;
+}
+
+.like.on {
+  color: #E8A54B;
+  background: rgba(232, 165, 75, 0.16);
+}
+
+.like.busy {
+  opacity: 0.55;
+}
+
+.icon {
+  font-size: 26rpx;
+  margin-right: 8rpx;
+}
+
+.count {
+  font-size: 22rpx;
+}

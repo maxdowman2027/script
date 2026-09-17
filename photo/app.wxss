@@ -1,0 +1,105 @@
+page {
+  --bg: #0F1115;
+  --surface: #1A1D24;
+  --surface-2: #232833;
+  --accent: #E8A54B;
+  --accent-dim: rgba(232, 165, 75, 0.16);
+  --text: #F5F5F5;
+  --text-secondary: #9AA0A6;
+  --text-muted: #6B7280;
+  --danger: #E85D5D;
+  --success: #3DDC97;
+  --border: rgba(255, 255, 255, 0.08);
+  --radius-card: 24rpx;
+  --radius-btn: 48rpx;
+  --spacing-page: 32rpx;
+  --safe-bottom: env(safe-area-inset-bottom);
+  background: var(--bg);
+  color: var(--text);
+  font-family: -apple-system, BlinkMacSystemFont, "PingFang SC", "Helvetica Neue", sans-serif;
+  min-height: 100%;
+  font-size: 28rpx;
+  line-height: 1.5;
+}
+
+.page {
+  min-height: 100vh;
+  background: var(--bg);
+  box-sizing: border-box;
+  padding-bottom: calc(24rpx + var(--safe-bottom));
+}
+
+.card {
+  background: var(--surface);
+  border-radius: var(--radius-card);
+  border: 1rpx solid var(--border);
+  overflow: hidden;
+}
+
+.btn-primary {
+  height: 88rpx;
+  line-height: 88rpx;
+  text-align: center;
+  background: var(--accent);
+  color: #1A1408;
+  border-radius: var(--radius-btn);
+  font-weight: 600;
+  font-size: 30rpx;
+}
+
+.btn-primary.disabled,
+.btn-primary[disabled] {
+  opacity: 0.5;
+}
+
+.btn-ghost {
+  height: 72rpx;
+  line-height: 72rpx;
+  text-align: center;
+  color: var(--accent);
+  border: 1rpx solid var(--accent);
+  border-radius: var(--radius-btn);
+  background: transparent;
+}
+
+.muted {
+  color: var(--text-secondary);
+  font-size: 24rpx;
+}
+
+.loading-mask {
+  position: fixed;
+  left: 0;
+  right: 0;
+  top: 0;
+  bottom: 0;
+  z-index: 999;
+  background: rgba(8, 9, 12, 0.55);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.loading-box {
+  background: var(--surface);
+  border-radius: 16rpx;
+  padding: 28rpx 40rpx;
+  color: var(--text);
+  font-size: 26rpx;
+}
+
+.tag {
+  display: inline-block;
+  padding: 6rpx 16rpx;
+  border-radius: 999rpx;
+  background: var(--surface-2);
+  color: var(--text-secondary);
+  font-size: 22rpx;
+  margin-right: 10rpx;
+  margin-bottom: 8rpx;
+}
+
+.tag.active {
+  background: var(--accent-dim);
+  color: var(--accent);
+}

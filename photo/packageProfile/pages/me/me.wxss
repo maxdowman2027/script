@@ -1,0 +1,29 @@
+.me {
+  padding: 24rpx var(--spacing-page);
+}
+
+.profile {
+  padding: 36rpx 32rpx;
+  margin-bottom: 32rpx;
+}
+
+.name {
+  font-size: 40rpx;
+  font-weight: 650;
+  margin-bottom: 8rpx;
+}
+
+.section-title {
+  font-size: 30rpx;
+  font-weight: 600;
+  margin-bottom: 16rpx;
+}
+
+.cache {
+  margin-bottom: 16rpx;
+}
+
+.footer {
+  text-align: center;
+  padding: 24rpx 0;
+}

@@ -1,0 +1,8 @@
+{
+  "navigationBarTitleText": "构图拍摄",
+  "navigationBarBackgroundColor": "#000000",
+  "disableScroll": true,
+  "usingComponents": {
+    "empty-state": "/components/empty-state/empty-state"
+  }
+}
