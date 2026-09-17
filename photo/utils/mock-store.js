@@ -17,6 +17,7 @@ const PHOTOS = [
     width: 1200,
     height: 1600,
     coverColor: '#3A4A3C',
+    geo: { latitude: 30.25, longitude: 120.15 },
     createdAt: Date.now() - 3600 * 1000 * 8
   },
   {
@@ -32,6 +33,7 @@ const PHOTOS = [
     width: 1200,
     height: 1500,
     coverColor: '#6B4A32',
+    geo: { latitude: 31.23, longitude: 121.47 },
     createdAt: Date.now() - 3600 * 1000 * 20
   },
   {
@@ -127,6 +129,7 @@ const PHOTOS = [
   {
     _id: 'p9',
     _openid: OPENID,
+    ownerId: OPENID,
     authorName: '我',
     title: '练习构图',
     tags: ['静物'],
@@ -218,7 +221,13 @@ function getFeed(data) {
 function getSceneRecommend(data) {
   const sceneTag = data.sceneTag || (data.sceneKey ? String(data.sceneKey).split('|')[0] : '')
   const limit = data.limit || config.recommendLimit
-  let matched = publishedList().filter((item) => {
+  const geo = data.geo
+  let matched = publishedList()
+  if (geo && geo.latitude != null) {
+    const near = matched.filter((item) => item.geo && Math.abs(item.geo.latitude - geo.latitude) < 0.2)
+    if (near.length) matched = near
+  }
+  matched = matched.filter((item) => {
     if (sceneTag && sceneTag !== 'general') {
       return (item.sceneTags || item.tags || []).indexOf(sceneTag) >= 0
     }
@@ -226,12 +235,17 @@ function getSceneRecommend(data) {
   })
   if (!matched.length) matched = publishedList()
   matched = sortFeed(matched, 'hot').slice(0, limit).map((item) => clonePhoto(item, likes))
-  return { ok: true, list: matched, fallback: !sceneTag }
+  return { ok: true, list: matched, fallback: !sceneTag, source: geo ? 'geo' : 'tag' }
 }
 
 function getPhotoDetail(data) {
   const photo = PHOTOS.find((item) => item._id === data.photoId)
-  if (!photo || photo.status !== 'published') {
+  if (!photo) {
+    const err = new Error('内容不存在或已下架')
+    err.code = 'NOT_FOUND'
+    throw err
+  }
+  if (photo.status !== 'published' && photo._openid !== OPENID && photo.ownerId !== OPENID) {
     const err = new Error('内容不存在或已下架')
     err.code = 'NOT_FOUND'
     throw err
@@ -240,7 +254,7 @@ function getPhotoDetail(data) {
 }
 
 function getMyPosts() {
-  const list = PHOTOS.filter((item) => item._openid === OPENID)
+  const list = PHOTOS.filter((item) => item._openid === OPENID || item.ownerId === OPENID)
     .slice()
     .sort((a, b) => b.createdAt - a.createdAt)
     .map((item) => clonePhoto(item, likes))
@@ -250,7 +264,7 @@ function getMyPosts() {
 function toggleLike(data) {
   const photoId = data.photoId
   const photo = PHOTOS.find((item) => item._id === photoId)
-  if (!photo) {
+  if (!photo || photo.status !== 'published') {
     const err = new Error('点赞同步失败')
     err.code = 'LIKE_FAIL'
     throw err
@@ -272,42 +286,24 @@ function publishPhoto(data) {
     err.code = 'RATE_LIMIT'
     throw err
   }
+  lastPublishAt = now
+  photoSeq += 1
+  const photoId = 'p' + photoSeq
   const tags = Array.isArray(data.tags) ? data.tags : []
   const text = tags.join(' ') + ' ' + (data.title || '')
   const passMsg = !containsBlockWord(text)
-  auditLogs.push({
-    photoId: '',
-    type: 'msg',
-    pass: passMsg,
-    traceId: 'mock-msg-' + now,
-    createdAt: now
-  })
-  if (!passMsg) {
-    const err = new Error('内容未通过安全审核')
-    err.code = 'SECURITY_FAIL'
-    throw err
-  }
-  if (data.skipImgCheck !== true) {
-    auditLogs.push({
-      photoId: '',
-      type: 'img',
-      pass: true,
-      traceId: 'mock-img-' + now,
-      createdAt: now
-    })
-  }
-  lastPublishAt = now
-  photoSeq += 1
   const photo = {
-    _id: 'p' + photoSeq,
+    _id: photoId,
     _openid: OPENID,
     authorName: '光影练习生',
     title: data.title || '未命名作品',
     tags: tags,
     sceneKey: data.sceneKey || 'general|day|geo-unknown',
     sceneTags: data.sceneTags || tags,
+    geo: data.geo || null,
     likeCount: 0,
-    status: 'published',
+    status: 'pending',
+    ownerId: OPENID,
     width: data.width || 0,
     height: data.height || 0,
     coverColor: '#3A3F4B',
@@ -317,7 +313,28 @@ function publishPhoto(data) {
     createdAt: now
   }
   PHOTOS.unshift(photo)
-  return { ok: true, photoId: photo._id, photo: clonePhoto(photo, likes) }
+  auditLogs.push({
+    photoId: photoId,
+    type: 'msg',
+    pass: passMsg,
+    traceId: 'mock-msg-' + now,
+    createdAt: now
+  })
+  if (!passMsg) {
+    photo.status = 'rejected'
+    const err = new Error('内容未通过安全审核')
+    err.code = 'SECURITY_FAIL'
+    throw err
+  }
+  auditLogs.push({
+    photoId: photoId,
+    type: 'img',
+    pass: true,
+    traceId: 'mock-img-' + now,
+    createdAt: now
+  })
+  photo.status = 'published'
+  return { ok: true, photoId: photo._id, status: 'published', photo: clonePhoto(photo, likes) }
 }
 
 function contentCheck(data) {

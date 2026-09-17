@@ -99,6 +99,7 @@ Page({
         sceneKey: sceneKey,
         sceneTag: this.data.sceneTag,
         geo: this.data.geo,
+        maxDistance: config.geoMaxDistance,
         limit: config.recommendLimit
       })
       this.setData({ recommends: (res.list || []).slice(0, 3) })

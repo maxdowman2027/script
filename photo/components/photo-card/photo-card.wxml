@@ -12,6 +12,7 @@
       <text class="cover-title">{{item.title || '精品摄影'}}</text>
     </view>
     <like-button
+      wx:if="{{item.status !== 'pending' && item.status !== 'rejected'}}"
       class="like"
       photoId="{{item._id}}"
       liked="{{item.liked}}"
@@ -19,6 +20,8 @@
       busy="{{likeBusy}}"
       bindtoggle="onLike"
     />
+    <view wx:if="{{item.status === 'pending'}}" class="status">审核中</view>
+    <view wx:elif="{{item.status === 'rejected'}}" class="status bad">未通过</view>
   </view>
   <view class="meta">
     <view class="title">{{item.title || '未命名作品'}}</view>

@@ -3,26 +3,35 @@ const cloud = require('wx-server-sdk')
 cloud.init({ env: cloud.DYNAMIC_CURRENT_ENV })
 const db = cloud.database()
 
+async function loadOrCreateUser(openid) {
+  const ref = db.collection('users').doc(openid)
+  try {
+    const got = await ref.get()
+    if (got && got.data) {
+      return got.data
+    }
+  } catch (e) {
+    // missing doc
+  }
+  const old = await db.collection('users').where({ _openid: openid }).limit(1).get()
+  const base = {
+    nickName: (old.data[0] && old.data[0].nickName) || '摄影师',
+    avatarUrl: (old.data[0] && old.data[0].avatarUrl) || '',
+    createdAt: (old.data[0] && old.data[0].createdAt) || Date.now(),
+    postCount: (old.data[0] && old.data[0].postCount) || 0,
+    lastPublishAt: (old.data[0] && old.data[0].lastPublishAt) || 0
+  }
+  await ref.set({ data: base })
+  return base
+}
+
 exports.main = async () => {
   const { OPENID } = cloud.getWXContext()
   if (!OPENID) {
     return { ok: false, code: 'AUTH', message: '登录失败' }
   }
   try {
-    const users = db.collection('users')
-    const existed = await users.where({ _openid: OPENID }).limit(1).get()
-    let profile = existed.data[0]
-    if (!profile) {
-      await users.add({
-        data: {
-          nickName: '摄影师',
-          avatarUrl: '',
-          createdAt: Date.now(),
-          postCount: 0
-        }
-      })
-      profile = { nickName: '摄影师', avatarUrl: '' }
-    }
+    const profile = await loadOrCreateUser(OPENID)
     const likes = await db.collection('likes').where({ _openid: OPENID }).field({ photoId: true }).get()
     return {
       ok: true,

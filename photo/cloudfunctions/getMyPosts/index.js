@@ -10,7 +10,7 @@ exports.main = async () => {
   }
   try {
     const res = await db.collection('photos')
-      .where({ _openid: OPENID })
+      .where({ ownerId: OPENID })
       .orderBy('createdAt', 'desc')
       .limit(50)
       .get()

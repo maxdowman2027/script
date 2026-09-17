@@ -7,6 +7,7 @@ module.exports = {
   feedPageSize: 10,
   recommendLimit: 3,
   publishIntervalMs: 3000,
+  geoMaxDistance: 20000,
   compressQuality: 70,
   thumbQuality: 40,
   requestRetries: 2

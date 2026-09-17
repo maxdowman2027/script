@@ -12,7 +12,11 @@ exports.main = async (event) => {
   try {
     const doc = await db.collection('photos').doc(photoId).get()
     const photo = doc.data
-    if (!photo || photo.status !== 'published') {
+    if (!photo) {
+      return { ok: false, code: 'NOT_FOUND', message: '内容不存在或已下架' }
+    }
+    const isOwner = photo._openid === OPENID || photo.ownerId === OPENID
+    if (photo.status !== 'published' && !isOwner) {
       return { ok: false, code: 'NOT_FOUND', message: '内容不存在或已下架' }
     }
     let liked = false

@@ -31,10 +31,23 @@
   letter-spacing: 2rpx;
 }
 
-.like {
+.like,
+.status {
   position: absolute;
   right: 20rpx;
   bottom: 20rpx;
+}
+
+.status {
+  padding: 6rpx 16rpx;
+  border-radius: 999rpx;
+  background: rgba(15, 17, 21, 0.7);
+  color: var(--accent);
+  font-size: 22rpx;
+}
+
+.status.bad {
+  color: var(--danger);
 }
 
 .meta {
