@@ -37,4 +37,18 @@ async function imgSecCheck(cloud, fileContent) {
   }
 }
 
-module.exports = { containsBlockWord, msgSecCheck, imgSecCheck }
+async function mediaCheckAsync(cloud, openid, mediaUrl) {
+  const res = await cloud.openapi.security.mediaCheckAsync({
+    openid: openid,
+    scene: 2,
+    version: 2,
+    media_type: 2,
+    media_url: mediaUrl
+  })
+  return {
+    traceId: res.trace_id || res.traceId || '',
+    errCode: res.errcode == null ? res.errCode : res.errcode
+  }
+}
+
+module.exports = { containsBlockWord, msgSecCheck, imgSecCheck, mediaCheckAsync }

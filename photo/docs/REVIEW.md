@@ -8,6 +8,6 @@
 - 已接入正式环境：AppID `wx8f423547346142e3`，云环境 `cloud1-d0gvm9vln716a26f5`。`config.js` 填写后关闭 Mock。
 - 已增加 `initDatabase` 云函数，用于创建 `users` / `photos` / `likes` / `audit_logs`。
 
-操作侧仍需在开发者工具完成：上传全部云函数、运行 `initDatabase`、按 `database/indexes.json` 建索引。
+操作侧仍需在开发者工具完成：上传全部云函数（含 `mediaCheckCallback`）、运行 `initDatabase`、按 `database/indexes.json` 建索引，并将多媒体检测回调绑定到 `mediaCheckCallback`。
 
-下一步：`mediaCheckAsync` 原图异步复核；未通过则下架并删除云文件。
+`mediaCheckAsync` 原图异步复核已落地：同步通过即可上架；异步未通过则下架并删除云文件。

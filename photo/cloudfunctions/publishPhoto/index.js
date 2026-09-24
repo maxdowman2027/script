@@ -1,5 +1,5 @@
 const cloud = require('wx-server-sdk')
-const { msgSecCheck, imgSecCheck } = require('./security')
+const { msgSecCheck, imgSecCheck, mediaCheckAsync } = require('./security')
 
 cloud.init({ env: cloud.DYNAMIC_CURRENT_ENV })
 const db = cloud.database()
@@ -82,6 +82,25 @@ async function rejectPhoto(photoId, fileID, thumbFileID) {
   }
 }
 
+async function startAsyncImageCheck(openid, photoId, fileID) {
+  const urlRes = await cloud.getTempFileURL({ fileList: [fileID] })
+  const item = urlRes.fileList && urlRes.fileList[0]
+  if (!item || !item.tempFileURL) {
+    throw new Error('NO_MEDIA_URL')
+  }
+  const asyncRes = await mediaCheckAsync(cloud, openid, item.tempFileURL)
+  await db.collection('photos').doc(photoId).update({
+    data: {
+      asyncTraceId: asyncRes.traceId || '',
+      asyncAudit: 'pending'
+    }
+  })
+  await writeAudit(photoId, 'img-async-submit', {
+    pass: true,
+    traceId: asyncRes.traceId || ''
+  })
+}
+
 exports.main = async (event) => {
   const { OPENID } = cloud.getWXContext()
   if (!OPENID) {
@@ -143,6 +162,11 @@ exports.main = async (event) => {
     await db.collection('users').doc(OPENID).update({
       data: { postCount: _.inc(1) }
     })
+    try {
+      await startAsyncImageCheck(OPENID, photoId, fileID)
+    } catch (e) {
+      await writeAudit(photoId, 'img-async-submit', { pass: false, traceId: '' })
+    }
     return { ok: true, photoId: photoId, status: 'published' }
   } catch (err) {
     if (err && err.code === 'RATE_LIMIT') {

@@ -78,9 +78,10 @@
 - 首页与详情来回切换，点赞状态与 `likedIds` 缓存一致。
 
 ## 接入真实云开发后的额外检查
-- 上传云函数：`login` `getFeed` `getSceneRecommend` `getPhotoDetail` `getMyPosts` `publishPhoto` `toggleLike` `contentCheck` `initDatabase`。
-- 先运行一次 `initDatabase` 创建集合，再按 `database/indexes.json` 建索引。
-- `publishPhoto` / `contentCheck` 的 OpenAPI 权限包含内容安全接口。
+- 上传云函数：`login` `getFeed` `getSceneRecommend` `getPhotoDetail` `getMyPosts` `publishPhoto` `toggleLike` `contentCheck` `initDatabase` `mediaCheckCallback`。
+- 先运行一次 `initDatabase` 创建集合，再按 `database/indexes.json` 建索引（含 `photos.asyncTraceId`）。
+- `publishPhoto` 开通 `msgSecCheck` / `imgSecCheck` / `mediaCheckAsync`。
+- 云开发控制台将「多媒体检测」消息推送绑定到 `mediaCheckCallback`。
 - 真机：相机、定位、压缩、云存储上传、审核拒绝用例。
 
 ## 云开发接入准备（pending 状态机 / 频控 / 地理推荐）
@@ -96,4 +97,16 @@
 - 两个客户端同时点赞同一已发布照片：最终 likeCount 与 likes 记录一致。
 - 审核超时/失败：照片为 `rejected`，云存储文件删除，不降级上架。
 - 未发布照片不能点赞。
+
+## 原图异步复核（mediaCheckAsync）
+
+### 常规
+- 同步审核通过后即可出现在广场；`photos.asyncAudit` 先为 `pending`。
+- 异步回调 `suggest=pass`：`asyncAudit` 变为 `pass`，广场仍可见。
+- 异步回调非 pass：状态改为 `rejected`，云文件删除，广场不再展示，我的作品显示「未通过」，`postCount` 减 1。
+
+### 弱网 / 并发
+- `mediaCheckAsync` 提交失败不影响已通过的同步发布，只写 `img-async-submit` 审计失败。
+- 找不到 `asyncTraceId` 的回调直接跳过，不误伤其他照片。
+
 
