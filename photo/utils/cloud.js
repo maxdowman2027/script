@@ -7,7 +7,14 @@ let useMock = true
 function getEnvId() {
   try {
     const app = getApp()
-    return (app && app.globalData && app.globalData.cloudEnvId) || ''
+    if (app && app.globalData && app.globalData.cloudEnvId) {
+      return app.globalData.cloudEnvId
+    }
+  } catch (e) {
+    // App 尚未就绪时回退到本地配置
+  }
+  try {
+    return require('../config').cloudEnvId || ''
   } catch (e) {
     return ''
   }

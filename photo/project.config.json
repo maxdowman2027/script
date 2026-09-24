@@ -21,9 +21,15 @@
       "outputPath": ""
     },
     "useCompilerPlugins": false,
-    "compileHotReLoad": true
+    "compileHotReLoad": true,
+    "compileWorklet": false,
+    "localPlugins": false,
+    "disableUseStrict": false,
+    "condition": false,
+    "swc": false,
+    "disableSWC": true
   },
-  "appid": "wx0000000000000000",
+  "appid": "wx8f423547346142e3",
   "projectname": "photo-assist",
   "libVersion": "3.5.5",
   "condition": {},
@@ -34,5 +40,6 @@
   "packOptions": {
     "ignore": [],
     "include": []
-  }
+  },
+  "simulatorPluginLibVersion": {}
 }

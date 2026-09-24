@@ -1,10 +1,13 @@
-# 复盘固化（Phase 1–6）
+# 状态记录
 
 测试确认：主路径无阻塞问题。方案冻结，不回改架构。
 
-保留项：
-- 相机九宫格 / 推荐卡片继续内联在 `cover-view`（原生相机层级）。
-- 占位 AppID + Mock；真实 CloudBase 作为下一步。
-- 同步审核失败拒绝放行；`mediaCheckAsync` 原图复核仍后置。
+已完成：
+- Phase 1–6 小程序主路径（构图、广场、发布、点赞、个人中心）。
+- 发布状态机 `pending → published/rejected`，用户级发布频控入库，推荐支持地理邻近。
+- 已接入正式环境：AppID `wx8f423547346142e3`，云环境 `cloud1-d0gvm9vln716a26f5`。`config.js` 填写后关闭 Mock。
+- 已增加 `initDatabase` 云函数，用于创建 `users` / `photos` / `likes` / `audit_logs`。
 
-下一步：发布 `pending → published/rejected` 状态机、用户级发布频控入库、推荐支持地理邻近。
+操作侧仍需在开发者工具完成：上传全部云函数、运行 `initDatabase`、按 `database/indexes.json` 建索引。
+
+下一步：`mediaCheckAsync` 原图异步复核；未通过则下架并删除云文件。

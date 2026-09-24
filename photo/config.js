@@ -1,9 +1,9 @@
 /**
  * 云开发环境配置。
- * 将 cloudEnvId 换成真实环境 ID 后即可关闭 Mock。
+ * 已填写真实环境时，客户端走云函数，不再使用 Mock。
  */
 module.exports = {
-  cloudEnvId: 'YOUR_CLOUD_ENV_ID',
+  cloudEnvId: 'cloud1-d0gvm9vln716a26f5',
   feedPageSize: 10,
   recommendLimit: 3,
   publishIntervalMs: 3000,

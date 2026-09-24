@@ -21,6 +21,9 @@ App({
     this.globalData.likedIds = cache.readLikes()
     try {
       cloud.init()
+      if (cloud.isMock() && config.cloudEnvId && config.cloudEnvId !== 'YOUR_CLOUD_ENV_ID') {
+        showError('未检测到云能力，请在开发者工具开通并关联云开发')
+      }
       const res = await cloud.call('login', {})
       this.globalData.user = res || {}
       if (res && Array.isArray(res.likedIds)) {

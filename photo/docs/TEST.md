@@ -1,6 +1,6 @@
 # 光影构图小程序自测清单
 
-用微信开发者工具打开 `photo/` 目录。占位 AppID 可先用 Mock（`config.js` 中 `cloudEnvId` 保持 `YOUR_CLOUD_ENV_ID`）。接入云开发后替换 AppID 与环境 ID，并上传全部云函数、按 `database/indexes.json` 建集合与索引。
+用微信开发者工具打开 `photo/` 目录。当前 AppID 为 `wx8f423547346142e3`，云环境为 `cloud1-d0gvm9vln716a26f5`。首次接入请上传全部云函数，并按 `database/indexes.json` 建集合与索引。个人中心应显示「已连接云开发」，而不是 Mock。
 
 ## Phase 1 骨架 / 契约
 
@@ -78,8 +78,8 @@
 - 首页与详情来回切换，点赞状态与 `likedIds` 缓存一致。
 
 ## 接入真实云开发后的额外检查
-- 上传云函数：`login` `getFeed` `getSceneRecommend` `getPhotoDetail` `getMyPosts` `publishPhoto` `toggleLike` `contentCheck`。
-- 建集合：`users` `photos` `likes` `audit_logs`，索引见 `database/indexes.json`。
+- 上传云函数：`login` `getFeed` `getSceneRecommend` `getPhotoDetail` `getMyPosts` `publishPhoto` `toggleLike` `contentCheck` `initDatabase`。
+- 先运行一次 `initDatabase` 创建集合，再按 `database/indexes.json` 建索引。
 - `publishPhoto` / `contentCheck` 的 OpenAPI 权限包含内容安全接口。
 - 真机：相机、定位、压缩、云存储上传、审核拒绝用例。
 
