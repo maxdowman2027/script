@@ -341,6 +341,8 @@ def _business_config_string(df, log_path):
     """
     Build a human-readable label from TX CSV business columns (bw, format, channel, coding, …).
     Always includes **BCC/LDPC** and **bandwidth (MHz)** when inferable from columns or filename.
+    For SISO (single-stream) cases, also records TX antenna as ANT=N when present in
+    filename (e.g. ..._SISO_ANT1_...) or in CSV antenna columns.
     Falls back to filename stem when columns are missing.
     """
     def norm_val(v):
@@ -518,13 +520,76 @@ def _business_config_string(df, log_path):
         if dcm_val is not None:
             parts.append(f"dcm={dcm_val}")
 
+    nsts_val = None
     if "Nsts" in df.columns:
         ns = df["Nsts"].dropna()
         if len(ns):
             try:
-                parts.append(f"Nsts={int(float(ns.iloc[0]))}")
+                nsts_val = int(float(ns.iloc[0]))
+                parts.append(f"Nsts={nsts_val}")
             except (TypeError, ValueError):
                 pass
+
+    def antenna_from_df():
+        for col in (
+            "tx_ant",
+            "ant_sel",
+            "antenna",
+            "ant_idx",
+            "ant",
+            "tx_chain",
+            "chain",
+        ):
+            if col not in df.columns:
+                continue
+            raw = first_stable(col)
+            if raw is None:
+                continue
+            try:
+                return int(float(raw))
+            except (TypeError, ValueError):
+                m = re.search(r"(\d+)", str(raw))
+                if m:
+                    return int(m.group(1))
+        return None
+
+    def antenna_from_path():
+        """Parse ANT index from names like ..._SISO_ANT1_... or ..._ANT0_..."""
+        stem = os.path.splitext(os.path.basename(log_path or ""))[0]
+        m = re.search(r"(?:^|_)SISO_ANT(\d+)(?:_|$)", stem, flags=re.I)
+        if m:
+            return int(m.group(1)), True
+        m = re.search(r"(?:^|_)ANT(\d+)(?:_|$)", stem, flags=re.I)
+        if m:
+            return int(m.group(1)), False
+        return None, False
+
+    def path_is_siso():
+        stem = os.path.splitext(os.path.basename(log_path or ""))[0]
+        if re.search(r"(?:^|_)SISO(?:_|$)", stem, flags=re.I):
+            return True
+        if re.search(r"(?:^|_)(?:nss2|mimo)(?:_|$)", stem, flags=re.I):
+            return False
+        return None
+
+    ant = antenna_from_df()
+    ant_from_siso_token = False
+    if ant is None:
+        ant, ant_from_siso_token = antenna_from_path()
+
+    # Record antenna only for single-stream (SISO) results.
+    is_siso = path_is_siso()
+    if is_siso is None:
+        if nsts_val == 2:
+            is_siso = False
+        elif nsts_val == 1 or (nsts_val is not None and nsts_val < 0):
+            # Nsts=-1 appears in some SISO logs; treat as single-stream.
+            is_siso = True
+        elif ant_from_siso_token:
+            is_siso = True
+
+    if ant is not None and is_siso:
+        parts.append(f"ANT={ant}")
 
     for col in ("Gi_type", "gi_type", "GI_type"):
         if col in df.columns:
