@@ -614,14 +614,221 @@ def _plot_title(df, log_path, nss2_flag, metric_name):
     return (base + " | " + metric_name + nss2_flag).strip()
 
 
+def _parse_filename_tx_config(log_path):
+    """
+    Parse TX test configuration tokens from risc_wifitx CSV filename.
+    Example:
+      risc_wifitx_20m_['vht']_BCC_channel5300_GILTF0_SISO_ANT1_2026-1011-011539.csv
+    """
+    name = os.path.basename(log_path or "")
+    stem = os.path.splitext(name)[0]
+    cfg = {
+        "source_file": name,
+        "bandwidth": None,
+        "wifi_format": None,
+        "coding": None,
+        "channel": None,
+        "giltf": None,
+        "stream_mode": None,
+        "ant": None,
+    }
+
+    m = re.search(r"(?:^|_)risc_wifitx_(\d+)\s*m(?:_|$)", stem, flags=re.I)
+    if not m:
+        m = re.search(r"(?:^|_)(\d+)\s*m(?:_|$)", stem, flags=re.I)
+    if m:
+        cfg["bandwidth"] = f"{int(m.group(1))}MHz"
+
+    m = re.search(r"\['?\s*([A-Za-z0-9]+)\s*'?\]", stem)
+    if m:
+        cfg["wifi_format"] = m.group(1).lower()
+    else:
+        m = re.search(
+            r"(?:^|_)(nht|ht|vht|hesu|heer|eht|hemu|he_tb)(?:_|$)",
+            stem,
+            flags=re.I,
+        )
+        if m:
+            cfg["wifi_format"] = m.group(1).lower()
+
+    if re.search(r"(?<![A-Za-z])LDPC(?![A-Za-z])", stem, flags=re.I):
+        cfg["coding"] = "LDPC"
+    elif re.search(r"(?<![A-Za-z])BCC(?![A-Za-z])", stem, flags=re.I):
+        cfg["coding"] = "BCC"
+
+    m = re.search(r"(?:^|_)channel(\d+)(?:_|$)", stem, flags=re.I)
+    if m:
+        ch = m.group(1)
+        try:
+            fv = float(ch)
+            cfg["channel"] = f"{fv:g}MHz" if fv > 500 else f"ch{ch}"
+        except ValueError:
+            cfg["channel"] = f"ch{ch}"
+
+    m = re.search(r"(?:^|_)GILTF(\d+)(?:_|$)", stem, flags=re.I)
+    if m:
+        cfg["giltf"] = int(m.group(1))
+
+    if re.search(r"(?:^|_)STBC(?:_|$)", stem, flags=re.I):
+        cfg["stream_mode"] = "STBC"
+    elif re.search(r"(?:^|_)(?:NSS2|MIMO)(?:_|$)", stem, flags=re.I):
+        cfg["stream_mode"] = "NSS2"
+    elif re.search(r"(?:^|_)SISO(?:_|$)", stem, flags=re.I):
+        cfg["stream_mode"] = "SISO"
+
+    m = re.search(r"(?:^|_)(?:SISO_)?ANT(\d+)(?:_|$)", stem, flags=re.I)
+    if m:
+        cfg["ant"] = int(m.group(1))
+
+    return cfg
+
+
+def _numeric_evm_frame(df):
+    """
+    Build a DataFrame with rate / tx_power / evm numeric columns.
+    SISO/STBC: use `evm`.
+    NSS2: use mean of evm_nss0/evm_nss1 per row (also keep nss0/nss1).
+    """
+    if "rate" not in df.columns or "tx_power_set(dBm)" not in df.columns:
+        return pd.DataFrame()
+
+    out = pd.DataFrame(
+        {
+            "rate": df["rate"].astype(str),
+            "tx_power_set(dBm)": pd.to_numeric(df["tx_power_set(dBm)"], errors="coerce"),
+        }
+    )
+
+    if "evm" in df.columns:
+        out["evm"] = pd.to_numeric(df["evm"], errors="coerce")
+        out["evm_metric"] = "evm"
+    elif "evm_nss0" in df.columns or "evm_nss1" in df.columns:
+        n0 = (
+            pd.to_numeric(df["evm_nss0"], errors="coerce")
+            if "evm_nss0" in df.columns
+            else pd.Series(np.nan, index=df.index)
+        )
+        n1 = (
+            pd.to_numeric(df["evm_nss1"], errors="coerce")
+            if "evm_nss1" in df.columns
+            else pd.Series(np.nan, index=df.index)
+        )
+        out["evm_nss0"] = n0
+        out["evm_nss1"] = n1
+        out["evm"] = pd.concat([n0, n1], axis=1).mean(axis=1, skipna=True)
+        out["evm_metric"] = "mean(evm_nss0,evm_nss1)"
+    else:
+        return pd.DataFrame()
+
+    return out.dropna(subset=["rate", "tx_power_set(dBm)", "evm"], how="any")
+
+
+def _evm_at_power(g, target_dbm, tol=0.51):
+    """Mean EVM near target tx_power_set; NaN if no samples."""
+    mask = (g["tx_power_set(dBm)"] - float(target_dbm)).abs() <= float(tol)
+    vals = g.loc[mask, "evm"]
+    if vals.empty:
+        return np.nan
+    return float(vals.mean())
+
+
+def build_evm_stats_rows(df, log_path, target_pwrs=(10, 15, 20)):
+    """
+    One summary row per rate for a TX CSV:
+      filename config + mean EVM + EVM at tx_pwr in target_pwrs.
+    """
+    cfg = _parse_filename_tx_config(log_path)
+    evm_df = _numeric_evm_frame(df)
+    if evm_df.empty:
+        return []
+
+    rows = []
+    for rate, g in evm_df.groupby("rate", sort=False):
+        row = {
+            "source_file": cfg["source_file"],
+            "bandwidth": cfg["bandwidth"],
+            "wifi_format": cfg["wifi_format"],
+            "coding": cfg["coding"],
+            "channel": cfg["channel"],
+            "giltf": cfg["giltf"],
+            "stream_mode": cfg["stream_mode"],
+            "ant": cfg["ant"],
+            "rate": rate,
+            "evm_metric": g["evm_metric"].iloc[0] if "evm_metric" in g.columns else "evm",
+            "evm_mean": float(g["evm"].mean()),
+            "n_samples": int(g["evm"].count()),
+        }
+        for pwr in target_pwrs:
+            row[f"evm_txpwr_{int(pwr)}"] = _evm_at_power(g, pwr)
+        if "evm_nss0" in g.columns:
+            row["evm_nss0_mean"] = float(g["evm_nss0"].mean(skipna=True))
+        if "evm_nss1" in g.columns:
+            row["evm_nss1_mean"] = float(g["evm_nss1"].mean(skipna=True))
+        rows.append(row)
+    return rows
+
+
+def _rate_sort_key(rate):
+    s = str(rate).lower()
+    m = re.search(r"mcs\s*(\d+)", s)
+    if m:
+        return (0, int(m.group(1)), s)
+    m = re.search(r"(\d+)\s*m", s)
+    if m:
+        return (1, int(m.group(1)), s)
+    return (2, 0, s)
+
+
+def write_evm_stats_csv(rows, out_path):
+    """Write EVM summary rows to CSV (stable column order)."""
+    if not rows:
+        print("[WARN] no EVM stats rows to write:", out_path)
+        return None
+    df = pd.DataFrame(rows)
+    front = [
+        "source_file",
+        "bandwidth",
+        "wifi_format",
+        "coding",
+        "channel",
+        "giltf",
+        "stream_mode",
+        "ant",
+        "rate",
+        "evm_metric",
+        "evm_mean",
+        "evm_txpwr_10",
+        "evm_txpwr_15",
+        "evm_txpwr_20",
+        "n_samples",
+        "evm_nss0_mean",
+        "evm_nss1_mean",
+    ]
+    cols = [c for c in front if c in df.columns] + [
+        c for c in df.columns if c not in front
+    ]
+    df = df[cols]
+    df["_rate_sort"] = df["rate"].map(_rate_sort_key)
+    df = df.sort_values(by=["source_file", "_rate_sort"], kind="mergesort")
+    df = df.drop(columns=["_rate_sort"])
+    out_dir = os.path.dirname(os.path.abspath(out_path))
+    if out_dir:
+        os.makedirs(out_dir, exist_ok=True)
+    df.to_csv(out_path, index=False, float_format="%.4f")
+    print("wrote EVM stats CSV:", out_path)
+    return out_path
+
+
 def tx_plot_and_analyse(logfile,save_filr):
     now = datetime.now()
     pdf_date_time = now.strftime("tx_pdf_%Y_%m_%d_%H%M")
     txt_date_time = now.strftime("tx_result_%Y_%m_%d_%H%M")
+    stats_date_time = now.strftime("tx_evm_stats_%Y_%m_%d_%H%M")
 
     folder_name = f"{pdf_date_time}.pdf"
     os.makedirs(os.path.dirname(save_filr), exist_ok=True)
     pp = PdfPages(save_filr + folder_name)
+    evm_stats_rows = []
     for i in range(len(logfile)):
         #evm
         column_lengend = []
@@ -643,6 +850,10 @@ def tx_plot_and_analyse(logfile,save_filr):
         print("File is ",logfile[i])
         x1 = plt.figure(dpi=64, figsize=(14, 60))
         df = pd.read_csv(logfile[i], index_col=False)
+        try:
+            evm_stats_rows.extend(build_evm_stats_rows(df, logfile[i]))
+        except Exception as e:
+            print("[WARN] EVM stats skipped for %s: %s" % (logfile[i], e))
         if '--' != df['amplitude_imbalace'][0]:
             amp_sq = np.power(df['amplitude_imbalace']/100,2)
             phase_sq = np.power(df['phase_imbalance']*3.14/180,2)
@@ -930,6 +1141,11 @@ def tx_plot_and_analyse(logfile,save_filr):
 
 
     pp.close()
+
+    # Extra summary CSV: per-file config (from filename) + per-rate mean EVM
+    # and EVM at tx_power_set = 10 / 15 / 20 dBm.
+    stats_csv = save_filr + f"{stats_date_time}.csv"
+    write_evm_stats_csv(evm_stats_rows, stats_csv)
 
 
 if __name__ == "__main__":
