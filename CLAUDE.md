@@ -111,7 +111,7 @@
 | 目录 | 内容摘要 |
 |------|-----------|
 | **`evm_comparison_scripts/`** | RLS3 / RLS4 / WiFi7、新旧版本、按 Tx 功率或 WiFi 格式等维度的 EVM 对比；说明见 `EVM_Comparison_Scripts_Skill.md`；部分结果生成于子目录 HTML 报告 |
-| **`reg_query/`** | `reg_query.py`、`reg_query_gui.py`、`reg_query.skill`、`base_addr.txt`、`csv_files/`（各模块寄存器定义 CSV） |
+| **`reg_query/`** | `reg_query.py`、`reg_query_gui.py`（可配命令前缀 `{prefix}.mem.rdm/wrm`，默认 `test_top`）、`reg_query.skill`、`base_addr.txt`、`csv_files/` |
 | **`register_comparison_scripts/`** | `compare_registers.py`；说明见 `Register_Comparison_Scripts_Skill.md` |
 | **`rx_iq_test/`** | `organize_dump_files.py`、`organize_rx_iq_data.py`、`rx_iq_result_analyze.py`、`tx_iq_result_analyse.py`；配套说明在 `skill/` 下对应 `_Skill.md` |
 | **`spur_notch/`** | 陷波系数、**`spur_scan_process.py`**（三步杂散扫描流水线）、回归/对比/作图、Excel 差分标红、CSV 移动、**`wifiRxProcess.py`**（`*_spur.xlsx`）；见 **「Notch & Spur」** 与 `skill/spur_scan_process_Skill.md`、`spur_scan_process.skill`、`spur_diff_and_mark_red.skill` |
@@ -303,7 +303,7 @@ python organize_sensitivity_mld_diff.py --input_dir ./output/sensitivity_out/res
 #### 8. 寄存器查询与比较工具
 | 脚本名称 | 功能说明 | 详细文档 |
 |---------|---------|---------|
-| `reg_query/reg_query.py` | E22 芯片寄存器查询（名称或地址）；同目录 `reg_query_gui.py` 为 GUI | reg_query/reg_query.skill |
+| `reg_query/reg_query.py` | E22 芯片寄存器查询（名称或地址）；同目录 `reg_query_gui.py` 为 GUI（「命令前缀」可改 `test_top`→`wifi_iq_test` 等，生成 `{prefix}.mem.rdm/wrm`） | reg_query/reg_query.skill |
 | `compare_reg_csv.py` | 比较两个寄存器配置 CSV 文件 | compare_reg_csv_Skill.md |
 
 #### 9. 报告生成工具
@@ -359,7 +359,8 @@ python organize_sensitivity_mld_diff.py --input_dir ./output/sensitivity_out/res
 - **说明文档**: `reg_query.skill`
 - **入口**: `reg_query.py`（CLI）、`reg_query_gui.py`（GUI）
 - **数据**: `base_addr.txt`、`csv_files/*.csv`
-- **功能摘要**: 按寄存器名或物理地址查询；可指定 CSV 目录；列出可用定义文件
+- **功能摘要**: 按寄存器名或物理地址查询；可指定 CSV 目录与基地址文件；列出可用定义文件
+- **GUI 命令前缀**: 「命令前缀」默认 `test_top`，输出如 `test_top.mem.wrm(0xc2e06460 , 30, 30 , 0x0)`；改为 `wifi_iq_test` 则变为 `wifi_iq_test.mem.wrm(...)`；输入末尾若带 `.mem` 会自动规范化去掉，避免 `.mem.mem`
 
 #### register_comparison_scripts/
 - **位置**: `./register_comparison_scripts/`
@@ -428,7 +429,7 @@ python reg_query/reg_query.py -l
 # 查看使用帮助
 python reg_query/reg_query.py --help
 
-# 启动 GUI
+# 启动 GUI（「命令前缀」默认 test_top；可改为 wifi_iq_test 等）
 python reg_query/reg_query_gui.py
 ```
 

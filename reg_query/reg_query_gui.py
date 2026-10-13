@@ -9,6 +9,7 @@ E22寄存器查询工具 - GUI版本
 5. 列出所有可用的寄存器定义CSV文件
 6. 将查询结果导出到文本文件
 7. 可选：输入整寄存器 32bit 读回值，按 CSV 位域解析各信号取值
+8. 可配置读写命令对象前缀（默认 test_top → test_top.mem.rdm/wrm；可改为 wifi_iq_test 等）
 """
 
 import tkinter as tk
@@ -26,6 +27,8 @@ import queue
 SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
 DEFAULT_BASE_ADDR_PATH = os.path.join(SCRIPT_DIR, 'base_addr.txt')
 DEFAULT_CSV_DIR = os.path.join(SCRIPT_DIR, 'csv_files')
+# 读写命令对象前缀：{prefix}.mem.rdm / {prefix}.mem.wrm
+DEFAULT_MEM_PREFIX = "test_top"
 
 _FALLBACK_BASE_ADDR = {
     'phy_common': 0xc3026000,
@@ -310,18 +313,39 @@ def parse_write_value_to_hex(write_value_text):
     return f"0x{val:X}", None
 
 
-def generate_rw_commands(info, write_value_text=None):
+def normalize_mem_prefix(mem_prefix=None):
+    """
+    规范化命令对象前缀。
+    输入可为 test_top / wifi_iq_test / wifi_iq_test.mem / wifi_iq_test.mem.
+    输出为不含尾部 .mem 的对象名，用于拼 {prefix}.mem.rdm / .wrm。
+    """
+    s = (DEFAULT_MEM_PREFIX if mem_prefix is None else str(mem_prefix)).strip()
+    if not s:
+        s = DEFAULT_MEM_PREFIX
+    s = s.rstrip(".")
+    # 用户若已写 ... .mem，去掉末尾 .mem，避免变成 xxx.mem.mem.wrm
+    if s.lower().endswith(".mem"):
+        s = s[: -len(".mem")].rstrip(".")
+    if not s:
+        s = DEFAULT_MEM_PREFIX
+    return s
+
+
+def generate_rw_commands(info, write_value_text=None, mem_prefix=None):
     """
     根据查询结果生成读写命令：
-    - 写命令模板: test_top.mem.wrm(addr , msb, lsb , <value_hex>)
-    - 读命令: hex(test_top.mem.rdm(addr , msb, lsb))
+    - 写命令模板: {prefix}.mem.wrm(addr , msb, lsb , <value_hex>)
+    - 读命令: hex({prefix}.mem.rdm(addr , msb, lsb))
+    mem_prefix 默认 test_top，可改为 wifi_iq_test 等。
     """
+    prefix = normalize_mem_prefix(mem_prefix)
+    mem = f"{prefix}.mem"
     full_addr = str(info.get('full_addr', '')).strip().lower()
     if not full_addr:
         full_addr = "0x00000000"
     msb, lsb = parse_bit_range(info.get('bit_pos', ''))
-    read_cmd = f"hex(test_top.mem.rdm({full_addr} , {msb}, {lsb}))"
-    write_cmd_template = f"test_top.mem.wrm({full_addr} , {msb}, {lsb} , <value_hex>)"
+    read_cmd = f"hex({mem}.rdm({full_addr} , {msb}, {lsb}))"
+    write_cmd_template = f"{mem}.wrm({full_addr} , {msb}, {lsb} , <value_hex>)"
 
     default_val = None
     if info.get('bit_default'):
@@ -334,12 +358,12 @@ def generate_rw_commands(info, write_value_text=None):
 
     write_cmd_default = None
     if default_val is not None:
-        write_cmd_default = f"test_top.mem.wrm({full_addr} , {msb}, {lsb} , 0x{default_val:X})"
+        write_cmd_default = f"{mem}.wrm({full_addr} , {msb}, {lsb} , 0x{default_val:X})"
 
     configured_write_hex, write_parse_error = parse_write_value_to_hex(write_value_text)
     write_cmd_configured = None
     if configured_write_hex is not None:
-        write_cmd_configured = f"test_top.mem.wrm({full_addr} , {msb}, {lsb} , {configured_write_hex})"
+        write_cmd_configured = f"{mem}.wrm({full_addr} , {msb}, {lsb} , {configured_write_hex})"
 
     write_cmd_for_execute = (
         write_cmd_configured
@@ -350,6 +374,7 @@ def generate_rw_commands(info, write_value_text=None):
     return {
         'msb': msb,
         'lsb': lsb,
+        'mem_prefix': prefix,
         'read_cmd': read_cmd,
         'write_cmd_template': write_cmd_template,
         'write_cmd_default': write_cmd_default,
@@ -506,7 +531,11 @@ def find_register_by_address(search_addr, csv_dir=None, base_addr_path=None):
 
 
 def format_register_info(
-    info, write_value_text=None, reg_read_32=None, read_decode_error=None
+    info,
+    write_value_text=None,
+    reg_read_32=None,
+    read_decode_error=None,
+    mem_prefix=None,
 ):
     """格式化寄存器信息为字符串"""
     lines = []
@@ -533,7 +562,9 @@ def format_register_info(
     lines.append(f"二进制默认值: 0b{info['reg_default_binary']}")
 
     # 生成读写命令
-    rw = generate_rw_commands(info, write_value_text=write_value_text)
+    rw = generate_rw_commands(
+        info, write_value_text=write_value_text, mem_prefix=mem_prefix
+    )
     lines.append("\n寄存器读写命令:")
     lines.append(f"  位域范围: [{rw['msb']}:{rw['lsb']}]")
     lines.append(f"  读命令: {rw['read_cmd']}")
@@ -577,8 +608,8 @@ class RegQueryGUI:
         self.root.columnconfigure(0, weight=1)
         self.root.rowconfigure(0, weight=1)
         main_frame.columnconfigure(1, weight=1)
-        main_frame.rowconfigure(9, weight=1)
-        main_frame.rowconfigure(11, weight=1)
+        main_frame.rowconfigure(10, weight=1)
+        main_frame.rowconfigure(12, weight=1)
 
         # 查询方式选择
         self.query_type = tk.StringVar(value="name")
@@ -606,54 +637,65 @@ class RegQueryGUI:
         self.base_addr_entry.insert(0, self.base_addr_path)
         ttk.Button(main_frame, text="浏览", command=self.browse_base_addr).grid(row=3, column=2, padx=(5, 0), pady=(0, 5))
 
+        # 读写命令对象前缀：{prefix}.mem.rdm / .wrm
+        ttk.Label(main_frame, text="命令前缀:").grid(row=4, column=0, sticky=tk.W, pady=(0, 5))
+        self.mem_prefix_entry = ttk.Entry(main_frame)
+        self.mem_prefix_entry.grid(row=4, column=1, sticky=(tk.W, tk.E), pady=(0, 5))
+        self.mem_prefix_entry.insert(0, DEFAULT_MEM_PREFIX)
+        ttk.Label(
+            main_frame,
+            text="生成 {前缀}.mem.rdm/wrm；默认 test_top，可改 wifi_iq_test 等",
+            justify=tk.LEFT,
+        ).grid(row=4, column=2, sticky=tk.W, padx=(5, 0), pady=(0, 5))
+
         # 写寄存器值配置（可选，多项与查询按顺序一一对应）
-        ttk.Label(main_frame, text="写寄存器值(可选):").grid(row=4, column=0, sticky=(tk.N, tk.W), pady=(0, 5))
+        ttk.Label(main_frame, text="写寄存器值(可选):").grid(row=5, column=0, sticky=(tk.N, tk.W), pady=(0, 5))
         self.write_value_text = scrolledtext.ScrolledText(main_frame, height=4, wrap=tk.WORD)
-        self.write_value_text.grid(row=4, column=1, sticky=(tk.W, tk.E), pady=(0, 5))
+        self.write_value_text.grid(row=5, column=1, sticky=(tk.W, tk.E), pady=(0, 5))
         ttk.Label(
             main_frame,
             text="与查询顺序对应（逗号/换行）；仅填 1 个值且多条查询时作用于全部。\n"
                  "多项时用 ,, 占位跳过某一档。",
             justify=tk.LEFT,
-        ).grid(row=4, column=2, sticky=tk.W, padx=(5, 0), pady=(0, 5))
+        ).grid(row=5, column=2, sticky=tk.W, padx=(5, 0), pady=(0, 5))
 
         # 32bit 读回值（可选）：按位域拆成各信号取值；多项与查询顺序对应
-        ttk.Label(main_frame, text="32bit读回值(可选):").grid(row=5, column=0, sticky=(tk.N, tk.W), pady=(0, 5))
+        ttk.Label(main_frame, text="32bit读回值(可选):").grid(row=6, column=0, sticky=(tk.N, tk.W), pady=(0, 5))
         self.read32_value_text = scrolledtext.ScrolledText(main_frame, height=3, wrap=tk.WORD)
-        self.read32_value_text.grid(row=5, column=1, sticky=(tk.W, tk.E), pady=(0, 5))
+        self.read32_value_text.grid(row=6, column=1, sticky=(tk.W, tk.E), pady=(0, 5))
         ttk.Label(
             main_frame,
             text="整寄存器读回值，按 CSV 位域解析。\n"
                  "与查询顺序对应；仅 1 个值且多条查询时作用于全部。\n"
                  "示例: 0xC30270D8 或 3277468120",
             justify=tk.LEFT,
-        ).grid(row=5, column=2, sticky=tk.W, padx=(5, 0), pady=(0, 5))
+        ).grid(row=6, column=2, sticky=tk.W, padx=(5, 0), pady=(0, 5))
 
         # 查询按钮
-        ttk.Button(main_frame, text="查询", command=self.perform_query, style="Accent.TButton").grid(row=6, column=0, columnspan=3, pady=(10, 0))
+        ttk.Button(main_frame, text="查询", command=self.perform_query, style="Accent.TButton").grid(row=7, column=0, columnspan=3, pady=(10, 0))
 
         # 列出可用CSV / 基地址
         btn_row = ttk.Frame(main_frame)
-        btn_row.grid(row=7, column=0, columnspan=3, pady=(5, 0))
+        btn_row.grid(row=8, column=0, columnspan=3, pady=(5, 0))
         ttk.Button(btn_row, text="列出可用CSV文件", command=self.list_csv_files).pack(side=tk.LEFT, padx=(0, 8))
         ttk.Button(btn_row, text="列出基地址映射", command=self.list_base_addr).pack(side=tk.LEFT)
 
         # 查询结果显示
-        ttk.Label(main_frame, text="查询结果:").grid(row=8, column=0, sticky=tk.W, pady=(10, 5))
+        ttk.Label(main_frame, text="查询结果:").grid(row=9, column=0, sticky=tk.W, pady=(10, 5))
         self.result_text = scrolledtext.ScrolledText(main_frame, height=18)
-        self.result_text.grid(row=9, column=0, columnspan=3, sticky=(tk.W, tk.E, tk.N, tk.S), pady=(0, 10))
+        self.result_text.grid(row=10, column=0, columnspan=3, sticky=(tk.W, tk.E, tk.N, tk.S), pady=(0, 10))
 
         # 命令输出（每行纯命令，可直接复制执行）
-        ttk.Label(main_frame, text="命令输出(每行可直接执行):").grid(row=10, column=0, sticky=tk.W, pady=(0, 5))
+        ttk.Label(main_frame, text="命令输出(每行可直接执行):").grid(row=11, column=0, sticky=tk.W, pady=(0, 5))
         self.command_text = scrolledtext.ScrolledText(main_frame, height=10)
-        self.command_text.grid(row=11, column=0, columnspan=3, sticky=(tk.W, tk.E, tk.N, tk.S), pady=(0, 10))
+        self.command_text.grid(row=12, column=0, columnspan=3, sticky=(tk.W, tk.E, tk.N, tk.S), pady=(0, 10))
 
         # 导出按钮
-        ttk.Button(main_frame, text="导出结果到文件", command=self.export_result).grid(row=12, column=0, columnspan=3, pady=(0, 5))
+        ttk.Button(main_frame, text="导出结果到文件", command=self.export_result).grid(row=13, column=0, columnspan=3, pady=(0, 5))
 
         # 状态栏
         self.status_var = tk.StringVar(value="准备就绪")
-        ttk.Label(main_frame, textvariable=self.status_var, style="Status.TLabel").grid(row=13, column=0, columnspan=3, sticky=(tk.W, tk.E))
+        ttk.Label(main_frame, textvariable=self.status_var, style="Status.TLabel").grid(row=14, column=0, columnspan=3, sticky=(tk.W, tk.E))
 
         # 创建样式
         style = ttk.Style()
@@ -709,22 +751,24 @@ class RegQueryGUI:
 
         write_raw = self.write_value_text.get(1.0, tk.END)
         read_raw = self.read32_value_text.get(1.0, tk.END)
+        mem_prefix = self.mem_prefix_entry.get().strip()
         csv_dir = self.csv_dir
         base_addr_path = self.base_addr_path
-        # 创建后台线程执行查询（写值/读值在主线程读取，避免 Tk 跨线程访问）
+        # 创建后台线程执行查询（写值/读值/前缀在主线程读取，避免 Tk 跨线程访问）
         thread = threading.Thread(
             target=self.query_thread,
-            args=(query_text, write_raw, read_raw, csv_dir, base_addr_path),
+            args=(query_text, write_raw, read_raw, csv_dir, base_addr_path, mem_prefix),
         )
         thread.daemon = True
         thread.start()
 
-    def query_thread(self, query_text, write_raw, read_raw, csv_dir, base_addr_path):
+    def query_thread(self, query_text, write_raw, read_raw, csv_dir, base_addr_path, mem_prefix=None):
         """查询线程"""
         try:
             queries = split_query_tokens(query_text)
             write_tokens_full = split_write_value_tokens(write_raw)
             read_tokens_full = split_write_value_tokens(read_raw)
+            mem_prefix = normalize_mem_prefix(mem_prefix)
 
             results = []
             errors = []
@@ -797,7 +841,9 @@ class RegQueryGUI:
                     errors.append(f"查询 '{query}' 时出错: {error}")
                     continue
 
-                rw = generate_rw_commands(info, write_value_text=wv_for_cmd)
+                rw = generate_rw_commands(
+                    info, write_value_text=wv_for_cmd, mem_prefix=mem_prefix
+                )
                 if rw.get('write_parse_error'):
                     errors.append(
                         f"查询 '{query}' 写值解析: {rw['write_parse_error']}"
@@ -809,6 +855,7 @@ class RegQueryGUI:
                         write_value_text=wv_for_cmd,
                         reg_read_32=reg_read_32,
                         read_decode_error=read_decode_error,
+                        mem_prefix=mem_prefix,
                     )
                 )
                 command_lines.append(rw['read_cmd'])
